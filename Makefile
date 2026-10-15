@@ -18,6 +18,9 @@ logs:
 ps:
 	$(DC) ps
 
+startapp:
+	$(DC) exec backend python manage.py startapp $(name)
+
 migrations: 
 	$(DC) exec backend python manage.py makemigrations
 

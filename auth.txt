@@ -1,0 +1,6 @@
+1. Model + migrations propres
+2. Les comptes ybano f Django admin
+3. Les endpoints khdamin: login, logout, refresh, me, changer mot de passe
+4. Les rôles kay7bso: collaborator ma y9drch ydkhel l page dyal RH
+5. Tests kaydouzou (kolhom verts)
+6. Code f Git, b commit mor kol étape. Hadi standard f ay projet réel: ila khser chi 7aja, katrje3 l l’étape li 9blha.
