@@ -4,3 +4,37 @@
 4. Les rôles kay7bso: collaborator ma y9drch ydkhel l page dyal RH
 5. Tests kaydouzou (kolhom verts)
 6. Code f Git, b commit mor kol étape. Hadi standard f ay projet réel: ila khser chi 7aja, katrje3 l l’étape li 9blha.
+
+---------------------------------------------------------------------------
+
+Iyeh, **l'User salina**. Ha l'khrita kamla, b dbt.
+
+## ✅ Chno drna (l'User)
+
+| # | Chno drna | 3lach |
+|---|---|---|
+| 1 | Ktbna `User` f `models.py`, katweret mn `AbstractUser` | Bach ykoun 3ndna User dyalna, machi dyal Django |
+| 2 | Zdna `role` (4 rôles) w `must_change_password` | Ma3loumat li khass l'authentication dyalna |
+| 3 | 7iydna `first_name` w `last_name` | Smiya ghadi tkoun f `employees` |
+| 4 | `AUTH_USER_MODEL` f settings | Bach Django ykhdm b User dyalna |
+| 5 | `makemigrations` + `migrate` | Table tcréyat b ss7 f PostgreSQL |
+
+Daba 3ndna **daftar l'comptes** wajed w khawi. Hada l'jouz l'awal mn l'authentication: **"fin kankhznou les comptes"**.
+
+## ⏭️ Chno ba9i, b l'ordre
+
+| # | Étape | 3lach f had l'ordre |
+|---|---|---|
+| 1 | **Superuser** (compte dyalek) | Bach ykoun 3ndna awal compte nkhdmo bih f les tests |
+| 2 | **`admin.py`** | Bach nchoufo les comptes f Django admin w ncréyiw comptes d test (HR, Manager...) |
+| 3 | **Packages + settings** (DRF, SimpleJWT, CORS) | Les outils li khassna 9bel ma nbniw login |
+| 4 | **Login, refresh, logout** | Daba l'guichet: kay3ti l'badge w kay9t3o |
+| 5 | **`/me` + changer mot de passe** | "Chkoun ana?" w l'règle dyal CIN → mot de passe jdid |
+| 6 | **Permissions dyal les rôles** | Bach collaborator ma ydkhelch l pages dyal HR |
+| 7 | **Tests** | N'prouviw blli kolchi khdam |
+
+**L'ordre logique:** daftar (salina) → awal compte → nchoufo les comptes → les outils → l'guichet (login) → les règles → nt2kdo mn kolchi.
+
+Kol étape katbni 3la li 9blha: ma ymknch ndiro login (4) bla comptes (1-2), w ma ymknch ndiro les règles (6) bla login (4).
+
+**Daba:** étape 1, `createsuperuser`, b7al f l'message li 9bel.
