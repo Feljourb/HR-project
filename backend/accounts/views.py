@@ -1,6 +1,10 @@
 from django.conf import settings
 from rest_framework_simplejwt.views import TokenObtainPairView
 
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+
 
 class LoginView(TokenObtainPairView):
     def post(self, request, *args, **kwargs):
@@ -25,4 +29,8 @@ class LoginView(TokenObtainPairView):
             secure=not settings.DEBUG)
 
         return response
-        
+
+
+class MeView(APIView):
+    def get(self, request):
+        return Response({"user": str(request.user)})
