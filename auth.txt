@@ -1,6 +1,6 @@
-1. Model + migrations propres
-2. Les comptes ybano f Django admin
-3. Les endpoints khdamin: login, logout, refresh, me, changer mot de passe
+1. Model + migrations propres -> Done
+2. Les comptes ybano f Django admin -> Done
+3. Les endpoints khdamin: login, logout, refresh, me, changer mot de passe -> in progress
 4. Les rôles kay7bso: collaborator ma y9drch ydkhel l page dyal RH
 5. Tests kaydouzou (kolhom verts)
 6. Code f Git, b commit mor kol étape. Hadi standard f ay projet réel: ila khser chi 7aja, katrje3 l l’étape li 9blha.
@@ -33,8 +33,7 @@ Daba 3ndna **daftar l'comptes** wajed w khawi. Hada l'jouz l'awal mn l'authentic
 | 6 | **Permissions dyal les rôles** | Bach collaborator ma ydkhelch l pages dyal HR |
 | 7 | **Tests** | N'prouviw blli kolchi khdam |
 
-**L'ordre logique:** daftar (salina) → awal compte → nchoufo les comptes → les outils → l'guichet (login) → les règles → nt2kdo mn kolchi.
+**L'ordre logique:** daftar (salina) → awal compte (salina) → nchoufo les comptes (salina) → les outils (salina) → l'guichet (login) → les règles → nt2kdo mn kolchi.
 
 Kol étape katbni 3la li 9blha: ma ymknch ndiro login (4) bla comptes (1-2), w ma ymknch ndiro les règles (6) bla login (4).
 
-**Daba:** étape 1, `createsuperuser`, b7al f l'message li 9bel.
