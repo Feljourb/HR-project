@@ -1,3 +1,10 @@
 allowBuilds:
   sharp: false
   unrs-resolver: false
+
+# node_modules is shared by WSL (glibc) and the Alpine container (musl):
+# install the native binaries for both.
+supportedArchitectures:
+  os: [linux]
+  cpu: [x64]
+  libc: [glibc, musl]
