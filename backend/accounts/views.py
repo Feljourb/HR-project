@@ -1,10 +1,12 @@
 from django.conf import settings
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
+from rest_framework_simplejwt.tokens import RefreshToken
 
+from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 
 
 class RefreshView(TokenRefreshView):
@@ -63,6 +65,24 @@ class LoginView(TokenObtainPairView):
             samesite="Lax",
             secure=not settings.DEBUG)
 
+        return response
+
+
+class LogoutView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        refresh_cookie = request.COOKIES.get("refresh_token")
+        if refresh_cookie is not None:
+            try:
+                RefreshToken(refresh_cookie).blacklist()
+            except TokenError:
+                pass  # already expired or blacklisted: nothing to revoke
+
+        response = Response(status=status.HTTP_204_NO_CONTENT)
+        response.delete_cookie("access_token", samesite="Lax")
+        response.delete_cookie("refresh_token", samesite="Lax")
         return response
 
 
