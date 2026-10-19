@@ -9,6 +9,25 @@ from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny, IsAuthenticated
 
 
+def set_auth_cookies(response, access, refresh):
+    response.set_cookie(
+        "access_token",
+        access,
+        max_age=settings.SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"].total_seconds(),
+        httponly=True,
+        samesite="Lax",
+        secure=not settings.DEBUG,
+    )
+    response.set_cookie(
+        "refresh_token",
+        refresh,
+        max_age=settings.SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"].total_seconds(),
+        httponly=True,
+        samesite="Lax",
+        secure=not settings.DEBUG,
+    )
+
+
 class RefreshView(TokenRefreshView):
     def post(self, request, *args, **kwargs):
         refresh_cookie = request.COOKIES.get("refresh_token")
@@ -25,21 +44,7 @@ class RefreshView(TokenRefreshView):
         refresh = serializer.validated_data["refresh"]
 
         response = Response({"detail": "Tokens refreshed."})
-        response.set_cookie(
-            "access_token",
-            access,
-            max_age=settings.SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"].total_seconds(),
-            httponly=True,
-            samesite="Lax",
-            secure=not settings.DEBUG)
-
-        response.set_cookie("refresh_token",
-            refresh,
-            max_age=settings.SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"].total_seconds(),
-            httponly=True,
-            samesite="Lax",
-            secure=not settings.DEBUG)
-
+        set_auth_cookies(response, access, refresh)
         return response
 
 
@@ -50,21 +55,7 @@ class LoginView(TokenObtainPairView):
         access = response.data.pop("access")
         refresh = response.data.pop("refresh")
 
-        response.set_cookie(
-            "access_token",
-            access,
-            max_age=settings.SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"].total_seconds(),
-            httponly=True,
-            samesite="Lax",
-            secure=not settings.DEBUG)
-
-        response.set_cookie("refresh_token",
-            refresh,
-            max_age=settings.SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"].total_seconds(),
-            httponly=True,
-            samesite="Lax",
-            secure=not settings.DEBUG)
-
+        set_auth_cookies(response, access, refresh)
         return response
 
 
@@ -78,7 +69,7 @@ class LogoutView(APIView):
             try:
                 RefreshToken(refresh_cookie).blacklist()
             except TokenError:
-                pass  # already expired or blacklisted: nothing to revoke
+                pass
 
         response = Response(status=status.HTTP_204_NO_CONTENT)
         response.delete_cookie("access_token", samesite="Lax")
