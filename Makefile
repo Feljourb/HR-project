@@ -33,7 +33,10 @@ superuser:
 shell:
 	$(DC) exec backend python manage.py shell
 
+test:
+	$(DC) exec backend python manage.py test
+
 clean:
 	$(DC) down -v --remove-orphans
 
-.PHONY: up down build restart logs ps migrations migrate superuser shell clean
+.PHONY: up down build restart logs ps migrations migrate superuser shell test clean
