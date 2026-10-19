@@ -1,0 +1,9 @@
+# Secrets (use .env.example as the template)
+.env
+
+# Local curl cookie jars (contain real tokens)
+cookies.txt
+
+# Python
+__pycache__/
+*.pyc
