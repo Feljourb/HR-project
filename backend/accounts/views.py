@@ -1,12 +1,16 @@
 from django.conf import settings
+from django.db import transaction
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
 
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny, IsAuthenticated
+
+from .serializers import ChangePasswordSerializer
 
 
 def set_auth_cookies(response, access, refresh):
@@ -50,12 +54,23 @@ class RefreshView(TokenRefreshView):
 
 class LoginView(TokenObtainPairView):
     def post(self, request, *args, **kwargs):
-        response = super().post(request, *args, **kwargs)
+        serializer = self.get_serializer(data=request.data)
+        try:
+            serializer.is_valid(raise_exception=True)
+        except TokenError as e:
+            raise InvalidToken(e.args[0]) from e
 
-        access = response.data.pop("access")
-        refresh = response.data.pop("refresh")
-
-        set_auth_cookies(response, access, refresh)
+        user = serializer.user
+        response = Response({
+            "username": user.username,
+            "role": user.role,
+            "must_change_password": user.must_change_password,
+        })
+        set_auth_cookies(
+            response,
+            serializer.validated_data["access"],
+            serializer.validated_data["refresh"],
+        )
         return response
 
 
@@ -74,6 +89,30 @@ class LogoutView(APIView):
         response = Response(status=status.HTTP_204_NO_CONTENT)
         response.delete_cookie("access_token", samesite="Lax")
         response.delete_cookie("refresh_token", samesite="Lax")
+        return response
+
+
+class ChangePasswordView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = ChangePasswordSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+
+        user = request.user
+        with transaction.atomic():
+            user.set_password(serializer.validated_data["new_password"])
+            user.must_change_password = False
+            user.save(update_fields=["password", "must_change_password"])
+
+            # Kick out every other session: all existing refresh tokens die.
+            for token in OutstandingToken.objects.filter(user=user):
+                BlacklistedToken.objects.get_or_create(token=token)
+
+        # Keep the current session alive with a fresh token pair.
+        refresh = RefreshToken.for_user(user)
+        response = Response({"detail": "Password changed."})
+        set_auth_cookies(response, str(refresh.access_token), str(refresh))
         return response
 
 

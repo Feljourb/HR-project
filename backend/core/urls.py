@@ -16,7 +16,7 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path
-from accounts.views import LoginView, LogoutView, MeView, RefreshView
+from accounts.views import ChangePasswordView, LoginView, LogoutView, MeView, RefreshView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -24,4 +24,5 @@ urlpatterns = [
     path("api/auth/me/", MeView.as_view()),
     path("api/auth/refresh/", RefreshView.as_view()),
     path("api/auth/logout/", LogoutView.as_view()),
+    path("api/auth/change-password/", ChangePasswordView.as_view()),
 ]

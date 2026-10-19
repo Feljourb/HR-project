@@ -156,4 +156,7 @@ REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "accounts.authentication.CookieJWTAuthentication",
     ],
+    "DEFAULT_PERMISSION_CLASSES": [
+        "accounts.permissions.PasswordChanged",
+    ],
 }
