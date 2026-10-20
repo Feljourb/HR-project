@@ -4,7 +4,6 @@ from .models import User
 
 
 class PasswordChanged(BasePermission):
-    """Authenticated AND not forced to change the password first."""
 
     message = "You must change your password first."
     code = "password_change_required"
