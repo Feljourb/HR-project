@@ -1,5 +1,12 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
+// What /api/auth/login/ and /api/auth/me/ return.
+export type Me = {
+  username: string;
+  role: string;
+  must_change_password: boolean;
+};
+
 // A 401 from these endpoints does not mean "access token expired".
 const NO_REFRESH = ["/api/auth/login/", "/api/auth/refresh/", "/api/auth/logout/"];
 
