@@ -2,7 +2,9 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { AuthCard, FormErrors, buttonClass, inputClass, labelClass } from "@/components/auth-card";
+import {
+  AuthCard, FormErrors, SubmitButton, buttonClass, inputClass, labelClass, linkClass,
+} from "@/components/auth-card";
 import { apiFetch } from "@/lib/api";
 
 type Setup = { qr_code: string; secret: string };
@@ -53,9 +55,18 @@ export default function MfaSetupPage() {
     URL.revokeObjectURL(link.href);
   }
 
+  // Next.js keeps this page alive (hidden): never leave codes in it.
+  function leave(path: string) {
+    setSetup(null);
+    setCode("");
+    setRecoveryCodes([]);
+    setErrors([]);
+    router.replace(path);
+  }
+
   async function signOut() {
     await apiFetch("/api/auth/logout/", { method: "POST" });
-    router.replace("/login");
+    leave("/login");
   }
 
   // After activation: show the recovery codes once.
@@ -73,7 +84,7 @@ export default function MfaSetupPage() {
             Download
           </button>
         </div>
-        <button type="button" onClick={() => router.replace("/")} className={buttonClass}>
+        <button type="button" onClick={() => leave("/")} className={buttonClass}>
           I saved my codes, continue
         </button>
       </AuthCard>
@@ -115,12 +126,10 @@ export default function MfaSetupPage() {
           className={`${inputClass} text-center font-mono text-lg tracking-[0.3em]`}
         />
         <FormErrors messages={errors} />
-        <button type="submit" disabled={loading || !setup} className={buttonClass}>
-          {loading ? "Activating..." : "Activate"}
-        </button>
+        <SubmitButton loading={loading} label="Activate" loadingLabel="Activating..." disabled={!setup} />
       </form>
 
-      <button type="button" onClick={signOut} className="mt-4 w-full text-center text-xs font-medium text-slate-500 hover:text-[#23355d]">
+      <button type="button" onClick={signOut} className={linkClass}>
         Sign out
       </button>
     </AuthCard>

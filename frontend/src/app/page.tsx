@@ -21,6 +21,7 @@ export default function HomePage() {
     apiFetch("/api/auth/me/")
       .then(async (response) => {
         if (!response.ok) {
+          setMe(null);
           router.replace("/login");
           return;
         }
@@ -36,6 +37,9 @@ export default function HomePage() {
 
   async function logout() {
     await apiFetch("/api/auth/logout/", { method: "POST" });
+    // Next.js keeps this page alive (hidden): forget the user, or the next person
+    // signing in on this browser would briefly see their dashboard.
+    setMe(null);
     router.replace("/login");
   }
 

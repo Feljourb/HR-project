@@ -2,7 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { AuthCard, FormErrors, buttonClass, inputClass, labelClass } from "@/components/auth-card";
+import { AuthCard, FormErrors, PasswordInput, SubmitButton, labelClass, linkClass } from "@/components/auth-card";
 import { apiFetch } from "@/lib/api";
 
 export default function ChangePasswordPage() {
@@ -12,6 +12,16 @@ export default function ChangePasswordPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [errors, setErrors] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+
+  // Next.js keeps this page alive (hidden): never leave passwords in it.
+  function leave(path: string) {
+    setCurrentPassword("");
+    setNewPassword("");
+    setConfirmPassword("");
+    setErrors([]);
+    setLoading(false);
+    router.replace(path);
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -28,12 +38,8 @@ export default function ChangePasswordPage() {
         body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
       });
 
-      if (response.ok) {
-        router.replace("/");
-        return;
-      }
-      if (response.status === 401) {
-        router.replace("/login");
+      if (response.ok || response.status === 401) {
+        leave(response.ok ? "/" : "/login");
         return;
       }
       // Django sends {"field": ["message", ...]} -> show every message.
@@ -47,54 +53,27 @@ export default function ChangePasswordPage() {
 
   async function signOut() {
     await apiFetch("/api/auth/logout/", { method: "POST" });
-    router.replace("/login");
+    leave("/login");
   }
 
   return (
     <AuthCard title="Choose a new password" subtitle="For your security, replace your temporary password before continuing.">
       <form onSubmit={handleSubmit}>
         <label htmlFor="current" className={labelClass}>Current password</label>
-        <input
-          id="current"
-          type="password"
-          autoComplete="current-password"
-          required
-          value={currentPassword}
-          onChange={(e) => setCurrentPassword(e.target.value)}
-          className={inputClass}
-        />
+        <PasswordInput id="current" autoComplete="current-password" value={currentPassword} onChange={setCurrentPassword} />
 
         <label htmlFor="new" className={labelClass}>New password</label>
-        <input
-          id="new"
-          type="password"
-          autoComplete="new-password"
-          required
-          value={newPassword}
-          onChange={(e) => setNewPassword(e.target.value)}
-          className={inputClass}
-        />
+        <PasswordInput id="new" autoComplete="new-password" value={newPassword} onChange={setNewPassword} />
         <p className="mt-1.5 text-[11px] text-slate-500">At least 8 characters, not only numbers, not a common password.</p>
 
         <label htmlFor="confirm" className={labelClass}>Confirm new password</label>
-        <input
-          id="confirm"
-          type="password"
-          autoComplete="new-password"
-          required
-          value={confirmPassword}
-          onChange={(e) => setConfirmPassword(e.target.value)}
-          className={inputClass}
-        />
+        <PasswordInput id="confirm" autoComplete="new-password" value={confirmPassword} onChange={setConfirmPassword} />
 
         <FormErrors messages={errors} />
-
-        <button type="submit" disabled={loading} className={buttonClass}>
-          {loading ? "Saving..." : "Save new password"}
-        </button>
+        <SubmitButton loading={loading} label="Save new password" loadingLabel="Saving..." />
       </form>
 
-      <button type="button" onClick={signOut} className="mt-4 w-full text-center text-xs font-medium text-slate-500 hover:text-[#23355d]">
+      <button type="button" onClick={signOut} className={linkClass}>
         Sign out
       </button>
     </AuthCard>
