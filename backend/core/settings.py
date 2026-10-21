@@ -161,7 +161,7 @@ REST_FRAMEWORK = {
         "accounts.authentication.CookieJWTAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
-        "accounts.permissions.PasswordChanged",
+        "accounts.permissions.AccountReady",
     ],
     # Max attempts (anti brute force), counted per IP address.
     "DEFAULT_THROTTLE_RATES": {

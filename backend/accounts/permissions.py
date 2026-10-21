@@ -1,19 +1,27 @@
 from rest_framework.permissions import BasePermission
 
+from . import mfa
 from .models import User
 
 
-class PasswordChanged(BasePermission):
+class AccountReady(BasePermission):
+    """Default for every endpoint: logged in, password changed, MFA set up if required."""
 
     message = "You must change your password first."
     code = "password_change_required"
 
     def has_permission(self, request, view):
         user = request.user
-        return bool(user and user.is_authenticated and not user.must_change_password)
+        if not (user and user.is_authenticated) or user.must_change_password:
+            return False
+        if mfa.setup_required(user):
+            self.message = "You must set up two-factor authentication first."
+            self.code = "mfa_setup_required"
+            return False
+        return True
 
 
-class HasRole(PasswordChanged):
+class HasRole(AccountReady):
     """Base class: subclasses list the roles allowed in `allowed_roles`."""
 
     allowed_roles = ()
