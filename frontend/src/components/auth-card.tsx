@@ -38,20 +38,20 @@ export function AuthCard({ title, subtitle, children }: { title: string; subtitl
   return (
     <main className="grid flex-1 lg:grid-cols-[1.1fr_1fr]">
       {/* Brand side, from the dashboard design (hidden on small screens). */}
-      <aside className="relative hidden overflow-hidden bg-[#192646] p-10 text-white lg:flex lg:flex-col lg:justify-between">
-        <NetworkCanvas className="absolute inset-0 size-full" />
-        <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#192646] via-[#192646]/80 to-transparent" />
+      {/* Same background and map as the leadership video ("This video isn't available"). */}
+      <aside className="relative hidden overflow-hidden bg-[linear-gradient(160deg,#192646_0%,#101B35_70%)] p-10 text-[#F7F1EC] lg:flex lg:flex-col lg:justify-between">
+        <NetworkCanvas className="absolute inset-0 size-full opacity-70" />
 
         <div className="relative"><Logo light /></div>
 
         <div className="relative max-w-sm">
           <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#F2C98F]">Employee Self-Service Portal</p>
-          <h2 className="mt-3 text-3xl font-semibold leading-tight tracking-tight">Your HR space,<br />in one place.</h2>
+          <h2 className="mt-3 text-3xl font-semibold leading-tight tracking-tight text-white">Your HR space,<br />in one place.</h2>
           <ul className="mt-8 space-y-3">
             {HIGHLIGHTS.map(({ icon: Icon, text }) => (
-              <li key={text} className="flex items-center gap-3 text-sm text-blue-50/90">
+              <li key={text} className="flex items-center gap-3 text-sm text-[#D5DBE8]">
                 <span className="flex size-8 items-center justify-center rounded-lg bg-white/10 ring-1 ring-white/10">
-                  <Icon className="size-4 text-[#F2C98F]" />
+                  <Icon className="size-4 text-[#E9D5C0]" />
                 </span>
                 {text}
               </li>
@@ -59,7 +59,7 @@ export function AuthCard({ title, subtitle, children }: { title: string; subtitl
           </ul>
         </div>
 
-        <p className="relative text-[11px] text-blue-200/70">© 2026 Silent Believers Distribution</p>
+        <p className="relative text-[11px] text-[#A9B4CC]">© 2026 Silent Believers Distribution</p>
       </aside>
 
       {/* Form side. */}
