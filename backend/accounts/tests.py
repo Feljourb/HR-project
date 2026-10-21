@@ -1,3 +1,4 @@
+from django.core.cache import cache
 from django.test import override_settings
 from django.urls import include, path, reverse
 from rest_framework import status
@@ -36,6 +37,9 @@ urlpatterns = [
 # --- Helpers ------------------------------------------------------------------
 
 class AuthTestCase(APITestCase):
+    def setUp(self):
+        cache.clear()  # reset the attempt counters (throttling) between tests
+
     def create_user(self, username="ali.test", **extra):
         return User.objects.create_user(username, password=PASSWORD, **extra)
 
@@ -57,7 +61,7 @@ class LoginTests(AuthTestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
             response.data,
-            {"username": "ali.test", "role": "HR", "must_change_password": False},
+            {"username": "ali.test", "role": "HR", "must_change_password": False, "mfa_setup_required": False},
         )
         for name in ("access_token", "refresh_token"):
             self.assertTrue(response.cookies[name].value)
@@ -85,7 +89,7 @@ class MeTests(AuthTestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
             response.data,
-            {"username": "ali.test", "role": "MANAGER", "must_change_password": False},
+            {"username": "ali.test", "role": "MANAGER", "must_change_password": False, "mfa_setup_required": False},
         )
 
     def test_me_without_cookie_is_401(self):
@@ -157,6 +161,7 @@ class ChangePasswordTests(AuthTestCase):
     NEW_PASSWORD = "Another-Strong-2026!"
 
     def setUp(self):
+        super().setUp()
         self.user = self.create_user(must_change_password=True)
         self.login()
 
@@ -210,6 +215,7 @@ class ChangePasswordTests(AuthTestCase):
 @override_settings(ROOT_URLCONF="accounts.tests")
 class MustChangePasswordTests(AuthTestCase):
     def setUp(self):
+        super().setUp()
         self.create_user(must_change_password=True)
         self.login()
 

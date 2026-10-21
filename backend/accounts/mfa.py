@@ -9,13 +9,16 @@ import qrcode
 import qrcode.image.svg
 from cryptography.fernet import Fernet
 from django.conf import settings
+from django.core import signing
 from django.db import transaction
 from django.utils import timezone
 from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
 
-from .models import RecoveryCode, SecuritySettings
+from .models import RecoveryCode, SecuritySettings, User
 
 ISSUER = "SBD HR Portal"  # name shown in the authenticator app
+PENDING_MAX_AGE = 5 * 60  # seconds between the password and the code
+TRUSTED_MAX_AGE = 30 * 24 * 3600  # "trust this device for 30 days"
 RECOVERY_CODE_COUNT = 10
 RECOVERY_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"  # no 0/o or 1/l/i confusion
 
@@ -76,6 +79,45 @@ def verify_code(user, code):
             user.save(update_fields=["mfa_last_step"])
             return True
     return False
+
+
+# --- Login in two steps (signed cookies: they cannot be forged) ---------------
+
+def pending_token(user):
+    """Proof that the password was correct, valid 5 minutes. It is NOT a session."""
+    return signing.dumps(user.pk, salt="mfa-pending")
+
+
+def pending_user(request):
+    token = request.COOKIES.get("mfa_pending")
+    if not token:
+        return None
+    try:
+        user_id = signing.loads(token, salt="mfa-pending", max_age=PENDING_MAX_AGE)
+    except signing.BadSignature:  # forged or expired
+        return None
+    return User.objects.filter(pk=user_id, is_active=True).first()
+
+
+def trusted_token(user):
+    # Tied to the activation date: an IT reset invalidates every trusted device.
+    return signing.dumps([user.pk, user.mfa_enabled_at.isoformat()], salt="mfa-trusted")
+
+
+def is_trusted_device(request, user):
+    token = request.COOKIES.get("mfa_trusted")
+    if not token or user.mfa_enabled_at is None:
+        return False
+    try:
+        data = signing.loads(token, salt="mfa-trusted", max_age=TRUSTED_MAX_AGE)
+    except signing.BadSignature:
+        return False
+    return data == [user.pk, user.mfa_enabled_at.isoformat()]
+
+
+def must_enter_code(request, user):
+    """At login: MFA required, already activated, and this device is not trusted."""
+    return is_required(user) and is_enabled(user) and not is_trusted_device(request, user)
 
 
 # --- Recovery codes -----------------------------------------------------------

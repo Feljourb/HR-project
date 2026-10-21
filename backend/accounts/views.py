@@ -16,23 +16,23 @@ from . import mfa
 from .serializers import ChangePasswordSerializer
 
 
+def set_secure_cookie(response, name, value, max_age):
+    response.set_cookie(name, value, max_age=max_age, httponly=True, samesite="Lax", secure=not settings.DEBUG)
+
+
 def set_auth_cookies(response, access, refresh):
-    response.set_cookie(
-        "access_token",
-        access,
-        max_age=settings.SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"].total_seconds(),
-        httponly=True,
-        samesite="Lax",
-        secure=not settings.DEBUG,
-    )
-    response.set_cookie(
-        "refresh_token",
-        refresh,
-        max_age=settings.SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"].total_seconds(),
-        httponly=True,
-        samesite="Lax",
-        secure=not settings.DEBUG,
-    )
+    set_secure_cookie(response, "access_token", access, settings.SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"].total_seconds())
+    set_secure_cookie(response, "refresh_token", refresh, settings.SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"].total_seconds())
+
+
+def user_info(user):
+    """What login, login/mfa and me return, so the frontend knows where to go."""
+    return {
+        "username": user.username,
+        "role": user.role,
+        "must_change_password": user.must_change_password,
+        "mfa_setup_required": mfa.setup_required(user),
+    }
 
 
 class RefreshView(TokenRefreshView):
@@ -56,6 +56,9 @@ class RefreshView(TokenRefreshView):
 
 
 class LoginView(TokenObtainPairView):
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "login"
+
     def post(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         try:
@@ -64,11 +67,13 @@ class LoginView(TokenObtainPairView):
             raise InvalidToken(e.args[0]) from e
 
         user = serializer.user
-        response = Response({
-            "username": user.username,
-            "role": user.role,
-            "must_change_password": user.must_change_password,
-        })
+        if mfa.must_enter_code(request, user):
+            # Password OK, but no session yet: the code is checked by login/mfa/.
+            response = Response({"mfa_required": True})
+            set_secure_cookie(response, "mfa_pending", mfa.pending_token(user), mfa.PENDING_MAX_AGE)
+            return response
+
+        response = Response(user_info(user))
         set_auth_cookies(
             response,
             serializer.validated_data["access"],
@@ -119,6 +124,31 @@ class ChangePasswordView(APIView):
         return response
 
 
+class MfaLoginView(APIView):
+    """Login step 2: the 6-digit code (or a recovery code) after the password."""
+    authentication_classes = []
+    permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "mfa"
+
+    def post(self, request):
+        user = mfa.pending_user(request)
+        if user is None:
+            return Response({"detail": "Session expired, please sign in again."}, status=status.HTTP_401_UNAUTHORIZED)
+
+        code = str(request.data.get("code", ""))
+        if not (mfa.verify_code(user, code) or mfa.use_recovery_code(user, code)):
+            return Response({"code": ["Invalid code."]}, status=status.HTTP_400_BAD_REQUEST)
+
+        refresh = RefreshToken.for_user(user)
+        response = Response(user_info(user))
+        set_auth_cookies(response, str(refresh.access_token), str(refresh))
+        response.delete_cookie("mfa_pending", samesite="Lax")
+        if request.data.get("remember"):
+            set_secure_cookie(response, "mfa_trusted", mfa.trusted_token(user), mfa.TRUSTED_MAX_AGE)
+        return response
+
+
 class MfaSetupView(APIView):
     """Activation step 1: the QR code to scan (and the key, if the camera fails)."""
     permission_classes = [IsAuthenticated]
@@ -154,8 +184,4 @@ class MeView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        return Response({
-            "username": request.user.username,
-            "role": request.user.role,
-            "must_change_password": request.user.must_change_password,
-            })
+        return Response(user_info(request.user))
