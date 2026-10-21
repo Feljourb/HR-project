@@ -16,6 +16,19 @@ class User(AbstractUser):
     role = models.CharField(max_length=20, choices=Role.choices, default=Role.COLLABORATOR)
     must_change_password = models.BooleanField(default=False)
 
+    # Second factor (TOTP). The secret is encrypted, see accounts/mfa.py.
+    mfa_secret = models.TextField(blank=True)
+    mfa_enabled_at = models.DateTimeField(null=True, blank=True)
+    mfa_last_step = models.BigIntegerField(null=True, blank=True)  # last accepted code: no reuse
+
+
+class RecoveryCode(models.Model):
+    """One-time codes for a lost phone. Only a hash is stored, like a password."""
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="recovery_codes")
+    code_hash = models.CharField(max_length=64)
+    used_at = models.DateTimeField(null=True, blank=True)
+
 
 class SecuritySettings(models.Model):
     """A single row that IT edits in the Django admin (no redeploy needed)."""

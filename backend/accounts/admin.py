@@ -1,11 +1,28 @@
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin
+from . import mfa
 from .models import SecuritySettings, User
+
+
+@admin.action(description="Réinitialiser le MFA (téléphone perdu)")
+def reset_mfa(modeladmin, request, queryset):
+    if not request.user.is_superuser:
+        modeladmin.message_user(request, "Réservé à l'IT.", messages.ERROR)
+        return
+    for user in queryset:
+        mfa.reset(user)
+    modeladmin.message_user(request, f"MFA réinitialisé pour {queryset.count()} utilisateur(s).")
 
 
 @admin.register(User)
 class CustomUserAdmin(UserAdmin):
-    list_display = ("username", "role", "is_active")
+    list_display = ("username", "role", "is_active", "mfa_active")
+    actions = [reset_mfa]
+
+    @admin.display(boolean=True, description="MFA")
+    def mfa_active(self, obj):
+        return obj.mfa_enabled_at is not None
+
     search_fields = ("username",)
     ordering = ("username",)
     fieldsets = (
