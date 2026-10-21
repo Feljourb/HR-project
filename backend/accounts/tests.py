@@ -1,3 +1,6 @@
+import time
+
+import pyotp
 from django.core.cache import cache
 from django.test import override_settings
 from django.urls import include, path, reverse
@@ -6,7 +9,8 @@ from rest_framework.response import Response
 from rest_framework.test import APITestCase
 from rest_framework.views import APIView
 
-from .models import User
+from . import mfa
+from .models import SecuritySettings, User
 from .permissions import IsHR, IsHRAdmin, IsManager
 
 PASSWORD = "Strong-Pass-2026!"
@@ -268,3 +272,149 @@ class RolePermissionTests(AuthTestCase):
 
     def test_anonymous_is_401_on_role_endpoints(self):
         self.assertEqual(self.client.get("/test/hr/").status_code, 401)
+
+
+# --- MFA ----------------------------------------------------------------------
+
+@override_settings(ROOT_URLCONF="accounts.tests")
+class MfaTestCase(AuthTestCase):
+    """IT turned MFA on; self.user is HR, so MFA is required for them."""
+
+    def setUp(self):
+        super().setUp()
+        SecuritySettings.objects.update_or_create(pk=1, defaults={"mfa_enabled": True})
+        self.user = self.create_user(role=User.Role.HR)
+
+    def code(self, offset=0):
+        """The code the phone shows now (+offset seconds). The activation code can't be
+        reused, so later logins use code(30): the next one, still accepted."""
+        secret = mfa.decrypt(User.objects.get(pk=self.user.pk).mfa_secret)
+        return pyotp.TOTP(secret).at(time.time() + offset)
+
+    def activate(self):
+        """Scan the QR code and confirm the first code. Returns the recovery codes."""
+        self.login()
+        self.client.post(reverse("accounts:mfa-setup"))
+        response = self.client.post(reverse("accounts:mfa-confirm"), {"code": self.code()}, format="json")
+        self.client.post(reverse("accounts:logout"))
+        return response.data["recovery_codes"]
+
+    def login_with_code(self, code, **extra):
+        return self.client.post(reverse("accounts:login-mfa"), {"code": code, **extra}, format="json")
+
+
+class MfaPolicyTests(MfaTestCase):
+    def test_mfa_off_means_normal_login(self):
+        SecuritySettings.objects.update(mfa_enabled=False)
+        response = self.login()
+        self.assertFalse(response.data["mfa_setup_required"])
+        self.assertIn("access_token", response.cookies)
+
+    def test_collaborator_is_not_required(self):
+        self.create_user("collab.test", role=User.Role.COLLABORATOR)
+        response = self.login("collab.test")
+        self.assertFalse(response.data["mfa_setup_required"])
+
+    def test_it_superuser_is_required(self):
+        User.objects.create_superuser("it.admin", password=PASSWORD)
+        self.assertTrue(self.login("it.admin").data["mfa_setup_required"])
+
+    def test_required_user_is_blocked_until_activation(self):
+        self.assertTrue(self.login().data["mfa_setup_required"])
+        response = self.client.get("/test/default/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.data["detail"].code, "mfa_setup_required")
+        self.assertEqual(self.client.get(reverse("accounts:me")).status_code, 200)
+
+
+class MfaActivationTests(MfaTestCase):
+    def setUp(self):
+        super().setUp()
+        self.login()
+
+    def test_setup_gives_a_qr_code_and_keeps_the_same_secret_on_reload(self):
+        first = self.client.post(reverse("accounts:mfa-setup")).data
+        second = self.client.post(reverse("accounts:mfa-setup")).data
+        self.assertTrue(first["qr_code"].startswith("data:image/svg+xml;base64,"))
+        self.assertEqual(first["secret"], second["secret"])
+
+    def test_wrong_first_code_is_rejected(self):
+        self.client.post(reverse("accounts:mfa-setup"))
+        response = self.client.post(reverse("accounts:mfa-confirm"), {"code": "000000"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_activation_gives_10_recovery_codes_and_unblocks(self):
+        self.client.post(reverse("accounts:mfa-setup"))
+        response = self.client.post(reverse("accounts:mfa-confirm"), {"code": self.code()}, format="json")
+        self.assertEqual(len(response.data["recovery_codes"]), 10)
+        self.assertEqual(self.client.get("/test/default/").status_code, 200)
+
+    def test_secret_is_encrypted_in_the_database(self):
+        secret = self.client.post(reverse("accounts:mfa-setup")).data["secret"]
+        self.assertNotIn(secret, User.objects.get(pk=self.user.pk).mfa_secret)
+
+
+class MfaLoginTests(MfaTestCase):
+    def setUp(self):
+        super().setUp()
+        self.recovery_codes = self.activate()
+
+    def test_password_alone_gives_no_session(self):
+        response = self.login()
+        self.assertEqual(response.data, {"mfa_required": True})
+        self.assertNotIn("access_token", response.cookies)
+        self.assertEqual(self.client.get(reverse("accounts:me")).status_code, 401)
+
+    def test_right_code_opens_the_session(self):
+        self.login()
+        response = self.login_with_code(self.code(30))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(self.client.get(reverse("accounts:me")).status_code, 200)
+
+    def test_wrong_code_is_rejected(self):
+        self.login()
+        self.assertEqual(self.login_with_code("000000").status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_a_code_works_only_once(self):
+        code = self.code(30)
+        self.login()
+        self.assertEqual(self.login_with_code(code).status_code, 200)
+        self.login()
+        self.assertEqual(self.login_with_code(code).status_code, 400)
+
+    def test_recovery_code_works_only_once(self):
+        self.login()
+        self.assertEqual(self.login_with_code(self.recovery_codes[0]).status_code, 200)
+        self.login()
+        self.assertEqual(self.login_with_code(self.recovery_codes[0]).status_code, 400)
+
+    def test_code_without_the_password_step_is_refused(self):
+        self.assertEqual(self.login_with_code(self.code(30)).status_code, 401)
+
+    def test_trusted_device_skips_the_code(self):
+        self.login()
+        self.login_with_code(self.code(30), remember=True)
+        self.client.post(reverse("accounts:logout"))
+        response = self.login()
+        self.assertNotIn("mfa_required", response.data)
+        self.assertIn("access_token", response.cookies)
+
+    def test_it_reset_closes_sessions_and_forces_a_new_activation(self):
+        self.login()
+        self.login_with_code(self.code(30), remember=True)
+        mfa.reset(User.objects.get(pk=self.user.pk))
+
+        self.assertEqual(self.client.post(reverse("accounts:refresh")).status_code, 401)
+        response = self.login()  # the trusted device no longer counts
+        self.assertTrue(response.data["mfa_setup_required"])
+
+    def test_it_turning_mfa_off_skips_the_code(self):
+        SecuritySettings.objects.update(mfa_enabled=False)
+        self.assertIn("access_token", self.login().cookies)
+
+    def test_too_many_codes_are_throttled(self):
+        cache.clear()
+        self.login()
+        for _ in range(5):
+            self.login_with_code("000000")
+        self.assertEqual(self.login_with_code(self.code(30)).status_code, status.HTTP_429_TOO_MANY_REQUESTS)
