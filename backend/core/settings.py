@@ -163,4 +163,9 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
         "accounts.permissions.PasswordChanged",
     ],
+    # Max attempts (anti brute force), counted per IP address.
+    "DEFAULT_THROTTLE_RATES": {
+        "login": "10/min",
+        "mfa": "5/min",
+    },
 }

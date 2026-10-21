@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.db import transaction
+from django.utils import timezone
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -9,7 +10,9 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.throttling import ScopedRateThrottle
 
+from . import mfa
 from .serializers import ChangePasswordSerializer
 
 
@@ -114,6 +117,37 @@ class ChangePasswordView(APIView):
         response = Response({"detail": "Password changed."})
         set_auth_cookies(response, str(refresh.access_token), str(refresh))
         return response
+
+
+class MfaSetupView(APIView):
+    """Activation step 1: the QR code to scan (and the key, if the camera fails)."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if mfa.is_enabled(request.user):
+            return Response({"detail": "MFA is already active."}, status=status.HTTP_400_BAD_REQUEST)
+        secret = mfa.pending_secret(request.user)
+        return Response({"qr_code": mfa.qr_code(request.user, secret), "secret": secret})
+
+
+class MfaConfirmView(APIView):
+    """Activation step 2: a first valid code proves the phone is set up."""
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "mfa"
+
+    def post(self, request):
+        user = request.user
+        if mfa.is_enabled(user):
+            return Response({"detail": "MFA is already active."}, status=status.HTTP_400_BAD_REQUEST)
+        if not mfa.verify_code(user, str(request.data.get("code", ""))):
+            return Response(
+                {"code": ["Invalid code. Check the time on your phone and try again."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        user.mfa_enabled_at = timezone.now()
+        user.save(update_fields=["mfa_enabled_at"])
+        return Response({"recovery_codes": mfa.create_recovery_codes(user)})
 
 
 class MeView(APIView):
