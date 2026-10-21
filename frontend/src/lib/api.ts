@@ -5,10 +5,18 @@ export type Me = {
   username: string;
   role: string;
   must_change_password: boolean;
+  mfa_setup_required: boolean;
 };
 
+// Where a user must go first: change the password, then activate MFA, then home.
+export function nextPage(user: Me) {
+  if (user.must_change_password) return "/change-password";
+  if (user.mfa_setup_required) return "/mfa-setup";
+  return "/";
+}
+
 // A 401 from these endpoints does not mean "access token expired".
-const NO_REFRESH = ["/api/auth/login/", "/api/auth/refresh/", "/api/auth/logout/"];
+const NO_REFRESH = ["/api/auth/login/", "/api/auth/login/mfa/", "/api/auth/refresh/", "/api/auth/logout/"];
 
 // Shared by every request that gets a 401 at the same time.
 let refreshing: Promise<boolean> | null = null;

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { SbdDashboard } from "@/components/sbd-dashboard";
-import { apiFetch, type Me } from "@/lib/api";
+import { apiFetch, nextPage, type Me } from "@/lib/api";
 
 const ROLE_LABELS: Record<string, string> = {
   HR_ADMIN: "Admin RH",
@@ -25,8 +25,8 @@ export default function HomePage() {
           return;
         }
         const user: Me = await response.json();
-        if (user.must_change_password) {
-          router.replace("/change-password");
+        if (nextPage(user) !== "/") {
+          router.replace(nextPage(user)); // change password or activate MFA first
           return;
         }
         setMe(user);
