@@ -84,7 +84,7 @@ export function VideoTheater({ start, initialTab, onClose }: { start: number; in
     <div className="grid max-h-[calc(100dvh-2rem)] overflow-y-auto lg:grid-cols-[minmax(0,1fr)_340px] lg:overflow-hidden">
       <div className="flex min-w-0 flex-col">
         <header className="flex items-start gap-3 py-4 pl-5 pr-14">
-          <img src="/logo.png" alt="" className="size-9 shrink-0 rounded-lg bg-white object-contain p-1" />
+          <img src="/logo-white.png" alt="" className="h-9 w-auto shrink-0" />
           <div className="min-w-0">
             <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#C9A27E]">{video.eyebrow}</p>
             <h2 id="theater-title" className="text-balance text-lg font-semibold leading-snug tracking-tight">{video.title}</h2>

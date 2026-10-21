@@ -42,7 +42,7 @@ export function FeaturedVideo({ className, index }: { className?: string; index:
         <p className="text-[10.5px] font-semibold uppercase tracking-[0.16em] text-[#C9A27E]">{video.eyebrow}</p>
         <h2 id="featured-video-title" className="mt-2 text-balance text-[26px] font-semibold leading-[1.15] tracking-tight text-white sm:text-[30px]">{video.title}</h2>
         <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[#A9B4CC]">
-          <img src="/logo.png" alt="" className="size-5 rounded bg-white object-contain p-0.5" />
+          <img src="/logo-white.png" alt="" className="h-4 w-auto" />
           <span className="font-medium text-[#E6EAF2]">{video.speaker}</span>
           <span aria-hidden>·</span><span>{fullDate(video.published)}</span>
           <span aria-hidden>·</span><span className="tabular-nums">{video.views.toLocaleString('en-US')} views</span>

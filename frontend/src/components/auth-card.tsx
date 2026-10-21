@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import Image from "next/image";
 import { AlertCircle, CalendarDays, Eye, EyeOff, LoaderCircle, ReceiptText, ShieldCheck } from "lucide-react";
+import { BrandLogo } from "@/components/brand-logo";
 import { NetworkCanvas } from "@/components/dashboard/network-canvas";
 
 // Shared by the login, change-password and MFA pages.
@@ -20,20 +20,6 @@ const HIGHLIGHTS = [
   { icon: ShieldCheck, text: "Secure sign-in with two-factor authentication" },
 ];
 
-function Logo({ light = false }: { light?: boolean }) {
-  return (
-    <div className="flex items-center gap-3">
-      <div className="flex size-11 items-center justify-center rounded-xl bg-white p-1 shadow-sm ring-1 ring-slate-200">
-        <Image src="/logo.png" alt="Silent Believers Distribution" width={56} height={49} className="size-full object-contain" />
-      </div>
-      <div>
-        <p className={`text-[11px] font-bold tracking-[0.12em] ${light ? "text-white" : "text-[#192646]"}`}>SILENT BELIEVERS</p>
-        <p className={`text-[10px] tracking-[0.2em] ${light ? "text-blue-200" : "text-[#8C6D52]"}`}>DISTRIBUTION</p>
-      </div>
-    </div>
-  );
-}
-
 export function AuthCard({ title, subtitle, children }: { title: string; subtitle: string; children: ReactNode }) {
   return (
     <main className="grid flex-1 lg:grid-cols-[1.1fr_1fr]">
@@ -42,7 +28,7 @@ export function AuthCard({ title, subtitle, children }: { title: string; subtitl
       <aside className="relative hidden overflow-hidden bg-[linear-gradient(160deg,#192646_0%,#101B35_70%)] p-10 text-[#F7F1EC] lg:flex lg:flex-col lg:justify-between">
         <NetworkCanvas className="absolute inset-0 size-full opacity-70" />
 
-        <div className="relative"><Logo light /></div>
+        <div className="relative"><BrandLogo /></div>
 
         <div className="relative max-w-sm">
           <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#F2C98F]">Employee Self-Service Portal</p>
@@ -65,7 +51,7 @@ export function AuthCard({ title, subtitle, children }: { title: string; subtitl
       {/* Form side. */}
       <section className="flex items-center justify-center bg-white px-4 py-10 sm:px-10">
         <div className="sbd-rise w-full max-w-sm">
-          <div className="mb-10 lg:hidden"><Logo /></div>
+          <div className="mb-10 lg:hidden"><BrandLogo tone="dark" /></div>
           <h1 className="text-2xl font-semibold tracking-tight text-[#192646]">{title}</h1>
           <p className="mt-1.5 text-sm text-slate-500">{subtitle}</p>
           {children}
