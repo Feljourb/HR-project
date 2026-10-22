@@ -16,7 +16,7 @@ class ReferenceAdmin(admin.ModelAdmin):
         return False
 
 
-for model in (Pole, Division, Position, Assignment, Category, ContractType, TempAgency, Grade, Region, Bank):
+for model in (Pole, Division, Assignment,Category, ContractType, TempAgency, Grade, Region, Bank):
     admin.site.register(model, ReferenceAdmin)
 
 
@@ -38,7 +38,19 @@ class DepartmentAdmin(ReferenceAdmin):
     list_filter = ("direction__entity", "direction", "is_active")
 
 
+@admin.register(Position)
+class PositionAdmin(ReferenceAdmin):
+    list_display = ("name", "department", "direction", "is_active")
+    list_filter = ("department__direction__entity", "department__direction", "department", "is_active")
+    list_select_related = ("department__direction",)
+
+    @admin.display(description="Direction", ordering="department__direction__name")
+    def direction(self, obj):
+        return obj.department.direction
+
+
 @admin.register(CostCenter)
 class CostCenterAdmin(ReferenceAdmin):
     list_display = ("code", "name", "is_active")
     search_fields = ("code", "name")
+

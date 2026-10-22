@@ -4,6 +4,9 @@
 # Local curl cookie jars (contain real tokens)
 cookies.txt
 
+# Generated Excel exports (python manage.py export_lists)
+backend/exports/
+
 # Python
 __pycache__/
 *.pyc

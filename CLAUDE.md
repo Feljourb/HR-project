@@ -35,7 +35,10 @@ Frontend (Next.js in frontend/src/app, backend on http://localhost:8000):
 - Never change the architecture decisions in CLAUDE.md without asking me.
 
 ## Module "Gestion des collaborateurs" (app `employees`): rules for the next steps
-- Reference lists (`employees/models.py`): Pole, Entity (→ Pole), Direction (→ Entity), Department (→ Direction), Division, Position, Assignment, Category, ContractType, TempAgency, Grade, Region, CostCenter (+ code), Bank. All inherit the abstract `ReferenceItem` (name + is_active). Names are unique case-insensitively; Direction names are unique per entity and Department names per direction. Values are never deleted, only deactivated.
+- Reference lists (`employees/models.py`): Pole, Entity (→ Pole), Direction (→ Entity), Department (→ Direction), Position (→ Department), Division, Assignment, Category, ContractType, TempAgency, Grade, Region, CostCenter (+ code), Bank. All inherit the abstract `ReferenceItem` (name + is_active). Names are unique case-insensitively; Direction names are unique per entity, Department names per direction and Position names per department. Values are never deleted, only deactivated.
+- The initial values (banks, regions, categories, directions → services → postes) are a standard PROPOSAL until HR validates them; `python manage.py export_lists` exports every list to Excel (one sheet per list) for HR.
+- Employee (step 2) stores only `department` + `position`, and the position must belong to that same department. Direction, entité and pôle are never stored: they come from `department.direction.entity.pole`.
+- Employee form (frontend): cascading lists Entité → Direction → Service → Poste; each list filters the next one. HR only sees the entités of their pôle (Admin RH: all).
 - An employee's pôle comes from `entity.pole` (no pôle field on Employee). An HR user's pôle comes from their own Employee record.
 - HR sees and creates only employees of their own pôle; in the form, the Entité list only shows the entities of their pôle.
 - Admin RH sees both pôles. Superuser (IT) sees everything.

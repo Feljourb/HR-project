@@ -69,16 +69,25 @@ class Department(ReferenceItem):
         ]
 
 
+class Position(ReferenceItem):
+    department = models.ForeignKey(Department, on_delete=models.PROTECT, related_name="positions", verbose_name="Service")
+
+    class Meta(ReferenceItem.Meta):
+        verbose_name = "Poste"
+        constraints = [
+            models.UniqueConstraint(
+                Lower("name"), "department",
+                name="employees_position_unique_name_per_department",
+                violation_error_message="Ce poste existe déjà dans ce service.",
+            ),
+        ]
+
+
 # --- Simple lists ------------------------------------------------------------
 
 class Division(ReferenceItem):
     class Meta(ReferenceItem.Meta):
         verbose_name = "Division"
-
-
-class Position(ReferenceItem):
-    class Meta(ReferenceItem.Meta):
-        verbose_name = "Poste"
 
 
 class Assignment(ReferenceItem):
