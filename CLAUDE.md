@@ -34,4 +34,13 @@ Frontend (Next.js in frontend/src/app, backend on http://localhost:8000):
 - Explain in Moroccan Darija (Latin letters), keep technical words in English or French. Short sentences. If I say "ma fhemtsh", explain again differently with a new example.
 - Never change the architecture decisions in CLAUDE.md without asking me.
 
+## Module "Gestion des collaborateurs" (app `employees`): rules for the next steps
+- Reference lists (`employees/models.py`): Pole, Entity (→ Pole), Direction (→ Entity), Department (→ Direction), Division, Position, Assignment, Category, ContractType, TempAgency, Grade, Region, CostCenter (+ code), Bank. All inherit the abstract `ReferenceItem` (name + is_active). Names are unique case-insensitively; Direction names are unique per entity and Department names per direction. Values are never deleted, only deactivated.
+- An employee's pôle comes from `entity.pole` (no pôle field on Employee). An HR user's pôle comes from their own Employee record.
+- HR sees and creates only employees of their own pôle; in the form, the Entité list only shows the entities of their pôle.
+- Admin RH sees both pôles. Superuser (IT) sees everything.
+- Annuaire (directory): every role sees both pôles, but only public fields (nom, prénom, poste, service, direction, email pro, téléphone).
+- TempAgency is shown only when ContractType = Intérimaire.
+- Lists: every logged-in user can read them; only Admin RH can add, edit or deactivate (API in a next step, and a "+ Ajouter" button inside the dropdown in the frontend).
+
 Start with step 1.
