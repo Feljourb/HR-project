@@ -4,3 +4,7 @@ manager.test Sbd-Test-2026! 	Manager
 collab.test  Sbd-Test-2026! 	Collaborateur
 it.test      Sbd-Test-2026! 	IT (superuser): /admin
 nouveau.test AB123456@	        Collaborateur
+
+
+generate list:
+docker compose exec backend python manage.py export_lists
