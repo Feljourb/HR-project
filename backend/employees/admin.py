@@ -2,7 +2,7 @@ from django.contrib import admin
 
 from .models import (
     Assignment, Bank, Category, ContractType, CostCenter, Department, Direction, Division,
-    Entity, Grade, Pole, Position, Region, TempAgency,
+    Employee, Entity, Grade, Pole, Position, Region, TempAgency,
 )
 
 
@@ -53,4 +53,44 @@ class PositionAdmin(ReferenceAdmin):
 class CostCenterAdmin(ReferenceAdmin):
     list_display = ("code", "name", "is_active")
     search_fields = ("code", "name")
+
+
+@admin.register(Employee)
+class EmployeeAdmin(admin.ModelAdmin):
+    list_display = ("u_number", "last_name", "first_name", "position", "department", "status")
+    list_select_related = ("position", "department")
+    search_fields = ("last_name", "first_name", "cin", "u_number")
+    list_filter = ("status", "department__direction__entity", "contract_type")
+    autocomplete_fields = ("user", "manager")  # search instead of a huge dropdown
+    readonly_fields = ("u_number", "direction", "entity", "pole", "n_plus_2", "n_plus_3")
+    fieldsets = (
+        (None, {"fields": ("user", "u_number", "status")}),
+        ("Identité", {"fields": (
+            "title", "last_name", "first_name", "birth_date", "cin", "marital_status",
+            "phone", "professional_email", "address", "city", "country",
+        )}),
+        ("Organisation", {"fields": ("department", "position", "direction", "entity", "pole")}),
+        ("Contrat", {"fields": (
+            "contract_type", "temp_agency", "category", "grade", "division",
+            "assignment", "region", "work_location", "cost_center",
+        )}),
+        ("Hiérarchie", {"fields": ("manager", "n_plus_2", "n_plus_3")}),
+        ("Dates", {"fields": (
+            "hire_date", "trial_end_date", "onboarding_end_date", "departure_date", "initial_leave_balance",
+        )}),
+    )
+
+    # "Ventes" or "Direction" exist in many entities: show the full path in the dropdowns.
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        field = super().formfield_for_foreignkey(db_field, request, **kwargs)
+        if db_field.name == "department":
+            field.queryset = field.queryset.select_related("direction__entity").order_by(
+                "direction__entity__name", "direction__name", "name")
+            field.label_from_instance = lambda d: f"{d.direction.entity} › {d.direction} › {d}"
+        elif db_field.name == "position":
+            field.queryset = field.queryset.select_related("department__direction__entity").order_by(
+                "department__direction__entity__name", "department__direction__name", "department__name", "name")
+            field.label_from_instance = lambda p: (
+                f"{p.department.direction.entity} › {p.department.direction} › {p.department} › {p}")
+        return field
 

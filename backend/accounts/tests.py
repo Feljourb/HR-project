@@ -45,6 +45,9 @@ class AuthTestCase(APITestCase):
         cache.clear()  # reset the attempt counters (throttling) between tests
 
     def create_user(self, username="ali.test", **extra):
+        # A new account must change its password (model default). Most tests need an
+        # account that already did; tests about a temporary password pass must_change_password=True.
+        extra.setdefault("must_change_password", False)
         return User.objects.create_user(username, password=PASSWORD, **extra)
 
     def login(self, username="ali.test", password=PASSWORD):
@@ -286,6 +289,11 @@ class PasswordChangePolicyTests(AuthTestCase):
         """A user with a temporary password logs in. Returns the must_change_password sent to the frontend."""
         self.create_user(f"user.{role.lower()}", role=role, must_change_password=True)
         return self.login(f"user.{role.lower()}").data["must_change_password"]
+
+    def test_new_account_must_change_password_at_first_login(self):
+        User.objects.create_user("new.user", password=PASSWORD)  # no flag given: model default
+        self.assertTrue(self.login("new.user").data["must_change_password"])
+        self.assertEqual(self.client.get("/test/default/").status_code, 403)
 
     def test_required_by_default_for_every_role(self):
         for role in User.Role:

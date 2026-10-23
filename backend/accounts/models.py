@@ -14,7 +14,7 @@ class User(AbstractUser):
     last_name = None
 
     role = models.CharField(max_length=20, choices=Role.choices, default=Role.COLLABORATOR)
-    must_change_password = models.BooleanField(default=False)
+    must_change_password = models.BooleanField(default=True)
 
     # Second factor (TOTP). The secret is encrypted, see accounts/mfa.py.
     mfa_secret = models.TextField(blank=True)
@@ -22,7 +22,6 @@ class User(AbstractUser):
     mfa_last_step = models.BigIntegerField(null=True, blank=True)  # last accepted code: no reuse
 
     def password_change_required(self):
-        """Temporary password AND IT requires a change for this role (Réglages de sécurité)."""
         return self.must_change_password and SecuritySettings.load().password_required_for(self)
 
 
