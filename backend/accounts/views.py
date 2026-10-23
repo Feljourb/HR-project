@@ -30,7 +30,7 @@ def user_info(user):
     return {
         "username": user.username,
         "role": user.role,
-        "must_change_password": user.must_change_password,
+        "must_change_password": user.password_change_required(),
         "mfa_setup_required": mfa.setup_required(user),
     }
 

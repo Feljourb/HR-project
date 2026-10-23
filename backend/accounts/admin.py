@@ -44,6 +44,11 @@ class SecuritySettingsAdmin(admin.ModelAdmin):
             "mfa_required_hr_admin", "mfa_required_hr", "mfa_required_manager",
             "mfa_required_collaborator", "mfa_required_superuser",
         )}),
+        ("Changement de mot de passe", {"fields": ("password_change_enabled",)}),
+        ("Changement obligatoire pour", {"fields": (
+            "password_change_hr_admin", "password_change_hr", "password_change_manager",
+            "password_change_collaborator", "password_change_superuser",
+        )}),
     )
 
     # Only IT (superusers) may see or change it. There is exactly one row.

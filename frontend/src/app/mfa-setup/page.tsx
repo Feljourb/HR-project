@@ -56,11 +56,16 @@ export default function MfaSetupPage() {
   }
 
   // Next.js keeps this page alive (hidden): never leave codes in it.
-  function leave(path: string) {
+  // The cleanup runs once it is hidden, so the page stays as is while the next one loads.
+  useEffect(() => () => {
     setSetup(null);
     setCode("");
     setRecoveryCodes([]);
     setErrors([]);
+    setLoading(false);
+  }, []);
+
+  function leave(path: string) {
     router.replace(path);
   }
 

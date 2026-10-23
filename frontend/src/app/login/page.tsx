@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import {
   AuthCard, FormErrors, PasswordInput, SubmitButton, inputClass, labelClass, linkClass,
@@ -19,15 +19,19 @@ export default function LoginPage() {
   const [errors, setErrors] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // Next.js keeps this page alive (hidden) after we leave it.
-  // Empty the form before leaving, so it is clean after a logout.
-  function leave(user: Me) {
+  // Next.js keeps this page alive (hidden) after we leave it. The cleanup runs
+  // once it is hidden: the form stays filled (spinner on) while the next page
+  // loads, and is empty when we come back after a logout.
+  useEffect(() => () => {
     setStep("password");
     setUsername("");
     setPassword("");
     setCode("");
     setErrors([]);
     setLoading(false);
+  }, []);
+
+  function leave(user: Me) {
     router.replace(nextPage(user));
   }
 

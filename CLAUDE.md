@@ -29,13 +29,13 @@ Frontend (Next.js in frontend/src/app, backend on http://localhost:8000):
 - ONE step at a time. Before writing code, explain in 3–5 short lines: what this step does and WHY we need it (simple words, an example or analogy).
 - Then write the code. After the code, explain each important line: what it does and why.
 - Then run the verification yourself (docker compose commands, curl, or tell me what to click in the browser) and show me the result.
-- Then make a git commit for that step with a clear message.
+- Never run `git commit` or `git push`: I commit and push myself. At the end of each step, give me only a commit message (Conventional Commits, e.g. `feat(employees): ...`) that I can use.
 - Then STOP, ask me one short question to check I understood, and wait for my answer before the next step.
 - Explain in Moroccan Darija (Latin letters), keep technical words in English or French. Short sentences. If I say "ma fhemtsh", explain again differently with a new example.
 - Never change the architecture decisions in CLAUDE.md without asking me.
 
 ## Module "Gestion des collaborateurs" (app `employees`): rules for the next steps
-- Reference lists (`employees/models.py`): Pole, Entity (→ Pole), Direction (→ Entity), Department (→ Direction), Position (→ Department), Division, Assignment, Category, ContractType, TempAgency, Grade, Region, CostCenter (+ code), Bank. All inherit the abstract `ReferenceItem` (name + is_active). Names are unique case-insensitively; Direction names are unique per entity, Department names per direction and Position names per department. Values are never deleted, only deactivated.
+- Reference lists (`employees/models.py`): Pole, Entity (→ Pole), Direction (→ Entity), Department (→ Direction), Position (→ Department), Division, Assignment, Category, ContractType, TempAgency, Grade, Region, CostCenter (+ code), Bank. All inherit the abstract `ReferenceItem` (name + is_active). Names are unique case-insensitively; Direction names are unique per entity, Department names per direction and Position names per department. A value used by an employee is never deleted, only deactivated; a value nobody uses yet (e.g. a wrong proposal) can be deleted.
 - The initial values (banks, regions, categories, directions → services → postes) are a standard PROPOSAL until HR validates them; `python manage.py export_lists` exports every list to Excel (one sheet per list) for HR.
 - Employee (step 2) stores only `department` + `position`, and the position must belong to that same department. Direction, entité and pôle are never stored: they come from `department.direction.entity.pole`.
 - Employee form (frontend): cascading lists Entité → Direction → Service → Poste; each list filters the next one. HR only sees the entités of their pôle (Admin RH: all).
@@ -45,5 +45,5 @@ Frontend (Next.js in frontend/src/app, backend on http://localhost:8000):
 - Annuaire (directory): every role sees both pôles, but only public fields (nom, prénom, poste, service, direction, email pro, téléphone).
 - TempAgency is shown only when ContractType = Intérimaire.
 - Lists: every logged-in user can read them; only Admin RH can add, edit or deactivate (API in a next step, and a "+ Ajouter" button inside the dropdown in the frontend).
-
+ 
 Start with step 1.

@@ -8,7 +8,7 @@ from django.test import TestCase
 from openpyxl import load_workbook
 
 from .models import (
-    Assignment, Bank, ContractType, Department, Direction, Entity, Pole, Position, Region, TempAgency,
+    Assignment, Bank, Category, ContractType, Department, Direction, Entity, Pole, Position, Region, TempAgency,
 )
 
 
@@ -31,6 +31,12 @@ class InitialValuesTests(TestCase):
         self.assertEqual(TempAgency.objects.count(), 3)
         self.assertEqual(Region.objects.count(), 12)
         self.assertTrue(Bank.objects.filter(name="Umnia Bank").exists())
+
+    def test_only_three_categories(self):
+        self.assertEqual(
+            sorted(Category.objects.values_list("name", flat=True)),
+            ["Cadre", "Employé", "Ouvrier"],
+        )
 
     def test_organisation_depends_on_the_pole(self):
         challenge = Entity.objects.get(name="Challenge")  # SBD: distribution

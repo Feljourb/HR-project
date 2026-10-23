@@ -274,6 +274,49 @@ class RolePermissionTests(AuthTestCase):
         self.assertEqual(self.client.get("/test/hr/").status_code, 401)
 
 
+@override_settings(ROOT_URLCONF="accounts.tests")
+class PasswordChangePolicyTests(AuthTestCase):
+    """IT decides in Réglages de sécurité who must change a temporary password."""
+
+    def setUp(self):
+        super().setUp()
+        SecuritySettings.load()  # the row with its defaults
+
+    def login_flagged(self, role):
+        """A user with a temporary password logs in. Returns the must_change_password sent to the frontend."""
+        self.create_user(f"user.{role.lower()}", role=role, must_change_password=True)
+        return self.login(f"user.{role.lower()}").data["must_change_password"]
+
+    def test_required_by_default_for_every_role(self):
+        for role in User.Role:
+            with self.subTest(role=role):
+                self.assertTrue(self.login_flagged(role))
+                self.assertTrue(self.client.get(reverse("accounts:me")).data["must_change_password"])
+                self.assertEqual(self.client.get("/test/default/").status_code, 403)
+
+    def test_rule_turned_off_for_one_role(self):
+        SecuritySettings.objects.update(password_change_collaborator=False)
+
+        self.assertFalse(self.login_flagged(User.Role.COLLABORATOR))
+        self.assertEqual(self.client.get("/test/default/").status_code, 200)
+
+        self.assertTrue(self.login_flagged(User.Role.HR))  # other roles still blocked
+        self.assertEqual(self.client.get("/test/default/").status_code, 403)
+
+    def test_rule_turned_off_for_everyone(self):
+        SecuritySettings.objects.update(password_change_enabled=False)
+        self.assertFalse(self.login_flagged(User.Role.HR_ADMIN))
+        self.assertEqual(self.client.get("/test/default/").status_code, 200)
+
+    def test_superuser_not_required_by_default(self):
+        User.objects.create_superuser("it.admin", password=PASSWORD, must_change_password=True)
+        self.assertFalse(self.login("it.admin").data["must_change_password"])
+        self.assertEqual(self.client.get("/test/default/").status_code, 200)
+
+        SecuritySettings.objects.update(password_change_superuser=True)
+        self.assertEqual(self.client.get("/test/default/").status_code, 403)
+
+
 # --- MFA ----------------------------------------------------------------------
 
 @override_settings(ROOT_URLCONF="accounts.tests")

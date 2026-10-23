@@ -10,3 +10,4 @@ backend/exports/
 # Python
 __pycache__/
 *.pyc
+.claude/settings.local.json

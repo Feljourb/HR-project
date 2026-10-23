@@ -12,7 +12,7 @@ class AccountReady(BasePermission):
 
     def has_permission(self, request, view):
         user = request.user
-        if not (user and user.is_authenticated) or user.must_change_password:
+        if not (user and user.is_authenticated) or user.password_change_required():
             return False
         if mfa.setup_required(user):
             self.message = "You must set up two-factor authentication first."

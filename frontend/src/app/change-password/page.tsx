@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { AuthCard, FormErrors, PasswordInput, SubmitButton, labelClass, linkClass } from "@/components/auth-card";
 import { apiFetch } from "@/lib/api";
@@ -14,12 +14,16 @@ export default function ChangePasswordPage() {
   const [loading, setLoading] = useState(false);
 
   // Next.js keeps this page alive (hidden): never leave passwords in it.
-  function leave(path: string) {
+  // The cleanup runs once it is hidden, so the form stays as is while the next page loads.
+  useEffect(() => () => {
     setCurrentPassword("");
     setNewPassword("");
     setConfirmPassword("");
     setErrors([]);
     setLoading(false);
+  }, []);
+
+  function leave(path: string) {
     router.replace(path);
   }
 

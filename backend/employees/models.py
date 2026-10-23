@@ -148,3 +148,8 @@ class CostCenter(ReferenceItem):
 class Bank(ReferenceItem):
     class Meta(ReferenceItem.Meta):
         verbose_name = "Banque"
+
+# from django.contrib import settings.AUTH_USER_MODEL
+
+# class employees(models.Model):
+#     pass
