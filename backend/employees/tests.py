@@ -4,11 +4,14 @@ import tempfile
 from pathlib import Path
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.core.management import call_command
 from django.test import TestCase
+from django.urls import reverse
 from openpyxl import load_workbook
 
+from . import services
 from .models import (
     Assignment, Bank, Category, ContractType, Department, Direction, Employee, Entity, Pole, Position, Region,
     TempAgency,
@@ -92,19 +95,18 @@ class ExportListsTests(TestCase):
         self.assertEqual(positions.max_row - 1, Position.objects.count())
 
 
-class EmployeeTests(TestCase):
+class EmployeeTestCase(TestCase):
     def setUp(self):
         # "Ventes" of Challenge (pôle SBD), from the data migration.
         self.sales = Department.objects.get(name="Ventes", direction__entity__name="Challenge")
         self.salesman = self.sales.positions.get(name="Commercial terrain")
 
-    def make_employee(self, username, cin, save=True, **fields):
-        """A valid employee; `fields` replaces any value."""
+    def fiche(self, cin, **fields):
+        """A valid fiche, not saved and without account; `fields` replaces any value."""
         values = {
-            "user": get_user_model().objects.create_user(username),
             "title": Employee.Title.MR, "last_name": "Alami", "first_name": "Ahmed",
             "birth_date": datetime.date(1990, 5, 1), "cin": cin, "city": "Casablanca",
-            "address": "12 rue Atlas", "phone": "0600000000", "professional_email": f"{username}@sbd.ma",
+            "address": "12 rue Atlas", "phone": "0600000000", "professional_email": "ahmed.alami@sbd.ma",
             "marital_status": Employee.MaritalStatus.SINGLE,
             "department": self.sales, "position": self.salesman,
             "assignment": Assignment.objects.get(name="Field"), "category": Category.objects.get(name="Employé"),
@@ -112,12 +114,17 @@ class EmployeeTests(TestCase):
             "work_location": "Casablanca", "hire_date": datetime.date(2026, 1, 5),
             **fields,
         }
-        employee = Employee(**values)
+        return Employee(**values)
+
+    def make_employee(self, username, cin, **fields):
+        """A valid employee saved with its own account."""
+        employee = self.fiche(cin, user=get_user_model().objects.create_user(username), **fields)
         employee.full_clean()
-        if save:
-            employee.save()
+        employee.save()
         return employee
 
+
+class EmployeeTests(EmployeeTestCase):
     def test_u_number_is_generated_in_order_and_never_changes(self):
         first = self.make_employee("a.alami", "AB111111")
         second = self.make_employee("b.bennani", "AB222222")
@@ -176,3 +183,64 @@ class EmployeeTests(TestCase):
         with self.assertRaises(ValidationError) as error:
             boss.full_clean()
         self.assertIn("manager", error.exception.message_dict)
+
+
+class AccountCreationTests(EmployeeTestCase):
+    """Step 3: the login account is created from the fiche."""
+
+    def test_username_is_firstname_dot_lastname_without_accents_or_spaces(self):
+        self.assertEqual(services.make_username("Ahmed", "Alami"), "ahmed.alami")
+        self.assertEqual(services.make_username("Fatima Ezzahra", "El Alami"), "fatima-ezzahra.el-alami")
+        self.assertEqual(services.make_username("Aïcha", "Aït Taleb"), "aicha.ait-taleb")
+
+    def test_same_name_gets_a_number(self):
+        services.create_with_account(self.fiche("AB111111"))
+        services.create_with_account(self.fiche("AB222222"))
+        third = services.create_with_account(self.fiche("AB333333"))
+
+        usernames = get_user_model().objects.filter(username__startswith="ahmed.alami").values_list("username", flat=True)
+        self.assertEqual(sorted(usernames), ["ahmed.alami", "ahmed.alami2", "ahmed.alami3"])
+        self.assertEqual(third.user.username, "ahmed.alami3")
+
+    def test_account_has_cin_as_temporary_password(self):
+        employee = services.create_with_account(self.fiche("ab123456"))
+        user = employee.user
+
+        self.assertTrue(user.check_password("AB123456"))  # the CIN, stored in capitals
+        self.assertTrue(user.must_change_password)
+        self.assertEqual(user.role, get_user_model().Role.COLLABORATOR)
+        self.assertEqual(user.email, "ahmed.alami@sbd.ma")
+        self.assertEqual(employee.u_number, f"U{employee.pk:06d}")
+
+    def test_wrong_fiche_creates_no_account(self):
+        warehouse_job = Position.objects.get(name="Magasinier", department__direction__entity__name="Challenge")
+        with self.assertRaises(ValidationError):
+            services.create_with_account(self.fiche("AB111111", position=warehouse_job))
+        self.assertFalse(get_user_model().objects.filter(username="ahmed.alami").exists())
+
+    def test_new_password_must_not_contain_the_cin(self):
+        user = services.create_with_account(self.fiche("AB123456")).user
+        for password in ("AB123456", "ab123456", "Sbd-ab123456!"):
+            with self.subTest(password=password), self.assertRaises(ValidationError):
+                validate_password(password, user=user)
+        validate_password("Sbd-Nouveau-2026!", user=user)  # OK
+
+    def test_admin_add_creates_the_account(self):
+        it = get_user_model().objects.create_superuser("it.admin", password="Strong-Pass-2026!")
+        self.client.force_login(it)
+        fiche = self.fiche("CD987654")
+        data = {
+            "status": fiche.status, "title": fiche.title, "last_name": "Bennani", "first_name": "Sara",
+            "birth_date": "1995-03-10", "cin": "cd987654", "marital_status": fiche.marital_status,
+            "phone": fiche.phone, "professional_email": "sara.bennani@sbd.ma", "address": fiche.address,
+            "city": fiche.city, "country": fiche.country, "department": self.sales.pk, "position": self.salesman.pk,
+            "contract_type": fiche.contract_type.pk, "category": fiche.category.pk,
+            "assignment": fiche.assignment.pk, "region": fiche.region.pk, "work_location": fiche.work_location,
+            "hire_date": "2026-01-05", "initial_leave_balance": "0",
+        }
+        response = self.client.post(reverse("admin:employees_employee_add"), data)
+
+        self.assertEqual(response.status_code, 302)  # saved, back to the list
+        employee = Employee.objects.get(cin="CD987654")
+        self.assertEqual(employee.user.username, "sara.bennani")
+        self.assertTrue(employee.user.check_password("CD987654"))

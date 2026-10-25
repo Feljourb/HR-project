@@ -45,10 +45,17 @@ class SecuritySettingsAdmin(admin.ModelAdmin):
             "mfa_required_collaborator", "mfa_required_superuser",
         )}),
         ("Changement de mot de passe", {"fields": ("password_change_enabled",)}),
-        ("Changement obligatoire pour", {"fields": (
-            "password_change_hr_admin", "password_change_hr", "password_change_manager",
-            "password_change_collaborator", "password_change_superuser",
-        )}),
+        ("Changement obligatoire pour", {
+            "description": (
+                "⚠️ Un nouveau compte a son CIN comme mot de passe temporaire. "
+                "Si une case est décochée (ou le changement désactivé), les comptes de ce rôle "
+                "peuvent garder leur CIN comme mot de passe."
+            ),
+            "fields": (
+                "password_change_hr_admin", "password_change_hr", "password_change_manager",
+                "password_change_collaborator", "password_change_superuser",
+            ),
+        }),
     )
 
     # Only IT (superusers) may see or change it. There is exactly one row.

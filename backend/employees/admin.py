@@ -1,5 +1,6 @@
 from django.contrib import admin
 
+from . import services
 from .models import (
     Assignment, Bank, Category, ContractType, CostCenter, Department, Direction, Division,
     Employee, Entity, Grade, Pole, Position, Region, TempAgency,
@@ -61,7 +62,7 @@ class EmployeeAdmin(admin.ModelAdmin):
     list_select_related = ("position", "department")
     search_fields = ("last_name", "first_name", "cin", "u_number")
     list_filter = ("status", "department__direction__entity", "contract_type")
-    autocomplete_fields = ("user", "manager")  # search instead of a huge dropdown
+    autocomplete_fields = ("manager",)  # search instead of a huge dropdown
     readonly_fields = ("u_number", "direction", "entity", "pole", "n_plus_2", "n_plus_3")
     fieldsets = (
         (None, {"fields": ("user", "u_number", "status")}),
@@ -79,6 +80,26 @@ class EmployeeAdmin(admin.ModelAdmin):
             "hire_date", "trial_end_date", "onboarding_end_date", "departure_date", "initial_leave_balance",
         )}),
     )
+
+    # Add: no "Compte" field, the account is created from the fiche. Edit: the account is shown, not changed.
+    def get_fieldsets(self, request, obj=None):
+        if obj:
+            return self.fieldsets
+        first, *others = self.fieldsets
+        return ((None, {"fields": ("status",)}), *others)
+
+    def get_readonly_fields(self, request, obj=None):
+        return (*self.readonly_fields, "user") if obj else self.readonly_fields
+
+    def save_model(self, request, obj, form, change):
+        if change:
+            return super().save_model(request, obj, form, change)
+        services.create_with_account(obj)
+        self.message_user(
+            request,
+            f"Compte créé : {obj.user.username} (mot de passe temporaire : CIN {obj.cin}). "
+            f"Matricule : {obj.u_number}.",
+        )
 
     # "Ventes" or "Direction" exist in many entities: show the full path in the dropdowns.
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
