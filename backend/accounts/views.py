@@ -4,7 +4,6 @@ from django.utils import timezone
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
 
 from rest_framework import status
 from rest_framework.response import Response
@@ -14,6 +13,7 @@ from rest_framework.throttling import ScopedRateThrottle
 
 from . import mfa
 from .serializers import ChangePasswordSerializer
+from .services import logout_everywhere
 
 
 def set_secure_cookie(response, name, value, max_age):
@@ -115,8 +115,7 @@ class ChangePasswordView(APIView):
             user.save(update_fields=["password", "must_change_password"])
 
             # Kick out every other session: all existing refresh tokens die.
-            for token in OutstandingToken.objects.filter(user=user):
-                BlacklistedToken.objects.get_or_create(token=token)
+            logout_everywhere(user)
 
         # Keep the current session alive with a fresh token pair.
         refresh = RefreshToken.for_user(user)

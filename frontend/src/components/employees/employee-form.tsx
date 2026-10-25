@@ -22,6 +22,7 @@ import {
 import { AddValueDialog, type AddRequest } from './add-value-dialog'
 import { FormSection, SelectField, TextField } from './form-fields'
 import { ManagerPicker } from './manager-picker'
+import { ResetPasswordButton } from './reset-password-button'
 import { useList } from './use-list'
 
 type Values = Record<FormField, string>
@@ -260,6 +261,8 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
           {isEdit && fiche ? <><span className="font-mono">{fiche.u_number}</span> · {fiche.username}</> : 'The login account (firstname.lastname, CIN as temporary password) is created automatically.'}
         </p>
       </div>
+      {/* Seulement si Django l'autorise pour ce compte (RH de son pôle, Admin RH, IT). */}
+      {fiche?.can_reset_password && <ResetPasswordButton employeeId={fiche.id} name={`${values.first_name} ${values.last_name.toUpperCase()}`} />}
     </div>
 
     {/* Les erreurs qui ne concernent aucun champ précis. */}

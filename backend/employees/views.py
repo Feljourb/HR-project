@@ -13,18 +13,20 @@ COLLABORATEURS : /api/employees/
   POST  /api/employees/        -> RH : créer un dossier (+ son compte prénom.nom / CIN)
   GET   /api/employees/7/      -> RH : un dossier complet
   PATCH /api/employees/7/      -> RH : modifier un dossier
+  POST  /api/employees/7/reset-password/ -> RH : mot de passe temporaire (mot de passe oublié)
   GET   /api/employees/me/     -> tout le monde : MON dossier
   PATCH /api/employees/me/     -> tout le monde : modifier MES infos personnelles
 """
 from django.db.models import Q
 from rest_framework import viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import SAFE_METHODS
 from rest_framework.response import Response
 
 from accounts.permissions import AccountReady, IsHR, IsHRAdmin
+from accounts.services import can_reset_password, reset_password as reset_account_password
 
 from .models import (
     Assignment, Bank, Category, ContractType, CostCenter, Department, Direction, Division,
@@ -183,6 +185,25 @@ class EmployeeViewSet(viewsets.ModelViewSet):
             if entity := id_param(params, "entity"):
                 queryset = queryset.filter(department__direction__entity=entity)
         return queryset
+
+    # detail=True : adresse avec id (/api/employees/7/reset-password/).
+    @action(detail=True, methods=["post"], url_path="reset-password")
+    def reset_password(self, request, pk=None):
+        """Le collaborateur a oublié son mot de passe : on lui en donne un temporaire.
+
+        - get_object() utilise get_queryset() : un RH ne trouve que son pôle (sinon 404).
+        - can_reset_password : un RH ne réinitialise pas un RH / Admin RH, personne sauf l'IT
+          ne touche un compte IT (403).
+        - Le mot de passe est renvoyé UNE fois : le RH le transmet, la base n'en garde que le hash.
+        """
+        employee = self.get_object()
+        if not can_reset_password(request.user, employee.user):
+            raise PermissionDenied("Vous ne pouvez pas réinitialiser le mot de passe de ce compte.")
+        password = reset_account_password(employee.user)
+        response = Response({"username": employee.user.username, "temporary_password": password})
+        # no-store : le navigateur (ou un proxy) ne doit garder aucune copie de cette réponse.
+        response["Cache-Control"] = "no-store"
+        return response
 
     # detail=False : adresse sans id (/api/employees/me/). AccountReady : tous les rôles,
     # pas seulement les RH (chaque collaborateur voit son propre dossier).

@@ -41,6 +41,7 @@ export type EmployeeFiche = {
   entity: number;
   pole: number;
   manager_label: string | null;
+  can_reset_password: boolean;  // Django dit si ce RH peut réinitialiser le mot de passe de ce compte
 } & Record<FormField, string | number | null>;
 
 // Les champs que le formulaire envoie à l'API (les noms des champs du modèle Employee).

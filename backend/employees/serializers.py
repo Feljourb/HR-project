@@ -8,6 +8,8 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import NON_FIELD_ERRORS, ValidationError as DjangoValidationError
 from rest_framework import serializers
 
+from accounts.services import can_reset_password
+
 from . import services
 from .models import Employee
 
@@ -94,6 +96,9 @@ class EmployeeSerializer(serializers.ModelSerializer):
     # Le texte du manager ("U000002 - TEST Manager") pour l'afficher dans le formulaire,
     # même si le RH ne peut pas ouvrir son dossier (manager d'un autre pôle).
     manager_label = serializers.StringRelatedField(source="manager", read_only=True)
+    # Le frontend affiche le bouton "Réinitialiser le mot de passe" seulement si c'est vrai.
+    # Même règle que l'API (accounts.services.can_reset_password) : jamais deux règles différentes.
+    can_reset_password = serializers.SerializerMethodField()
     # Écriture seule, et seulement à la création : le rôle du compte créé (Collaborateur par défaut).
     role = serializers.ChoiceField(choices=User.Role.choices, write_only=True, required=False)
 
@@ -101,6 +106,10 @@ class EmployeeSerializer(serializers.ModelSerializer):
         model = Employee
         exclude = ["user"]  # le compte est créé automatiquement, jamais choisi
         # u_number n'est pas modifiable (editable=False) : DRF le met en lecture seule tout seul.
+
+    def get_can_reset_password(self, employee):
+        request = self.context.get("request")
+        return bool(request and can_reset_password(request.user, employee.user))
 
     def validate_role(self, role):
         # Sans cette règle, un RH pourrait créer un compte Admin RH... et se donner tous les droits.

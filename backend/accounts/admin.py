@@ -1,6 +1,6 @@
 from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin
-from . import mfa
+from . import mfa, services
 from .models import SecuritySettings, User
 
 
@@ -14,10 +14,26 @@ def reset_mfa(modeladmin, request, queryset):
     modeladmin.message_user(request, f"MFA réinitialisé pour {queryset.count()} utilisateur(s).")
 
 
+@admin.action(description="Réinitialiser le mot de passe (mot de passe oublié)")
+def reset_password(modeladmin, request, queryset):
+    """Action de l'IT : un mot de passe temporaire aléatoire par compte, affiché une seule fois
+    dans le message en haut de la page. Le compte devra le changer à la prochaine connexion."""
+    if not request.user.is_superuser:
+        modeladmin.message_user(request, "Réservé à l'IT.", messages.ERROR)
+        return
+    for user in queryset:
+        password = services.reset_password(user)
+        modeladmin.message_user(
+            request,
+            f"{user.username} : mot de passe temporaire {password} (à changer à la prochaine connexion).",
+            messages.WARNING,  # en jaune : à noter maintenant, il ne sera plus affiché
+        )
+
+
 @admin.register(User)
 class CustomUserAdmin(UserAdmin):
     list_display = ("username", "role", "is_active", "mfa_active")
-    actions = [reset_mfa]
+    actions = [reset_mfa, reset_password]
 
     @admin.display(boolean=True, description="MFA")
     def mfa_active(self, obj):

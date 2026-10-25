@@ -12,9 +12,8 @@ from django.conf import settings
 from django.core import signing
 from django.db import transaction
 from django.utils import timezone
-from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
-
 from .models import RecoveryCode, SecuritySettings, User
+from .services import logout_everywhere
 
 ISSUER = "SBD HR Portal"  # name shown in the authenticator app
 PENDING_MAX_AGE = 5 * 60  # seconds between the password and the code
@@ -158,5 +157,4 @@ def reset(user):
         user.mfa_last_step = None
         user.save(update_fields=["mfa_secret", "mfa_enabled_at", "mfa_last_step"])
         user.recovery_codes.all().delete()
-        for token in OutstandingToken.objects.filter(user=user):
-            BlacklistedToken.objects.get_or_create(token=token)
+        logout_everywhere(user)
