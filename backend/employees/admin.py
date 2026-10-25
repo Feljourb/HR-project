@@ -58,12 +58,20 @@ class CostCenterAdmin(ReferenceAdmin):
 
 @admin.register(Employee)
 class EmployeeAdmin(admin.ModelAdmin):
+    """Écran des collaborateurs dans /admin (outil de l'IT, pas l'interface des RH)."""
+
+    # Colonnes de la liste.
     list_display = ("u_number", "last_name", "first_name", "position", "department", "status")
+    # Charge poste et service dans la même requête SQL (sinon 1 requête par ligne).
     list_select_related = ("position", "department")
+    # Barre de recherche et filtres à droite.
     search_fields = ("last_name", "first_name", "cin", "u_number")
     list_filter = ("status", "department__direction__entity", "contract_type")
-    autocomplete_fields = ("manager",)  # search instead of a huge dropdown
+    # Le manager se cherche en tapant son nom, au lieu d'une liste déroulante énorme.
+    autocomplete_fields = ("manager",)
+    # Affichés mais pas modifiables : le matricule et les valeurs calculées (propriétés du modèle).
     readonly_fields = ("u_number", "direction", "entity", "pole", "n_plus_2", "n_plus_3")
+    # Le formulaire, découpé en blocs.
     fieldsets = (
         (None, {"fields": ("user", "u_number", "status")}),
         ("Identité", {"fields": (
@@ -81,28 +89,34 @@ class EmployeeAdmin(admin.ModelAdmin):
         )}),
     )
 
-    # Add: no "Compte" field, the account is created from the fiche. Edit: the account is shown, not changed.
     def get_fieldsets(self, request, obj=None):
+        """Ajout (obj est None) : pas de champ "Compte", il est créé à partir du dossier.
+        Modification : on garde tous les blocs (le compte est affiché en lecture seule)."""
         if obj:
             return self.fieldsets
-        first, *others = self.fieldsets
+        first, *others = self.fieldsets  # on remplace seulement le 1er bloc
         return ((None, {"fields": ("status",)}), *others)
 
     def get_readonly_fields(self, request, obj=None):
+        # En modification, le compte est visible mais ne peut pas être changé.
         return (*self.readonly_fields, "user") if obj else self.readonly_fields
 
     def save_model(self, request, obj, form, change):
-        if change:
+        """Appelé par l'admin au clic sur "Enregistrer"."""
+        if change:  # modification d'un dossier existant : enregistrement normal
             return super().save_model(request, obj, form, change)
+        # Nouveau dossier : on passe par le service (compte + dossier + matricule ensemble).
         services.create_with_account(obj)
+        # Message en haut de la page pour que l'IT/RH sache quoi transmettre au collaborateur.
         self.message_user(
             request,
             f"Compte créé : {obj.user.username} (mot de passe temporaire : CIN {obj.cin}). "
             f"Matricule : {obj.u_number}.",
         )
 
-    # "Ventes" or "Direction" exist in many entities: show the full path in the dropdowns.
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        """Des services comme "Ventes" ou "Direction" existent dans plusieurs entités :
+        dans les listes déroulantes, on affiche le chemin complet (Entité › Direction › Service › Poste)."""
         field = super().formfield_for_foreignkey(db_field, request, **kwargs)
         if db_field.name == "department":
             field.queryset = field.queryset.select_related("direction__entity").order_by(

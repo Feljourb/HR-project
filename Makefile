@@ -29,6 +29,9 @@ migrations:
 export-lists:
 	$(DC) exec $(AS_ME) backend python manage.py export_lists
 
+seed:
+	$(DC) exec backend python manage.py seed_test_fiches
+
 migrate:
 	$(DC) exec backend python manage.py migrate
 
@@ -44,4 +47,4 @@ test:
 clean:
 	$(DC) down -v --remove-orphans
 
-.PHONY: up down build restart logs ps startapp migrations export-lists migrate superuser shell test clean
+.PHONY: up down build restart logs ps startapp migrations export-lists seed migrate superuser shell test clean
