@@ -111,6 +111,16 @@ class EmployeesApiTests(EmployeeTestCase):
         self.assertTrue(user.check_password("CD987654"))
         self.assertEqual(user.role, User.Role.COLLABORATOR)
 
+    def test_create_like_the_frontend_form(self):
+        """Le formulaire envoie tous les champs : les vides en null, les ids en texte."""
+        self.login_hr_sbd()
+        empty = dict.fromkeys(["temp_agency", "grade", "division", "cost_center", "manager",
+                               "trial_end_date", "onboarding_end_date", "departure_date"])
+        payload = self.payload("CD987654", country="Maroc", status="ACTIVE", initial_leave_balance="0",
+                               role="COLLABORATOR", department=str(self.sales.pk), position=str(self.salesman.pk), **empty)
+        response = self.client.post(LIST_URL, payload, format="json")
+        self.assertEqual(response.status_code, 201, response.json())
+
     def test_hr_cannot_create_in_the_other_pole(self):
         self.login_hr_sbd()
         response = self.client.post(
@@ -146,6 +156,14 @@ class EmployeesApiTests(EmployeeTestCase):
         self.assertEqual(response.status_code, 400)
         self.sbd_employee.refresh_from_db()
         self.assertEqual(self.sbd_employee.department, self.sales)
+
+    def test_fiche_shows_the_manager_name(self):
+        self.login_hr_sbd()
+        self.sbd_employee.manager = self.riaya_employee  # manager d'un autre pôle
+        self.sbd_employee.save()
+        data = self.client.get(detail_url(self.sbd_employee)).json()
+        self.assertEqual(data["manager"], self.riaya_employee.pk)
+        self.assertEqual(data["manager_label"], str(self.riaya_employee))
 
     def test_no_delete(self):
         self.login_as(User.Role.HR_ADMIN)

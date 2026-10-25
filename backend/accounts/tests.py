@@ -68,7 +68,8 @@ class LoginTests(AuthTestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
             response.data,
-            {"username": "ali.test", "role": "HR", "must_change_password": False, "mfa_setup_required": False},
+            {"username": "ali.test", "role": "HR", "is_superuser": False,
+             "must_change_password": False, "mfa_setup_required": False},
         )
         for name in ("access_token", "refresh_token"):
             self.assertTrue(response.cookies[name].value)
@@ -96,7 +97,8 @@ class MeTests(AuthTestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
             response.data,
-            {"username": "ali.test", "role": "MANAGER", "must_change_password": False, "mfa_setup_required": False},
+            {"username": "ali.test", "role": "MANAGER", "is_superuser": False,
+             "must_change_password": False, "mfa_setup_required": False},
         )
 
     def test_me_without_cookie_is_401(self):
@@ -318,7 +320,9 @@ class PasswordChangePolicyTests(AuthTestCase):
 
     def test_superuser_not_required_by_default(self):
         User.objects.create_superuser("it.admin", password=PASSWORD, must_change_password=True)
-        self.assertFalse(self.login("it.admin").data["must_change_password"])
+        data = self.login("it.admin").data
+        self.assertTrue(data["is_superuser"])  # the frontend shows IT every page
+        self.assertFalse(data["must_change_password"])
         self.assertEqual(self.client.get("/test/default/").status_code, 200)
 
         SecuritySettings.objects.update(password_change_superuser=True)

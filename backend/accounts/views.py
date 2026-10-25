@@ -30,6 +30,7 @@ def user_info(user):
     return {
         "username": user.username,
         "role": user.role,
+        "is_superuser": user.is_superuser,  # IT: the frontend shows every page (the API checks too)
         "must_change_password": user.password_change_required(),
         "mfa_setup_required": mfa.setup_required(user),
     }

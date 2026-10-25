@@ -91,6 +91,9 @@ class EmployeeSerializer(serializers.ModelSerializer):
     pole = serializers.PrimaryKeyRelatedField(read_only=True)
     n_plus_2 = serializers.PrimaryKeyRelatedField(read_only=True)
     n_plus_3 = serializers.PrimaryKeyRelatedField(read_only=True)
+    # Le texte du manager ("U000002 - TEST Manager") pour l'afficher dans le formulaire,
+    # même si le RH ne peut pas ouvrir son dossier (manager d'un autre pôle).
+    manager_label = serializers.StringRelatedField(source="manager", read_only=True)
     # Écriture seule, et seulement à la création : le rôle du compte créé (Collaborateur par défaut).
     role = serializers.ChoiceField(choices=User.Role.choices, write_only=True, required=False)
 

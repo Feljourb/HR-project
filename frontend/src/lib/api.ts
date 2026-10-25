@@ -4,6 +4,8 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 export type Me = {
   username: string;
   role: string;
+  is_superuser: boolean; // IT
+
   must_change_password: boolean;
   mfa_setup_required: boolean;
 };
@@ -13,6 +15,29 @@ export function nextPage(user: Me) {
   if (user.must_change_password) return "/change-password";
   if (user.mfa_setup_required) return "/mfa-setup";
   return "/";
+}
+
+// Libellé affiché pour chaque rôle (le backend envoie la clé, ex. "HR_ADMIN").
+const ROLE_LABELS: Record<string, string> = {
+  HR_ADMIN: "Admin RH",
+  HR: "RH",
+  MANAGER: "Manager",
+  COLLABORATOR: "Collaborateur",
+};
+
+export function roleLabel(role: string) {
+  return ROLE_LABELS[role] ?? role;
+}
+
+// RH, Admin RH et IT : accès à la gestion des collaborateurs.
+// (Le backend vérifie aussi : cacher un lien n'est jamais une sécurité.)
+export function isHr(user: Me) {
+  return user.is_superuser || user.role === "HR" || user.role === "HR_ADMIN";
+}
+
+// Admin RH et IT : les deux pôles, et le droit de donner un rôle RH.
+export function seesBothPoles(user: Me) {
+  return user.is_superuser || user.role === "HR_ADMIN";
 }
 
 // A 401 from these endpoints does not mean "access token expired".
