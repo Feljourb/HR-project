@@ -12,6 +12,8 @@ import type { ReferenceItem } from '@/lib/employees'
  *
  * En cascade, tant que le parent n'est pas choisi (entityId = ''), la liste est vide
  * et aucune requête n'est envoyée.
+ *
+ * Renvoie { items, add } : `add` ajoute une valeur créée avec "+ Ajouter" (sans recharger).
  */
 export function useList(name: string, parentField?: string, parentValue?: string) {
   // La "clé" de la requête : '' (pas de filtre), 'entity=3' (filtre), ou null (parent pas choisi).
@@ -30,5 +32,13 @@ export function useList(name: string, parentField?: string, parentValue?: string
   }, [name, key])
 
   // On ne renvoie que la réponse qui correspond au parent actuel (jamais celle d'un ancien parent).
-  return key !== null && loaded?.key === key ? loaded.items : []
+  const items = key !== null && loaded?.key === key ? loaded.items : []
+
+  // Ajoute la valeur que l'Admin RH vient de créer, à sa place dans l'ordre alphabétique.
+  function add(item: ReferenceItem) {
+    if (key === null) return
+    setLoaded({ key, items: [...items, item].sort((a, b) => a.name.localeCompare(b.name, 'fr')) })
+  }
+
+  return { items, add }
 }

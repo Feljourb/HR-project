@@ -17,8 +17,9 @@ import { ArrowLeft, CheckCircle2, Loader2 } from 'lucide-react'
 import { apiFetch, seesBothPoles, type Me } from '@/lib/api'
 import {
   FORM_FIELDS, MARITAL_LABELS, STATUS_LABELS, TITLE_LABELS,
-  type EmployeeFiche, type FormField,
+  type EmployeeFiche, type FormField, type ReferenceItem,
 } from '@/lib/employees'
+import { AddValueDialog, type AddRequest } from './add-value-dialog'
 import { FormSection, SelectField, TextField } from './form-fields'
 import { ManagerPicker } from './manager-picker'
 import { useList } from './use-list'
@@ -67,6 +68,7 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
   const [loadError, setLoadError] = useState('')
 
   // --- Les listes déroulantes (la cascade suit les choix) ---
+  const poles = useList('poles')                                    // pour "+ Ajouter" une entité
   const entities = useList('entities')                              // un RH : seulement son pôle
   const directions = useList('directions', 'entity', entity)
   const departments = useList('departments', 'direction', direction)
@@ -81,8 +83,32 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
   const costCenters = useList('cost-centers')
 
   // L'agence d'intérim n'apparaît que pour un contrat "Intérimaire" (règle du modèle).
-  const contractName = contractTypes.find((item) => String(item.id) === values.contract_type)?.name ?? ''
+  const contractName = contractTypes.items.find((item) => String(item.id) === values.contract_type)?.name ?? ''
   const isInterim = contractName.toLowerCase() === 'intérimaire'
+
+  // --- "+ Ajouter…" : seulement Admin RH et IT (Django refuse les autres de toute façon) ---
+  const [addRequest, setAddRequest] = useState<AddRequest | null>(null)
+  const canAdd = seesBothPoles(me)
+
+  // Le nom d'une valeur déjà choisie (pour afficher "Dans : Challenge" dans le cadre).
+  const nameOf = (list: { items: ReferenceItem[] }, id: string) => list.items.find((item) => String(item.id) === id)?.name ?? ''
+
+  /**
+   * Prépare l'option "+ Ajouter…" d'une liste déroulante.
+   * À la création, la nouvelle valeur est ajoutée à la liste (list.add) puis choisie (select).
+   * Renvoie undefined pour un RH : l'option n'apparaît pas.
+   */
+  function adder(list: { add: (item: ReferenceItem) => void }, select: (id: string) => void,
+    request: Omit<AddRequest, 'onCreated'>) {
+    if (!canAdd) return undefined
+    return () => setAddRequest({
+      ...request,
+      onCreated: (item) => {
+        list.add(item)
+        select(String(item.id))
+      },
+    })
+  }
 
   // Modification : on charge le dossier, puis on remplit le formulaire.
   useEffect(() => {
@@ -119,6 +145,7 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
     setCreated(null)
     setFiche(null)
     setLoadError('')
+    setAddRequest(null)
   }
 
   // Change un champ, et efface son ancienne erreur.
@@ -219,7 +246,11 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
   }
 
   // --- Écran 4 : le formulaire ---
-  return <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+  // Le cadre "+ Ajouter" est EN DEHORS du <form> : un formulaire dans un formulaire
+  // est interdit en HTML (son bouton Enregistrer enverrait le grand formulaire).
+  return <>
+  <AddValueDialog request={addRequest} onClose={() => setAddRequest(null)} />
+  <form onSubmit={handleSubmit} className="flex flex-col gap-4">
     {/* En-tête : titre, et matricule / username en modification. */}
     <div className="flex flex-wrap items-center gap-3">
       <Link href="/employees" aria-label="Back to the list" className="rounded-lg p-2 text-slate-500 hover:bg-white hover:text-[#23355d]"><ArrowLeft className="size-4" /></Link>
@@ -250,22 +281,35 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
     </FormSection>
 
     <FormSection title="Organisation" description="Choose the entity, then the direction, the department and the position.">
-      <SelectField id="entity" label="Entity" required value={entity} onChange={changeEntity} options={entities} placeholder="Choose an entity" />
-      <SelectField id="direction" label="Direction" required value={direction} onChange={changeDirection} options={directions} placeholder={entity ? 'Choose a direction' : 'Choose an entity first'} disabled={!entity} />
-      <SelectField id="department" label="Department" required value={values.department} onChange={changeDepartment} options={departments} placeholder={direction ? 'Choose a department' : 'Choose a direction first'} disabled={!direction} error={error('department')} />
-      <SelectField id="position" label="Position" required value={values.position} onChange={(v) => set('position', v)} options={positions} placeholder={values.department ? 'Choose a position' : 'Choose a department first'} disabled={!values.department} error={error('position')} />
+      {/* Cascade : la valeur ajoutée va dans le parent déjà choisi (ex. une direction dans l'entité choisie). */}
+      <SelectField id="entity" label="Entity" required value={entity} onChange={changeEntity} options={entities.items} placeholder="Choose an entity"
+        onAdd={adder(entities, changeEntity, { list: 'entities', title: 'Entité', parentChoice: { field: 'pole', label: 'Pôle', options: poles.items } })} />
+      <SelectField id="direction" label="Direction" required value={direction} onChange={changeDirection} options={directions.items} placeholder={entity ? 'Choose a direction' : 'Choose an entity first'} disabled={!entity}
+        onAdd={adder(directions, changeDirection, { list: 'directions', title: 'Direction', parent: { field: 'entity', value: entity, label: nameOf(entities, entity) } })} />
+      <SelectField id="department" label="Department" required value={values.department} onChange={changeDepartment} options={departments.items} placeholder={direction ? 'Choose a department' : 'Choose a direction first'} disabled={!direction} error={error('department')}
+        onAdd={adder(departments, changeDepartment, { list: 'departments', title: 'Service', parent: { field: 'direction', value: direction, label: nameOf(directions, direction) } })} />
+      <SelectField id="position" label="Position" required value={values.position} onChange={(v) => set('position', v)} options={positions.items} placeholder={values.department ? 'Choose a position' : 'Choose a department first'} disabled={!values.department} error={error('position')}
+        onAdd={adder(positions, (v) => set('position', v), { list: 'positions', title: 'Poste', parent: { field: 'department', value: values.department, label: nameOf(departments, values.department) } })} />
     </FormSection>
 
     <FormSection title="Contract">
-      <SelectField id="contract_type" label="Contract type" required value={values.contract_type} onChange={(v) => set('contract_type', v)} options={contractTypes} error={error('contract_type')} />
-      {isInterim && <SelectField id="temp_agency" label="Temp agency" required value={values.temp_agency} onChange={(v) => set('temp_agency', v)} options={tempAgencies} error={error('temp_agency')} />}
-      <SelectField id="category" label="Category" required value={values.category} onChange={(v) => set('category', v)} options={categories} error={error('category')} />
-      <SelectField id="grade" label="Grade" value={values.grade} onChange={(v) => set('grade', v)} options={grades} placeholder="None" error={error('grade')} />
-      <SelectField id="division" label="Division" value={values.division} onChange={(v) => set('division', v)} options={divisions} placeholder="None" error={error('division')} />
-      <SelectField id="assignment" label="Assignment" required value={values.assignment} onChange={(v) => set('assignment', v)} options={assignments} error={error('assignment')} />
-      <SelectField id="region" label="Region" required value={values.region} onChange={(v) => set('region', v)} options={regions} error={error('region')} />
+      <SelectField id="contract_type" label="Contract type" required value={values.contract_type} onChange={(v) => set('contract_type', v)} options={contractTypes.items} error={error('contract_type')}
+        onAdd={adder(contractTypes, (v) => set('contract_type', v), { list: 'contract-types', title: 'Type de contrat' })} />
+      {isInterim && <SelectField id="temp_agency" label="Temp agency" required value={values.temp_agency} onChange={(v) => set('temp_agency', v)} options={tempAgencies.items} error={error('temp_agency')}
+        onAdd={adder(tempAgencies, (v) => set('temp_agency', v), { list: 'temp-agencies', title: "Agence d'intérim" })} />}
+      <SelectField id="category" label="Category" required value={values.category} onChange={(v) => set('category', v)} options={categories.items} error={error('category')}
+        onAdd={adder(categories, (v) => set('category', v), { list: 'categories', title: 'Catégorie' })} />
+      <SelectField id="grade" label="Grade" value={values.grade} onChange={(v) => set('grade', v)} options={grades.items} placeholder="None" error={error('grade')}
+        onAdd={adder(grades, (v) => set('grade', v), { list: 'grades', title: 'Grade' })} />
+      <SelectField id="division" label="Division" value={values.division} onChange={(v) => set('division', v)} options={divisions.items} placeholder="None" error={error('division')}
+        onAdd={adder(divisions, (v) => set('division', v), { list: 'divisions', title: 'Division' })} />
+      <SelectField id="assignment" label="Assignment" required value={values.assignment} onChange={(v) => set('assignment', v)} options={assignments.items} error={error('assignment')}
+        onAdd={adder(assignments, (v) => set('assignment', v), { list: 'assignments', title: 'Affectation' })} />
+      <SelectField id="region" label="Region" required value={values.region} onChange={(v) => set('region', v)} options={regions.items} error={error('region')}
+        onAdd={adder(regions, (v) => set('region', v), { list: 'regions', title: 'Région' })} />
       <TextField id="work_location" label="Work location" required value={values.work_location} onChange={(v) => set('work_location', v)} error={error('work_location')} placeholder="Casablanca" />
-      <SelectField id="cost_center" label="Cost center" value={values.cost_center} onChange={(v) => set('cost_center', v)} options={costCenters} placeholder="None" error={error('cost_center')} />
+      <SelectField id="cost_center" label="Cost center" value={values.cost_center} onChange={(v) => set('cost_center', v)} options={costCenters.items} placeholder="None" error={error('cost_center')}
+        onAdd={adder(costCenters, (v) => set('cost_center', v), { list: 'cost-centers', title: 'Centre de coût', withCode: true })} />
     </FormSection>
 
     <FormSection title="Hierarchy & dates">
@@ -291,4 +335,5 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
       </button>
     </div>
   </form>
+  </>
 }

@@ -51,25 +51,32 @@ export function TextField({ value, onChange, type = 'text', placeholder, ...fiel
   </Field>
 }
 
+// La valeur de l'option "+ Ajouter…" (ce n'est pas un vrai id).
+const ADD_OPTION = '__add__'
+
 type SelectFieldProps = Omit<FieldProps, 'children'> & {
   value: string
   onChange: (value: string) => void
   options: ReferenceItem[] | { id: string; name: string }[]
   placeholder?: string   // la première ligne vide, ex. "Choose a direction"
   disabled?: boolean
+  onAdd?: () => void     // si présent : une option "+ Ajouter…" à la fin (Admin RH / IT seulement)
 }
 
-export function SelectField({ value, onChange, options, placeholder = 'Choose...', disabled, ...field }: SelectFieldProps) {
+export function SelectField({ value, onChange, options, placeholder = 'Choose...', disabled, onAdd, ...field }: SelectFieldProps) {
   return <Field {...field}>
     <select
       id={field.id} value={value} required={field.required} disabled={disabled}
-      onChange={(e) => onChange(e.target.value)}
+      // "+ Ajouter…" ouvre le cadre, sans changer la valeur choisie
+      // (React remet tout seul l'ancienne valeur, car `value` n'a pas changé).
+      onChange={(e) => (e.target.value === ADD_OPTION ? onAdd?.() : onChange(e.target.value))}
       aria-invalid={field.error ? true : undefined}
       aria-describedby={field.error ? `${field.id}-error` : undefined}
       className={cn(controlClass, 'px-2.5')}
     >
       <option value="">{placeholder}</option>
       {options.map((option) => <option key={option.id} value={String(option.id)}>{option.name}</option>)}
+      {onAdd && <option value={ADD_OPTION}>+ Ajouter…</option>}
     </select>
   </Field>
 }
