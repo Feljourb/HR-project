@@ -29,6 +29,12 @@ export function roleLabel(role: string) {
   return ROLE_LABELS[role] ?? role;
 }
 
+// Le libellé affiché sous le nom de la personne connectée. Un superuser est l'IT, quel que soit
+// son champ "role" en base (souvent Collaborateur) : ses droits viennent de is_superuser.
+export function accountLabel(user: Me) {
+  return user.is_superuser ? "IT" : roleLabel(user.role);
+}
+
 // RH, Admin RH et IT : accès à la gestion des collaborateurs.
 // (Le backend vérifie aussi : cacher un lien n'est jamais une sécurité.)
 export function isHr(user: Me) {

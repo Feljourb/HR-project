@@ -190,7 +190,7 @@ type FilterSelectProps = {
 
 // Un filtre de la cascade (ex. "Entité"). Un composant à part : chaque filtre charge sa propre liste (useList).
 function FilterSelect({ level, parentField, parentValue, value, onChange }: FilterSelectProps) {
-  const { items } = useList(level.name, parentField, parentValue)
+  const { items } = useList(level.name, parentField ? { parent: { field: parentField, value: parentValue } } : {})
   return <SelectField id={`filter-${level.name}`} label={level.singular} value={value} options={items}
     placeholder={parentField && !parentValue ? 'Choose the level above first' : `Choose...`} disabled={Boolean(parentField && !parentValue)}
     onChange={(id) => onChange({ id, label: items.find((item) => String(item.id) === id)?.name ?? '' })} />

@@ -120,6 +120,19 @@ class ListsApiTests(EmployeeTestCase):
         response = self.client.post(url("departments"), {"name": "Ventes", "direction": other_direction.pk})
         self.assertEqual(response.status_code, 201)
 
+    def test_include_keeps_the_current_value_of_a_fiche(self):
+        """Modifier un dossier dont le poste a été désactivé : la liste le montre quand même."""
+        Position.objects.filter(pk=self.salesman.pk).update(is_active=False)
+        self.login_as(User.Role.COLLABORATOR)
+        params = {"department": self.sales.pk}
+        self.assertNotIn("Commercial terrain", self.names(self.client.get(url("positions"), params)))
+        response = self.client.get(url("positions"), {**params, "include": self.salesman.pk})
+        self.assertIn("Commercial terrain", self.names(response))
+        # Le filtre en cascade s'applique toujours : pas ce poste dans un autre service.
+        other = Department.objects.get(name="Production", direction__entity__name="Eureka")
+        response = self.client.get(url("positions"), {"department": other.pk, "include": self.salesman.pk})
+        self.assertNotIn("Commercial terrain", self.names(response))
+
     def test_a_used_value_is_never_deleted(self):
         self.make_employee("k.karim", "AB000001")  # utilise le poste "Commercial terrain"
         self.login_as(User.Role.HR_ADMIN)

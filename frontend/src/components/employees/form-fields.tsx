@@ -75,7 +75,10 @@ export function SelectField({ value, onChange, options, placeholder = 'Choose...
       className={cn(controlClass, 'px-2.5')}
     >
       <option value="">{placeholder}</option>
-      {options.map((option) => <option key={option.id} value={String(option.id)}>{option.name}</option>)}
+      {/* Une valeur désactivée (gardée car c'est celle du dossier) est signalée : à ne plus choisir. */}
+      {options.map((option) => <option key={option.id} value={String(option.id)}>
+        {option.name}{'is_active' in option && !option.is_active ? ' (inactive)' : ''}
+      </option>)}
       {onAdd && <option value={ADD_OPTION}>+ Ajouter…</option>}
     </select>
   </Field>

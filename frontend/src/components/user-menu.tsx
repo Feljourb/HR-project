@@ -11,7 +11,7 @@ import type { ReactNode } from 'react'
 import Link from 'next/link'
 import { Menu } from '@base-ui/react/menu'
 import { KeyRound, LogOut, UserRound } from 'lucide-react'
-import { roleLabel, type Me } from '@/lib/api'
+import { accountLabel, type Me } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
 // data-highlighted : l'option survolée à la souris ou choisie avec les flèches.
@@ -38,7 +38,7 @@ export function UserMenu({ me, displayName, onLogout, children, triggerClassName
         <Menu.Popup className="w-60 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg shadow-slate-900/10 outline-none">
           <div className="px-2.5 py-2">
             <p className="truncate text-sm font-semibold text-[#192646]">{displayName}</p>
-            <p className="truncate text-xs text-slate-500">{roleLabel(me.role)}</p>
+            <p className="truncate text-xs text-slate-500">{accountLabel(me)}</p>
           </div>
           <Menu.Separator className="my-1 h-px bg-slate-100" />
 

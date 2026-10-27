@@ -4,6 +4,7 @@ LISTES : une adresse par liste, ex. /api/employees/lists/positions/ :
   GET   .../positions/                  -> la liste (seulement les valeurs actives)
   GET   .../positions/?department=4     -> filtre en cascade : les postes du service 4
   GET   .../positions/?all=1            -> Admin RH : aussi les valeurs désactivées
+  GET   .../positions/?include=12       -> les actives + la valeur 12 (celle du dossier qu'on modifie)
   POST  .../positions/                  -> Admin RH : ajouter une valeur
   PATCH .../positions/12/               -> Admin RH : renommer, ou désactiver (is_active=false)
   DELETE .../positions/12/              -> Admin RH : supprimer une valeur que PERSONNE n'utilise
@@ -22,6 +23,7 @@ COLLABORATEURS : /api/employees/
   PATCH /api/employees/me/     -> tout le monde : modifier MES infos personnelles
 """
 from django.db.models import ProtectedError, Q
+from django.utils import timezone
 from django.utils.dateparse import parse_date
 from rest_framework import viewsets
 from rest_framework.decorators import action
@@ -33,14 +35,14 @@ from rest_framework.response import Response
 from accounts.permissions import AccountReady, IsHR, IsHRAdmin
 from accounts.services import can_reset_password, reset_password as reset_account_password
 
-from . import history
+from . import history, notifications
 from .models import (
     Assignment, Bank, Category, ContractType, CostCenter, Department, Direction, Division,
-    Employee, EmployeeHistory, Entity, Grade, Pole, Position, Region, TempAgency,
+    Employee, EmployeeHistory, Entity, Grade, Notification, Pole, Position, Region, TempAgency,
 )
 from .serializers import (
     AuditLogSerializer, DirectorySerializer, EmployeeListSerializer, EmployeeSerializer, HistorySerializer,
-    MyFicheSerializer, ReferenceSerializer,
+    MyFicheSerializer, NotificationSerializer, ReferenceSerializer,
 )
 from .services import limited_to_own_pole, sees_both_poles, user_pole
 
@@ -82,8 +84,12 @@ class ReferenceViewSet(viewsets.ModelViewSet):
         # 1. Dans la liste, seulement les valeurs actives : un formulaire ne doit pas
         #    proposer une valeur désactivée. ?all=1 montre tout, mais seulement pour
         #    Admin RH / IT (ils gèrent les listes et doivent pouvoir réactiver une valeur).
+        #    ?include=12 : la valeur 12 aussi, même désactivée. C'est la valeur ACTUELLE du dossier
+        #    qu'on modifie : sans elle, la liste déroulante ne pourrait pas l'afficher, et le RH
+        #    devrait en choisir une autre. (Le filtre en cascade et le pôle s'appliquent quand même.)
         if self.action == "list" and not (sees_both_poles(user) and params.get("all") == "1"):
-            queryset = queryset.filter(is_active=True)
+            include = id_param(params, "include")
+            queryset = queryset.filter(Q(is_active=True) | Q(pk=include)) if include else queryset.filter(is_active=True)
 
         # 2. Filtre en cascade : ?entity=3 -> seulement les directions de l'entité 3.
         value = id_param(params, self.parent_field) if self.parent_field else None
@@ -285,6 +291,45 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
+
+
+# --- Notifications (la cloche) -------------------------------------------------------
+
+class NotificationViewSet(viewsets.GenericViewSet):
+    """La cloche 🔔 : MES notifications. Chacun ne voit que les siennes (get_queryset).
+
+    GET  /api/employees/notifications/           -> {"unread": 2, "results": [les 20 dernières]}
+    POST /api/employees/notifications/5/read/     -> la notification 5 est lue
+    POST /api/employees/notifications/read-all/   -> toutes sont lues
+    Permission par défaut (connecté + compte prêt) : un collaborateur reçoit simplement une liste vide.
+    """
+
+    serializer_class = NotificationSerializer
+    lookup_value_regex = r"\d+"
+
+    def get_queryset(self):
+        return Notification.objects.filter(recipient=self.request.user).select_related("employee")
+
+    def list(self, request):
+        notifications.refresh_for(request.user)  # crée les nouvelles, enlève celles qui ne servent plus
+        queryset = self.get_queryset()
+        return Response({
+            "unread": queryset.filter(read_at__isnull=True).count(),
+            "results": self.get_serializer(queryset[:20], many=True).data,
+        })
+
+    @action(detail=True, methods=["post"])
+    def read(self, request, pk=None):
+        notification = self.get_object()  # la notification d'un autre : 404
+        if notification.read_at is None:
+            notification.read_at = timezone.now()
+            notification.save(update_fields=["read_at"])
+        return Response(self.get_serializer(notification).data)
+
+    @action(detail=False, methods=["post"], url_path="read-all")
+    def read_all(self, request):
+        self.get_queryset().filter(read_at__isnull=True).update(read_at=timezone.now())
+        return Response(status=204)
 
 
 # --- Annuaire ----------------------------------------------------------------------

@@ -15,15 +15,16 @@ import { useState, type FormEvent, type ReactNode } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
-  Bell, BookOpen, BriefcaseBusiness, Building2, CalendarDays, Check, ChevronDown, ChevronRight, ChevronsUpDown,
+  BookOpen, BriefcaseBusiness, Building2, CalendarDays, Check, ChevronDown, ChevronRight, ChevronsUpDown,
   CircleHelp, ClipboardCheck, FolderOpen, Headphones, LayoutDashboard, ListChecks, type LucideIcon,
   LogOut, Menu, Plane, ReceiptText, ScrollText, Search, ShieldCheck, UserRound, UserRoundCog, UsersRound, X,
 } from 'lucide-react'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { BrandLogo } from '@/components/brand-logo'
 import { Input } from '@/components/ui/input'
+import { NotificationBell } from '@/components/notification-bell'
 import { UserMenu } from '@/components/user-menu'
-import { isHr, roleLabel, seesBothPoles, type Me } from '@/lib/api'
+import { accountLabel, isHr, seesBothPoles, type Me } from '@/lib/api'
 
 type NavItem = {
   label: string
@@ -158,7 +159,7 @@ export function AppShell({ me, onLogout, active, breadcrumb, children }: AppShel
           <Avatar className="size-9 border border-blue-300/40"><AvatarFallback className="bg-blue-100 text-xs font-bold text-blue-800">{initials}</AvatarFallback></Avatar>
           <div className="min-w-0 flex-1">
             <p className="truncate text-xs font-semibold">{displayName}</p>
-            <p className="truncate text-[10px] text-slate-400">{roleLabel(me.role)}</p>
+            <p className="truncate text-[10px] text-slate-400">{accountLabel(me)}</p>
           </div>
           <ChevronsUpDown className="size-4 text-slate-400" />
         </UserMenu>
@@ -179,7 +180,8 @@ export function AppShell({ me, onLogout, active, breadcrumb, children }: AppShel
           <Input id="colleague-search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search colleagues by name, position or department..." className="h-9 border-slate-200 bg-slate-50 pl-10 text-xs shadow-none" />
         </form>
         <div className="hidden items-center gap-5 sm:flex">
-          <button aria-label="Notifications, 3 unread" className="relative rounded-lg p-2 text-slate-500 hover:bg-slate-100"><Bell className="size-[19px]" /><span className="absolute right-0.5 top-0.5 flex size-4 items-center justify-center rounded-full bg-[#23355d] text-[9px] font-bold text-white ring-2 ring-white">3</span></button>
+          {/* La cloche : les vraies notifications (fin de période d'essai...). */}
+          <NotificationBell />
           <button className="flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-[#23355d]"><CircleHelp className="size-4" /> Help</button>
           {/* L'avatar ouvre le menu du compte (profil, mot de passe, déconnexion). */}
           <UserMenu me={me} displayName={displayName} onLogout={onLogout}

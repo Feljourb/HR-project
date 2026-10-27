@@ -11,8 +11,8 @@ from rest_framework import serializers
 
 from accounts.services import can_change_role, can_give_role_to_new_account, can_reset_password
 
-from . import history, services
-from .models import Child, Employee, EmployeeHistory
+from . import history, notifications, services
+from .models import Child, Employee, EmployeeHistory, Notification
 
 User = get_user_model()
 
@@ -224,6 +224,24 @@ class AuditLogSerializer(HistorySerializer):
 
     class Meta(HistorySerializer.Meta):
         fields = [*HistorySerializer.Meta.fields, "employee", "employee_label"]
+
+
+class NotificationSerializer(serializers.ModelSerializer):
+    """Une notification de la cloche. Le texte est calculé aujourd'hui (voir notifications.message)."""
+
+    title = serializers.CharField(source="get_kind_display", read_only=True)
+    message = serializers.SerializerMethodField()
+    read = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Notification
+        fields = ["id", "kind", "title", "message", "employee", "due_date", "read", "created_at"]
+
+    def get_message(self, notification):
+        return notifications.message(notification)
+
+    def get_read(self, notification):
+        return notification.read_at is not None
 
 
 class DirectorySerializer(serializers.ModelSerializer):

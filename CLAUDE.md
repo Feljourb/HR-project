@@ -54,7 +54,7 @@ Done: reference lists, Employee, account created from the fiche, lists + employe
 - [x] D. Fields from the HR fiche (all optional): CNSS, CIMR, bank + RIB (24 digits), emergency contact (name, relationship, phone; the employee can edit it), marital status, children (first name + birth date; the count is computed).
 - [x] E. Status "Sorti": departure date required, account blocked.
 - [x] F. History (audit): who changed / reset what, and when; "History" tab in the fiche and an "Audit log" page for all fiches (+ change the account role from the fiche: RH Collaborateur <-> Manager, HR roles by Admin RH only, never your own role).
-- [ ] G. End of trial period: notify HR 10 days before (1 month for cadres).
+- [x] G. End of trial period: notify HR 10 days before (1 month for cadres), in-app bell only (no e-mail).
 - [ ] H. NOOR export (need the NOOR file format from HR).
 - [ ] I. HR validates the reference lists (send `make export-lists`).
 - [ ] J. Final review: the 5 security functions line by line, and the Django admin.

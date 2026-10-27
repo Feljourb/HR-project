@@ -85,20 +85,23 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
   const [loadError, setLoadError] = useState('')
 
   // --- Les listes déroulantes (la cascade suit les choix) ---
+  // include : en modification, la valeur ACTUELLE du dossier reste dans la liste même si elle a été
+  // désactivée depuis (affichée "(inactive)"). Sinon le RH devrait en choisir une autre pour enregistrer.
+  const kept = (name: 'entity' | 'direction' | FormField) => (fiche?.[name] == null ? undefined : String(fiche[name]))
   const poles = useList('poles')                                    // pour "+ Ajouter" une entité
-  const entities = useList('entities')                              // un RH : seulement son pôle
-  const directions = useList('directions', 'entity', entity)
-  const departments = useList('departments', 'direction', direction)
-  const positions = useList('positions', 'department', values.department)
-  const contractTypes = useList('contract-types')
-  const tempAgencies = useList('temp-agencies')
-  const categories = useList('categories')
-  const grades = useList('grades')
-  const divisions = useList('divisions')
-  const assignments = useList('assignments')
-  const regions = useList('regions')
-  const banks = useList('banks')
-  const costCenters = useList('cost-centers')
+  const entities = useList('entities', { include: kept('entity') }) // un RH : seulement son pôle
+  const directions = useList('directions', { parent: { field: 'entity', value: entity }, include: kept('direction') })
+  const departments = useList('departments', { parent: { field: 'direction', value: direction }, include: kept('department') })
+  const positions = useList('positions', { parent: { field: 'department', value: values.department }, include: kept('position') })
+  const contractTypes = useList('contract-types', { include: kept('contract_type') })
+  const tempAgencies = useList('temp-agencies', { include: kept('temp_agency') })
+  const categories = useList('categories', { include: kept('category') })
+  const grades = useList('grades', { include: kept('grade') })
+  const divisions = useList('divisions', { include: kept('division') })
+  const assignments = useList('assignments', { include: kept('assignment') })
+  const regions = useList('regions', { include: kept('region') })
+  const banks = useList('banks', { include: kept('bank') })
+  const costCenters = useList('cost-centers', { include: kept('cost_center') })
 
   // L'agence d'intérim n'apparaît que pour un contrat "Intérimaire" (règle du modèle).
   const contractName = contractTypes.items.find((item) => String(item.id) === values.contract_type)?.name ?? ''
@@ -403,7 +406,8 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
       <SelectField id="status" label="Status" required value={values.status} onChange={(v) => set('status', v)} options={STATUS_OPTIONS} error={error('status')}
         hint={isLeft ? 'Their account will be blocked when you save.' : undefined} />
       <TextField id="hire_date" label="Hire date" type="date" required value={values.hire_date} onChange={(v) => set('hire_date', v)} error={error('hire_date')} />
-      <TextField id="trial_end_date" label="End of trial period" type="date" value={values.trial_end_date} onChange={(v) => set('trial_end_date', v)} error={error('trial_end_date')} />
+      <TextField id="trial_end_date" label="End of trial period" type="date" value={values.trial_end_date}
+        hint="With the status Période d'essai, HR is notified 10 days before (1 month for a Cadre)." onChange={(v) => set('trial_end_date', v)} error={error('trial_end_date')} />
       <TextField id="onboarding_end_date" label="End of onboarding" type="date" value={values.onboarding_end_date} onChange={(v) => set('onboarding_end_date', v)} error={error('onboarding_end_date')} />
       <TextField id="departure_date" label="Departure date" type="date" required={isLeft} value={values.departure_date} onChange={(v) => set('departure_date', v)} error={error('departure_date')} />
       <TextField id="initial_leave_balance" label="Initial leave balance (days)" type="number" required value={values.initial_leave_balance} onChange={(v) => set('initial_leave_balance', v)} error={error('initial_leave_balance')} />

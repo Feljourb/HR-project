@@ -480,3 +480,36 @@ class EmployeeHistory(models.Model):
 
     def __str__(self):
         return f"{self.get_action_display()} - {self.employee} - {self.actor_name}"
+
+
+class Notification(models.Model):
+    """Une notification pour un RH : la cloche 🔔 en haut de l'écran (step G).
+
+    Créée par employees/notifications.py quand le RH ouvre la cloche (pas besoin de programme
+    qui tourne chaque nuit). Le texte n'est pas stocké : il est calculé à l'affichage
+    ("dans 3 jours" change chaque jour).
+    """
+
+    class Kind(models.TextChoices):
+        TRIAL_END = "TRIAL_END", "Fin de période d'essai"
+
+    recipient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notifications",
+                                  verbose_name="Destinataire")
+    employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name="+", verbose_name="Collaborateur")
+    kind = models.CharField("Type", max_length=20, choices=Kind.choices)
+    due_date = models.DateField("Date concernée")  # ex. la date de fin de la période d'essai
+    created_at = models.DateTimeField("Créée le", auto_now_add=True)
+    read_at = models.DateTimeField("Lue le", null=True, blank=True)  # vide = pas encore lue
+
+    class Meta:
+        verbose_name = "Notification"
+        ordering = ["-created_at", "-id"]
+        constraints = [
+            # Une seule notification par RH, par collaborateur et par date : jamais de doublon,
+            # même si la cloche est ouverte 50 fois.
+            models.UniqueConstraint(fields=["recipient", "employee", "kind", "due_date"],
+                                    name="employees_notification_unique"),
+        ]
+
+    def __str__(self):
+        return f"{self.get_kind_display()} - {self.employee} -> {self.recipient}"
