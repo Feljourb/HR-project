@@ -114,8 +114,11 @@ class EmployeesApiTests(EmployeeTestCase):
     def test_create_like_the_frontend_form(self):
         """Le formulaire envoie tous les champs : les vides en null, les ids en texte."""
         self.login_hr_sbd()
-        empty = dict.fromkeys(["temp_agency", "grade", "division", "cost_center", "manager",
+        empty = dict.fromkeys(["temp_agency", "grade", "division", "cost_center", "manager", "bank",
                                "trial_end_date", "onboarding_end_date", "departure_date"])
+        # Les textes optionnels vides arrivent en "" (pas null), et les enfants en liste.
+        empty.update(dict.fromkeys(["marital_status", "cnss_number", "cimr_number", "rib", "emergency_contact_name",
+                                    "emergency_contact_relationship", "emergency_contact_phone"], ""), children=[])
         payload = self.payload("CD987654", country="Maroc", status="ACTIVE", initial_leave_balance="0",
                                role="COLLABORATOR", department=str(self.sales.pk), position=str(self.salesman.pk), **empty)
         response = self.client.post(LIST_URL, payload, format="json")
@@ -177,6 +180,17 @@ class EmployeesApiTests(EmployeeTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["u_number"], self.sbd_employee.u_number)
 
+    def test_my_fiche_shows_names_not_ids(self):
+        """La page "Mon profil" affiche le texte reçu : pas de numéros à traduire."""
+        self.sbd_employee.manager = self.riaya_employee
+        self.sbd_employee.save()
+        self.client.force_authenticate(self.sbd_employee.user)
+        data = self.client.get(ME_URL).json()
+        self.assertEqual(data["position"], "Commercial terrain")
+        self.assertEqual(data["direction"], "Direction Commerciale")
+        self.assertEqual(data["entity"], "Challenge")
+        self.assertEqual(data["manager"], str(self.riaya_employee))
+
     def test_collaborator_only_changes_personal_fields(self):
         self.client.force_authenticate(self.sbd_employee.user)
         response = self.client.patch(ME_URL, {"phone": "0622222222", "last_name": "Pirate"}, format="json")
@@ -184,7 +198,7 @@ class EmployeesApiTests(EmployeeTestCase):
         self.assertEqual(response.status_code, 200)
         self.sbd_employee.refresh_from_db()
         self.assertEqual(self.sbd_employee.phone, "0622222222")  # champ personnel : changé
-        self.assertEqual(self.sbd_employee.last_name, "Alami")  # champ RH : ignoré
+        self.assertEqual(self.sbd_employee.last_name, "ALAMI")  # champ RH : ignoré (NOM stocké en majuscules)
 
     def test_me_without_fiche_is_404(self):
         self.login_as(User.Role.COLLABORATOR)

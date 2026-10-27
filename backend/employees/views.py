@@ -14,6 +14,7 @@ COLLABORATEURS : /api/employees/
   GET   /api/employees/7/      -> RH : un dossier complet
   PATCH /api/employees/7/      -> RH : modifier un dossier
   POST  /api/employees/7/reset-password/ -> RH : mot de passe temporaire (mot de passe oublié)
+  GET   /api/employees/directory/?search=karim&page=1 -> tout le monde : l'annuaire (champs publics)
   GET   /api/employees/me/     -> tout le monde : MON dossier
   PATCH /api/employees/me/     -> tout le monde : modifier MES infos personnelles
 """
@@ -32,7 +33,9 @@ from .models import (
     Assignment, Bank, Category, ContractType, CostCenter, Department, Direction, Division,
     Employee, Entity, Grade, Pole, Position, Region, TempAgency,
 )
-from .serializers import EmployeeListSerializer, EmployeeSerializer, MyFicheSerializer, ReferenceSerializer
+from .serializers import (
+    DirectorySerializer, EmployeeListSerializer, EmployeeSerializer, MyFicheSerializer, ReferenceSerializer,
+)
 from .services import limited_to_own_pole, sees_both_poles, user_pole
 
 
@@ -219,3 +222,33 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
+
+
+# --- Annuaire ----------------------------------------------------------------------
+
+class DirectoryViewSet(viewsets.ReadOnlyModelViewSet):
+    """L'annuaire : retrouver un collègue (nom, poste, service, email, téléphone).
+
+    - Tous les rôles (permission par défaut : connecté + compte prêt), pas seulement les RH.
+    - Les DEUX pôles pour tout le monde : un collaborateur de SBD doit pouvoir joindre Riaya.
+    - Seulement les champs publics (DirectorySerializer) : jamais le CIN ni l'adresse.
+    - Les collaborateurs sortis (statut "Sorti") n'y sont plus.
+    """
+
+    serializer_class = DirectorySerializer
+    pagination_class = EmployeePagination  # 25 par page, comme le tableau RH
+    http_method_names = ["get", "head", "options"]  # lecture seule
+
+    def get_queryset(self):
+        queryset = (
+            Employee.objects.exclude(status=Employee.Status.LEFT)
+            .select_related("position", "department__direction")
+        )
+        # Recherche : nom, prénom, poste, service ou direction (ex. "ventes" trouve tout le service).
+        if search := self.request.query_params.get("search", "").strip():
+            queryset = queryset.filter(
+                Q(last_name__icontains=search) | Q(first_name__icontains=search)
+                | Q(position__name__icontains=search) | Q(department__name__icontains=search)
+                | Q(department__direction__name__icontains=search)
+            )
+        return queryset

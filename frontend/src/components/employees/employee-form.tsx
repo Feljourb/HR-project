@@ -16,17 +16,20 @@ import Link from 'next/link'
 import { ArrowLeft, CheckCircle2, Loader2 } from 'lucide-react'
 import { apiFetch, seesBothPoles, type Me } from '@/lib/api'
 import {
-  FORM_FIELDS, MARITAL_LABELS, STATUS_LABELS, TITLE_LABELS,
-  type EmployeeFiche, type FormField, type ReferenceItem,
+  FORM_FIELDS, MARITAL_LABELS, RELATIONSHIP_LABELS, STATUS_LABELS, TITLE_LABELS,
+  type Child, type EmployeeFiche, type FormField, type ReferenceItem,
 } from '@/lib/employees'
 import { AddValueDialog, type AddRequest } from './add-value-dialog'
+import { ChildrenEditor } from './children-editor'
 import { FormSection, SelectField, TextField } from './form-fields'
 import { ManagerPicker } from './manager-picker'
 import { ResetPasswordButton } from './reset-password-button'
 import { useList } from './use-list'
 
 type Values = Record<FormField, string>
-type Errors = Record<string, string[]>
+// Les erreurs de Django : {"champ": ["message"]}, et pour les enfants une liste par position :
+// {"children": {"0": {"birth_date": ["message"]}}}. D'où "unknown" : on lit avec error() / childError().
+type Errors = Record<string, unknown>
 
 // Un formulaire vide (valeurs par défaut comme dans le modèle Django).
 const EMPTY: Values = {
@@ -40,6 +43,13 @@ const EMPTY: Values = {
 const toOptions = (labels: Record<string, string>) => Object.entries(labels).map(([id, name]) => ({ id, name }))
 const TITLE_OPTIONS = toOptions(TITLE_LABELS)
 const MARITAL_OPTIONS = toOptions(MARITAL_LABELS)
+const RELATIONSHIP_OPTIONS = toOptions(RELATIONSHIP_LABELS)
+
+// Champs texte optionnels : vides, ils sont envoyés '' (pas null), comme Django les stocke.
+const TEXT_FIELDS = new Set<FormField>([
+  'marital_status', 'cnss_number', 'cimr_number', 'rib',
+  'emergency_contact_name', 'emergency_contact_relationship', 'emergency_contact_phone',
+])
 const STATUS_OPTIONS = toOptions(STATUS_LABELS)
 
 // Le rôle du compte créé. Seuls Admin RH / IT peuvent donner un rôle RH (Django vérifie aussi).
@@ -60,6 +70,7 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
   const [direction, setDirection] = useState('')
   const [managerLabel, setManagerLabel] = useState('')
   const [role, setRole] = useState('COLLABORATOR')
+  const [children, setChildren] = useState<Child[]>([])  // envoyée en entier : elle remplace l'ancienne
 
   const [errors, setErrors] = useState<Errors>({})
   const [saving, setSaving] = useState(false)
@@ -81,6 +92,7 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
   const divisions = useList('divisions')
   const assignments = useList('assignments')
   const regions = useList('regions')
+  const banks = useList('banks')
   const costCenters = useList('cost-centers')
 
   // L'agence d'intérim n'apparaît que pour un contrat "Intérimaire" (règle du modèle).
@@ -127,6 +139,7 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
         setEntity(String(data.entity))       // pour que la cascade affiche les bonnes listes
         setDirection(String(data.direction))
         setManagerLabel(data.manager_label ?? '')
+        setChildren(data.children)
       })
       .catch(() => setLoadError('Cannot reach the server. Please try again later.'))
   }, [employeeId])
@@ -147,6 +160,7 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
     setFiche(null)
     setLoadError('')
     setAddRequest(null)
+    setChildren([])
   }
 
   // Change un champ, et efface son ancienne erreur.
@@ -179,11 +193,13 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
     setErrors({})
     setSavedMessage('')
 
-    // Ce qu'on envoie : '' devient null (champ optionnel vide).
-    const body: Record<string, string | null> = {}
-    for (const name of FORM_FIELDS) body[name] = values[name] === '' ? null : values[name]
+    // Ce qu'on envoie : '' devient null pour un champ "liste" ou date optionnel vide.
+    // Les textes optionnels (CNSS, RIB, contact...) restent '' : Django les stocke vides, pas null.
+    const body: Record<string, unknown> = {}
+    for (const name of FORM_FIELDS) body[name] = values[name] === '' && !TEXT_FIELDS.has(name) ? null : values[name]
     if (!isInterim) body.temp_agency = null  // pas d'agence hors contrat Intérimaire
     if (!isEdit) body.role = role
+    body.children = children.map(({ first_name, birth_date }) => ({ first_name, birth_date }))
 
     try {
       const response = await apiFetch(isEdit ? `/api/employees/${employeeId}/` : '/api/employees/', {
@@ -195,6 +211,7 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
         if (isEdit) {
           setFiche(data)
           setValues(valuesOf(data))
+          setChildren(data.children)
           setSavedMessage('Changes saved.')
         } else {
           setCreated(data)  // affiche l'écran "compte créé"
@@ -212,7 +229,20 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
     setSaving(false)
   }
 
-  const error = (name: string) => errors[name]?.[0]
+  // Le premier message de Django pour un champ (ou undefined).
+  function error(name: string) {
+    const messages = errors[name]
+    return Array.isArray(messages) && messages.length > 0 ? String(messages[0]) : undefined
+  }
+
+  // Le message pour un champ de l'enfant n° index : {"children": {"0": {"birth_date": [...]}}}.
+  function childError(index: number, field: 'first_name' | 'birth_date') {
+    const perChild = errors.children as Record<string, Record<string, string[]>> | undefined
+    return perChild?.[String(index)]?.[field]?.[0]
+  }
+
+  // Y a-t-il au moins une erreur à corriger ? (les erreurs effacées sont des listes vides)
+  const hasErrors = Object.values(errors).some((value) => (Array.isArray(value) ? value.length > 0 : value != null))
 
   // --- Écran 1 : le dossier n'a pas pu être chargé ---
   if (loadError) {
@@ -267,7 +297,7 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
 
     {/* Les erreurs qui ne concernent aucun champ précis. */}
     {error('non_field_errors') && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">{error('non_field_errors')}</p>}
-    {!error('non_field_errors') && Object.keys(errors).some((name) => error(name)) && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">Please correct the fields in red.</p>}
+    {!error('non_field_errors') && hasErrors && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">Please correct the fields in red.</p>}
 
     <FormSection title="Identity">
       <SelectField id="title" label="Title" required value={values.title} onChange={(v) => set('title', v)} options={TITLE_OPTIONS} error={error('title')} />
@@ -275,12 +305,31 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
       <TextField id="first_name" label="First name" required value={values.first_name} onChange={(v) => set('first_name', v)} error={error('first_name')} />
       <TextField id="birth_date" label="Birth date" type="date" required value={values.birth_date} onChange={(v) => set('birth_date', v)} error={error('birth_date')} />
       <TextField id="cin" label="CIN" required value={values.cin} onChange={(v) => set('cin', v)} error={error('cin')} placeholder="AB123456" hint={isEdit ? undefined : 'Also the temporary password.'} />
-      <SelectField id="marital_status" label="Marital status" required value={values.marital_status} onChange={(v) => set('marital_status', v)} options={MARITAL_OPTIONS} error={error('marital_status')} />
       <TextField id="phone" label="Phone" type="tel" required value={values.phone} onChange={(v) => set('phone', v)} error={error('phone')} placeholder="0600000000" />
       <TextField id="professional_email" label="Professional email" type="email" required value={values.professional_email} onChange={(v) => set('professional_email', v)} error={error('professional_email')} placeholder="firstname.lastname@sbd.ma" />
       <TextField id="address" label="Address" required value={values.address} onChange={(v) => set('address', v)} error={error('address')} />
       <TextField id="city" label="City" required value={values.city} onChange={(v) => set('city', v)} error={error('city')} />
       <TextField id="country" label="Country" required value={values.country} onChange={(v) => set('country', v)} error={error('country')} />
+    </FormSection>
+
+    {/* Les 3 blocs de la fiche validée par les RH : tout est optionnel (rempli avec les papiers). */}
+    <FormSection title="Family situation" description="The number of children is the length of this list.">
+      <SelectField id="marital_status" label="Marital status" value={values.marital_status} onChange={(v) => set('marital_status', v)} options={MARITAL_OPTIONS} placeholder="None" error={error('marital_status')} />
+      <ChildrenEditor items={children} onChange={setChildren} errorOf={childError} />
+    </FormSection>
+
+    <FormSection title="Administrative file">
+      <TextField id="cnss_number" label="CNSS number" value={values.cnss_number} onChange={(v) => set('cnss_number', v)} error={error('cnss_number')} placeholder="123456789" />
+      <TextField id="cimr_number" label="CIMR number" value={values.cimr_number} onChange={(v) => set('cimr_number', v)} error={error('cimr_number')} />
+      <SelectField id="bank" label="Bank" value={values.bank} onChange={(v) => set('bank', v)} options={banks.items} placeholder="None" error={error('bank')}
+        onAdd={adder(banks, (v) => set('bank', v), { list: 'banks', title: 'Banque' })} />
+      <TextField id="rib" label="RIB" value={values.rib} onChange={(v) => set('rib', v)} error={error('rib')} placeholder="24 digits" hint="Spaces are allowed." className="sm:col-span-2" />
+    </FormSection>
+
+    <FormSection title="Emergency contact" description="The employee can also update it from their profile.">
+      <TextField id="emergency_contact_name" label="Full name" value={values.emergency_contact_name} onChange={(v) => set('emergency_contact_name', v)} error={error('emergency_contact_name')} />
+      <SelectField id="emergency_contact_relationship" label="Relationship" value={values.emergency_contact_relationship} onChange={(v) => set('emergency_contact_relationship', v)} options={RELATIONSHIP_OPTIONS} placeholder="None" error={error('emergency_contact_relationship')} />
+      <TextField id="emergency_contact_phone" label="Phone" type="tel" value={values.emergency_contact_phone} onChange={(v) => set('emergency_contact_phone', v)} error={error('emergency_contact_phone')} placeholder="0600000000" />
     </FormSection>
 
     <FormSection title="Organisation" description="Choose the entity, then the direction, the department and the position.">

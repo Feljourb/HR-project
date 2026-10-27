@@ -11,12 +11,13 @@
  * Avant, ce cadre était écrit à l'intérieur du tableau de bord : impossible de le
  * réutiliser pour une autre page. Le design (couleurs, tailles) n'a pas changé.
  */
-import { useState, type ReactNode } from 'react'
+import { useState, type FormEvent, type ReactNode } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import {
   Bell, BookOpen, BriefcaseBusiness, Building2, CalendarDays, Check, ChevronDown, ChevronRight,
   CircleHelp, ClipboardCheck, FolderOpen, Headphones, LayoutDashboard, type LucideIcon,
-  LogOut, Menu, Plane, ReceiptText, Search, Settings2, ShieldCheck, UserRoundCog, UsersRound, X,
+  LogOut, Menu, Plane, ReceiptText, Search, Settings2, ShieldCheck, UserRound, UserRoundCog, UsersRound, X,
 } from 'lucide-react'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { BrandLogo } from '@/components/brand-logo'
@@ -40,11 +41,14 @@ type NavGroup = {
 const navGroups: NavGroup[] = [
   { label: 'Personal Space', icon: LayoutDashboard, items: [
     { label: 'Dashboard', icon: LayoutDashboard, href: '/' },
+    { label: 'My Profile', icon: UserRound, href: '/profile' },
     { label: 'Leave Requests', icon: CalendarDays },
     { label: 'Expense Claims', icon: ReceiptText },
     { label: 'Administrative Documents', icon: FolderOpen },
   ] },
   { label: 'Company Services', icon: Building2, items: [
+    // Ici (et pas dans "Management & HR") : l'annuaire est ouvert à tous les rôles.
+    { label: 'Employee Directory', icon: UsersRound, href: '/directory' },
     { label: 'Meeting Room Booking', icon: Building2 },
     { label: 'Travel & Hotel', icon: Plane },
     { label: 'IT Helpdesk', icon: Headphones },
@@ -58,7 +62,6 @@ const navGroups: NavGroup[] = [
     { label: 'Team Approvals', icon: Check },
     { label: 'Maker-Checker Audit', icon: ShieldCheck },
     { label: 'Employees', icon: UserRoundCog, href: '/employees', hrOnly: true },
-    { label: 'Employee Directory', icon: UsersRound },
   ] },
 ]
 
@@ -93,6 +96,15 @@ export function AppShell({ me, onLogout, active, breadcrumb, children }: AppShel
   const [expanded, setExpanded] = useState<string[]>(activeGroup ? [activeGroup] : [])
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [query, setQuery] = useState('')
+  const router = useRouter()
+
+  function searchColleague(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const search = query.trim()
+    if (!search) return
+    setQuery('')
+    router.push(`/directory?search=${encodeURIComponent(search)}`)  // encode : espaces, accents...
+  }
 
   function toggle(label: string) {
     setExpanded((current) => current.includes(label) ? current.filter((item) => item !== label) : [...current, label])
@@ -153,11 +165,12 @@ export function AppShell({ me, onLogout, active, breadcrumb, children }: AppShel
         <div className="hidden items-center gap-2 text-sm text-slate-400 md:flex">
           <span>{breadcrumb[0]}</span><ChevronRight className="size-3.5" /><span className="font-semibold text-[#0F172A]">{breadcrumb[1]}</span>
         </div>
-        <div className="relative ml-auto w-full max-w-[440px] lg:mx-auto">
+        {/* Recherche d'un collègue : Entrée -> l'annuaire, avec la recherche déjà remplie. */}
+        <form role="search" onSubmit={searchColleague} className="relative ml-auto w-full max-w-[440px] lg:mx-auto">
           <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
-          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search colleagues by name, email, or department..." className="h-9 border-slate-200 bg-slate-50 pl-10 text-xs shadow-none" />
-          {query && <div className="absolute top-11 z-20 w-full rounded-xl border border-slate-200 bg-white p-3 shadow-xl"><p className="text-xs font-semibold">Youssef Amrani</p><p className="text-[11px] text-slate-500">Engineering · youssef.amrani@sbd.ma</p></div>}
-        </div>
+          <label htmlFor="colleague-search" className="sr-only">Search colleagues</label>
+          <Input id="colleague-search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search colleagues by name, position or department..." className="h-9 border-slate-200 bg-slate-50 pl-10 text-xs shadow-none" />
+        </form>
         <div className="hidden items-center gap-5 sm:flex">
           <button aria-label="Notifications, 3 unread" className="relative rounded-lg p-2 text-slate-500 hover:bg-slate-100"><Bell className="size-[19px]" /><span className="absolute right-0.5 top-0.5 flex size-4 items-center justify-center rounded-full bg-[#23355d] text-[9px] font-bold text-white ring-2 ring-white">3</span></button>
           <button className="flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-[#23355d]"><CircleHelp className="size-4" /> Help</button>

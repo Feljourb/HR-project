@@ -2,7 +2,7 @@ from django.contrib import admin
 
 from . import services
 from .models import (
-    Assignment, Bank, Category, ContractType, CostCenter, Department, Direction, Division,
+    Assignment, Bank, Category, Child, ContractType, CostCenter, Department, Direction, Division,
     Employee, Entity, Grade, Pole, Position, Region, TempAgency,
 )
 
@@ -56,9 +56,17 @@ class CostCenterAdmin(ReferenceAdmin):
     search_fields = ("code", "name")
 
 
+class ChildInline(admin.TabularInline):
+    """Les enfants, en petit tableau DANS la fiche du collaborateur (une ligne par enfant)."""
+    model = Child
+    extra = 0  # pas de lignes vides en plus : bouton "Ajouter un autre Enfant"
+
+
 @admin.register(Employee)
 class EmployeeAdmin(admin.ModelAdmin):
     """Écran des collaborateurs dans /admin (outil de l'IT, pas l'interface des RH)."""
+
+    inlines = [ChildInline]
 
     # Colonnes de la liste.
     list_display = ("u_number", "last_name", "first_name", "position", "department", "status")
@@ -75,8 +83,13 @@ class EmployeeAdmin(admin.ModelAdmin):
     fieldsets = (
         (None, {"fields": ("user", "u_number", "status")}),
         ("Identité", {"fields": (
-            "title", "last_name", "first_name", "birth_date", "cin", "marital_status",
+            "title", "last_name", "first_name", "birth_date", "cin",
             "phone", "professional_email", "address", "city", "country",
+        )}),
+        ("Situation familiale", {"fields": ("marital_status",)}),  # + les enfants, en bas de la page
+        ("Dossier administratif", {"fields": ("cnss_number", "cimr_number", "bank", "rib")}),
+        ("Contact d'urgence", {"fields": (
+            "emergency_contact_name", "emergency_contact_relationship", "emergency_contact_phone",
         )}),
         ("Organisation", {"fields": ("department", "position", "direction", "entity", "pole")}),
         ("Contrat", {"fields": (

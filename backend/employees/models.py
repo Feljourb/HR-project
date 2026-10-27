@@ -1,3 +1,4 @@
+from datetime import date
 from decimal import Decimal
 
 from django.conf import settings
@@ -161,6 +162,17 @@ class Bank(ReferenceItem):
 INTERIM = "Intérimaire"
 
 
+def digits_only(value):
+    """ "0011 7800 ..." -> "00117800..." : on accepte les espaces à la saisie, on stocke sans."""
+    return (value or "").replace(" ", "")
+
+
+def not_in_future(day):
+    """Refuse une date après aujourd'hui (ex. date de naissance d'un enfant)."""
+    if day > date.today():
+        raise ValidationError("Cette date est dans le futur.")
+
+
 class Employee(models.Model):
     """Le dossier RH d'un collaborateur (le "dossier dans l'armoire RH").
 
@@ -177,6 +189,15 @@ class Employee(models.Model):
     class Title(models.TextChoices):
         MR = "M", "M."
         MRS = "MME", "Mme"
+
+    # Le lien entre le collaborateur et son contact d'urgence (liste fixe, décidée avec les RH).
+    class Relationship(models.TextChoices):
+        SPOUSE = "SPOUSE", "Conjoint(e)"
+        FATHER = "FATHER", "Père"
+        MOTHER = "MOTHER", "Mère"
+        SIBLING = "SIBLING", "Frère / Sœur"
+        CHILD = "CHILD", "Enfant"
+        OTHER = "OTHER", "Autre"
 
     class MaritalStatus(models.TextChoices):
         SINGLE = "SINGLE", "Célibataire"
@@ -211,7 +232,24 @@ class Employee(models.Model):
     country = models.CharField("Pays", max_length=100, default="Maroc")
     phone = models.CharField("Téléphone", max_length=20)
     professional_email = models.EmailField("Email professionnel")
-    marital_status = models.CharField("Situation familiale", max_length=10, choices=MaritalStatus.choices)
+
+    # Situation familiale (optionnelle, comme sur la fiche validée par les RH).
+    # Les enfants sont dans le modèle Child (plus bas) ; leur nombre est calculé.
+    marital_status = models.CharField("Situation familiale", max_length=10, choices=MaritalStatus.choices, blank=True)
+
+    # Dossier administratif (optionnel : rempli quand le collaborateur apporte ses papiers).
+    # Les numéros sont stockés sans espaces ; CNSS et CIMR sont uniques quand ils sont remplis
+    # (voir les contraintes dans Meta).
+    cnss_number = models.CharField("N° CNSS", max_length=20, blank=True)
+    cimr_number = models.CharField("N° CIMR", max_length=20, blank=True)
+    bank = models.ForeignKey(Bank, on_delete=models.PROTECT, null=True, blank=True, related_name="employees", verbose_name="Banque")
+    # 30 caractères à la saisie (24 chiffres + espaces, comme sur un relevé) ; stocké sans espaces (24).
+    rib = models.CharField("RIB", max_length=30, blank=True, help_text="24 chiffres.")
+
+    # Contact d'urgence (un seul). Le collaborateur peut le modifier lui-même (Mon profil).
+    emergency_contact_name = models.CharField("Contact d'urgence : nom et prénom", max_length=150, blank=True)
+    emergency_contact_relationship = models.CharField("Lien avec l'employé", max_length=10, choices=Relationship.choices, blank=True)
+    emergency_contact_phone = models.CharField("Contact d'urgence : téléphone", max_length=20, blank=True)
 
     # Organisation : chaque champ pointe vers une liste de référence (ForeignKey).
     # PROTECT : on ne peut pas supprimer une valeur utilisée par un collaborateur
@@ -245,6 +283,18 @@ class Employee(models.Model):
     class Meta:
         verbose_name = "Collaborateur"
         ordering = ["last_name", "first_name"]
+        constraints = [
+            # Uniques SEULEMENT quand ils sont remplis : plusieurs dossiers sans CNSS (vide) sont permis.
+            # violation_error_code="unique" : Django affiche l'erreur sous le champ (pas en haut du formulaire).
+            models.UniqueConstraint(
+                fields=["cnss_number"], condition=~models.Q(cnss_number=""), name="employees_employee_unique_cnss",
+                violation_error_message="Ce numéro CNSS existe déjà.", violation_error_code="unique",
+            ),
+            models.UniqueConstraint(
+                fields=["cimr_number"], condition=~models.Q(cimr_number=""), name="employees_employee_unique_cimr",
+                violation_error_message="Ce numéro CIMR existe déjà.", violation_error_code="unique",
+            ),
+        ]
 
     def __str__(self):
         # Texte affiché partout (listes, admin) : "U000007 - ALAMI Ahmed".
@@ -275,6 +325,11 @@ class Employee(models.Model):
     @property
     def n_plus_3(self):
         return self.n_plus_2.manager if self.n_plus_2 else None
+
+    @property
+    def number_of_children(self):
+        # Calculé depuis la liste des enfants : jamais un nombre qui contredit la liste.
+        return self.children.count() if self.pk else 0
 
     # --- Règles de validation -------------------------------------------------
 
@@ -310,12 +365,40 @@ class Employee(models.Model):
             seen.add(manager.pk)
             manager = manager.manager
 
+        # Règle 4 : le RIB marocain fait 24 chiffres (banque 3 + ville 3 + compte 16 + clé 2),
+        # et il va avec sa banque. Les espaces sont acceptés à la saisie et enlevés.
+        self.rib = digits_only(self.rib)
+        if self.rib:
+            if not (self.rib.isdigit() and len(self.rib) == 24):
+                errors["rib"] = "Le RIB doit contenir 24 chiffres."
+            elif not self.bank_id:
+                errors["bank"] = "Choisissez la banque de ce RIB."
+
+        # Règle 5 : le numéro CNSS ne contient que des chiffres.
+        self.cnss_number = digits_only(self.cnss_number)
+        if self.cnss_number and not self.cnss_number.isdigit():
+            errors["cnss_number"] = "Le numéro CNSS ne contient que des chiffres."
+
+        # Règle 6 : un contact d'urgence sans téléphone ne sert à rien (et un numéro sans nom non plus).
+        has_name, has_phone = bool(self.emergency_contact_name.strip()), bool(self.emergency_contact_phone.strip())
+        if has_name and not has_phone:
+            errors["emergency_contact_phone"] = "Indiquez le téléphone du contact d'urgence."
+        elif has_phone and not has_name:
+            errors["emergency_contact_name"] = "Indiquez le nom du contact d'urgence."
+
         if errors:
             raise ValidationError(errors)
 
     def save(self, *args, **kwargs):
         """Enregistre le dossier, et crée le matricule la première fois."""
         self.cin = self.cin.strip().upper()  # aussi ici : objects.create() n'appelle pas clean()
+        # Noms propres : espaces en trop enlevés, NOM en majuscules, Prénom avec une majuscule.
+        self.last_name = " ".join(self.last_name.split()).upper()
+        self.first_name = " ".join(self.first_name.split()).title()
+        # Numéros sans espaces (voir clean()).
+        self.rib = digits_only(self.rib)
+        self.cnss_number = digits_only(self.cnss_number)
+
         # atomic : les deux écritures passent ensemble, ou aucune (jamais de dossier sans matricule).
         with transaction.atomic():
             super().save(*args, **kwargs)  # 1. PostgreSQL enregistre et donne un id (ex. 7)
@@ -325,3 +408,19 @@ class Employee(models.Model):
                 #    donc un matricule n'est jamais donné deux fois.
                 self.u_number = f"U{self.pk:06d}"
                 super().save(update_fields=["u_number"])
+
+
+class Child(models.Model):
+    """Un enfant du collaborateur (allocations familiales CNSS).
+    Supprimé avec le dossier (CASCADE) : il n'existe pas sans son parent."""
+
+    employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name="children", verbose_name="Collaborateur")
+    first_name = models.CharField("Prénom", max_length=100)
+    birth_date = models.DateField("Date de naissance", validators=[not_in_future])
+
+    class Meta:
+        verbose_name = "Enfant"
+        ordering = ["birth_date"]  # du plus grand au plus petit
+
+    def __str__(self):
+        return f"{self.first_name} ({self.birth_date:%d/%m/%Y})"

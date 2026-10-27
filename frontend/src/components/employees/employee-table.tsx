@@ -17,7 +17,8 @@ import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Panel, PanelHeader } from '@/components/dashboard/panel'
 import { apiFetch } from '@/lib/api'
-import { PAGE_SIZE, STATUS_LABELS, type EmployeeRow, type Page, type ReferenceItem, type Status } from '@/lib/employees'
+import { PAGE_SIZE, STATUS_LABELS, type EmployeeRow, type ReferenceItem, type Status } from '@/lib/employees'
+import { usePaged } from '@/lib/use-paged'
 import { cn } from '@/lib/utils'
 
 const headCell = 'h-9 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400'
@@ -39,11 +40,6 @@ export function EmployeeTable() {
   const [status, setStatus] = useState('')
   const [entity, setEntity] = useState('')
   const [page, setPage] = useState(1)
-
-  // La dernière réponse reçue, avec la "clé" (les paramètres) qui l'a produite.
-  const [result, setResult] = useState<{ key: string; data: Page<EmployeeRow> } | null>(null)
-  const [failedKey, setFailedKey] = useState<string | null>(null)
-  const [attempt, setAttempt] = useState(0)  // +1 sur "Réessayer" pour relancer la requête
   const [entities, setEntities] = useState<ReferenceItem[]>([])
 
   // Les paramètres de la requête, ex. "page=2&search=alami&status=ACTIVE".
@@ -51,10 +47,9 @@ export function EmployeeTable() {
   if (search) params.set('search', search)
   if (status) params.set('status', status)
   if (entity) params.set('entity', entity)
-  const key = params.toString()
 
-  // Chargement en cours = la réponse affichée ne correspond pas encore aux paramètres actuels.
-  const loading = result?.key !== key && failedKey !== key
+  // Charge la page de résultats à chaque changement de paramètres (voir lib/use-paged.ts).
+  const { data, loading, failed, retry } = usePaged<EmployeeRow>('/api/employees/', params)
 
   // Recherche "debounce" : on attend 300 ms sans frappe avant de chercher.
   useEffect(() => {
@@ -68,22 +63,6 @@ export function EmployeeTable() {
     return () => clearTimeout(timer)  // une nouvelle touche annule l'attente précédente
   }, [query, search])
 
-  // Charge la page de résultats à chaque changement de paramètres.
-  useEffect(() => {
-    // AbortController : si les paramètres changent avant la réponse, on annule l'ancienne
-    // requête (sinon une vieille réponse lente pourrait remplacer la nouvelle).
-    const controller = new AbortController()
-    apiFetch(`/api/employees/?${key}`, { signal: controller.signal })
-      .then(async (response) => {
-        if (!response.ok) throw new Error(String(response.status))
-        setResult({ key, data: await response.json() })
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) setFailedKey(key)
-      })
-    return () => controller.abort()
-  }, [key, attempt])
-
   // La liste des entités pour le filtre (un RH ne reçoit que celles de son pôle).
   useEffect(() => {
     apiFetch('/api/employees/lists/entities/')
@@ -92,12 +71,8 @@ export function EmployeeTable() {
       .catch(() => setEntities([]))
   }, [])
 
-  // Next.js garde la page en vie (cachée) quand on la quitte : on vide les données à ce
-  // moment-là, pour qu'un autre utilisateur sur ce navigateur ne les voie jamais.
-  useEffect(() => () => {
-    setResult(null)
-    setEntities([])
-  }, [])
+  // Page quittée (Next.js la garde cachée) : on oublie aussi la liste des entités.
+  useEffect(() => () => setEntities([]), [])
 
   // Un filtre change : on revient à la page 1.
   function changeFilter(setter: (value: string) => void, value: string) {
@@ -105,12 +80,6 @@ export function EmployeeTable() {
     setPage(1)
   }
 
-  function retry() {
-    setFailedKey(null)
-    setAttempt((count) => count + 1)
-  }
-
-  const data = result?.data
   const pageCount = data ? Math.max(1, Math.ceil(data.count / PAGE_SIZE)) : 1
   const first = data && data.count > 0 ? (page - 1) * PAGE_SIZE + 1 : 0
   const last = data ? Math.min(page * PAGE_SIZE, data.count) : 0
@@ -139,7 +108,7 @@ export function EmployeeTable() {
     </PanelHeader>
 
     {/* 3 cas : erreur (sans données), premier chargement, ou le tableau. */}
-    {!data && failedKey === key ? (
+    {!data && failed ? (
       <div className="flex flex-col items-center gap-3 px-4 py-12 text-center">
         <p className="text-sm text-slate-600">Could not load employees. Please try again.</p>
         <Button variant="outline" size="sm" onClick={retry}><RotateCw /> Try again</Button>

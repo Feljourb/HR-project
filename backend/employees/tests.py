@@ -237,6 +237,8 @@ class AccountCreationTests(EmployeeTestCase):
             "contract_type": fiche.contract_type.pk, "category": fiche.category.pk,
             "assignment": fiche.assignment.pk, "region": fiche.region.pk, "work_location": fiche.work_location,
             "hire_date": "2026-01-05", "initial_leave_balance": "0",
+            # Le petit tableau des enfants (inline) : l'admin veut savoir combien de lignes il y a.
+            "children-TOTAL_FORMS": "0", "children-INITIAL_FORMS": "0",
         }
         response = self.client.post(reverse("admin:employees_employee_add"), data)
 

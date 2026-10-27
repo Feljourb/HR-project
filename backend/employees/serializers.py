@@ -6,12 +6,13 @@ from copy import copy
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import NON_FIELD_ERRORS, ValidationError as DjangoValidationError
+from django.db import transaction
 from rest_framework import serializers
 
 from accounts.services import can_reset_password
 
 from . import services
-from .models import Employee
+from .models import Child, Employee
 
 User = get_user_model()
 
@@ -56,8 +57,21 @@ class ReferenceSerializer(serializers.ModelSerializer):
 
 # --- Collaborateurs (step 5) -----------------------------------------------------
 
-# Ce qu'un collaborateur peut modifier lui-même dans son dossier (le reste : seulement les RH).
-PERSONAL_FIELDS = ["phone", "address", "city", "country"]
+# Ce qu'un collaborateur peut modifier lui-même dans son dossier (le reste : seulement les RH,
+# car il faut un justificatif : CIN, RIB, CNSS, enfants...).
+PERSONAL_FIELDS = [
+    "phone", "address", "city", "country",
+    "emergency_contact_name", "emergency_contact_relationship", "emergency_contact_phone",
+]
+
+
+class ChildSerializer(serializers.ModelSerializer):
+    """Un enfant dans le dossier : {"id": 3, "first_name": "Yasmine", "birth_date": "2018-04-02"}.
+    La règle "pas de date dans le futur" vient du modèle (validators=[not_in_future])."""
+
+    class Meta:
+        model = Child
+        fields = ["id", "first_name", "birth_date"]
 
 
 class EmployeeListSerializer(serializers.ModelSerializer):
@@ -101,6 +115,10 @@ class EmployeeSerializer(serializers.ModelSerializer):
     can_reset_password = serializers.SerializerMethodField()
     # Écriture seule, et seulement à la création : le rôle du compte créé (Collaborateur par défaut).
     role = serializers.ChoiceField(choices=User.Role.choices, write_only=True, required=False)
+    # Les enfants : une liste dans le dossier. À l'enregistrement, la liste envoyée REMPLACE
+    # l'ancienne (voir save_children). Le nombre d'enfants est calculé, jamais saisi.
+    children = ChildSerializer(many=True, required=False)
+    number_of_children = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Employee
@@ -118,9 +136,10 @@ class EmployeeSerializer(serializers.ModelSerializer):
         return role
 
     def validate(self, attrs):
-        # 1. Les règles du modèle (poste du bon service, CIN unique, agence d'intérim...).
-        #    "role" n'est pas un champ du modèle : on le saute. "user" n'existe pas encore à la création.
-        instance = preview(self, attrs, skip=["role"])
+        # 1. Les règles du modèle (poste du bon service, CIN unique, agence d'intérim, RIB...).
+        #    "role" et "children" ne sont pas des champs du modèle : on les saute.
+        #    "user" n'existe pas encore à la création.
+        instance = preview(self, attrs, skip=["role", "children"])
         check_model_rules(instance, exclude=["user"])
 
         # 2. Un RH ne crée / ne déplace un collaborateur que dans SON pôle.
@@ -131,21 +150,67 @@ class EmployeeSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({"department": "Ce service n'appartient pas à votre pôle."})
         return attrs
 
+    # atomic : le dossier et ses enfants sont enregistrés ensemble, ou pas du tout.
+    @transaction.atomic
     def create(self, validated_data):
         # Création : le service crée le compte (prénom.nom + CIN) en même temps que le dossier.
         role = validated_data.pop("role", None)
-        return services.create_with_account(Employee(**validated_data), role=role)
+        children = validated_data.pop("children", [])
+        employee = services.create_with_account(Employee(**validated_data), role=role)
+        self.save_children(employee, children)
+        return employee
 
+    @transaction.atomic
     def update(self, instance, validated_data):
         validated_data.pop("role", None)  # le rôle se change dans les comptes (IT), pas ici
-        return super().update(instance, validated_data)
+        children = validated_data.pop("children", None)  # None = liste pas envoyée : on n'y touche pas
+        employee = super().update(instance, validated_data)
+        if children is not None:
+            self.save_children(employee, children)
+        return employee
+
+    @staticmethod
+    def save_children(employee, children):
+        """Remplace la liste des enfants par celle du formulaire (le plus simple et le plus sûr :
+        ce qui est à l'écran est exactement ce qui est en base)."""
+        employee.children.all().delete()
+        Child.objects.bulk_create(Child(employee=employee, **child) for child in children)
+
+
+class DirectorySerializer(serializers.ModelSerializer):
+    """Une personne dans l'annuaire : SEULEMENT les champs publics.
+
+    Tout le monde voit l'annuaire (les deux pôles) : on n'envoie jamais le CIN,
+    l'adresse, le contrat ou la date de naissance. La liste `fields` est écrite à la
+    main, exprès : un nouveau champ ajouté au modèle ne devient pas public par erreur."""
+
+    position = serializers.StringRelatedField()
+    department = serializers.StringRelatedField()
+    direction = serializers.CharField(source="direction.name", read_only=True)
+
+    class Meta:
+        model = Employee
+        fields = ["id", "last_name", "first_name", "position", "department", "direction", "professional_email", "phone"]
 
 
 class MyFicheSerializer(EmployeeSerializer):
     """Le dossier vu par son propriétaire (/me/) : tout est lisible,
-    mais seuls les champs personnels (PERSONAL_FIELDS) sont modifiables."""
+    mais seuls les champs personnels (PERSONAL_FIELDS) sont modifiables.
+
+    Les listes liées arrivent en TEXTE ("Commercial terrain"), pas en numéro (12) :
+    la page "Mon profil" les affiche telles quelles, sans listes déroulantes pour les traduire."""
+
+    # Tous les liens créés automatiquement (poste, service, banque, manager...) : leur texte (__str__).
+    serializer_related_field = serializers.StringRelatedField
+    # Les valeurs calculées depuis le service, déclarées à la main dans EmployeeSerializer : en texte aussi.
+    direction = serializers.StringRelatedField()
+    entity = serializers.StringRelatedField()
+    pole = serializers.StringRelatedField()
+    n_plus_2 = serializers.StringRelatedField()
+    n_plus_3 = serializers.StringRelatedField()
 
     role = None  # "role = None" retire ce champ hérité : rien à faire ici
+    children = ChildSerializer(many=True, read_only=True)  # visibles, modifiables seulement par les RH
 
     class Meta(EmployeeSerializer.Meta):
         read_only_fields = [
