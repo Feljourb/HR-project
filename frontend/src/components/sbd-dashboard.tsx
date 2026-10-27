@@ -13,7 +13,7 @@ import { NewsPanel } from '@/components/dashboard/news-panel'
 import { RequestsPanel } from '@/components/dashboard/requests-panel'
 import { TimeOffPanel } from '@/components/dashboard/time-off-panel'
 import { useNow } from '@/components/dashboard/time'
-import type { Me } from '@/lib/api'
+import { isHr, type Me } from '@/lib/api'
 
 type SbdDashboardProps = {
   me: Me
@@ -25,7 +25,7 @@ export function SbdDashboard({ me, onLogout }: SbdDashboardProps) {
   const now = useNow()
 
   return <AppShell me={me} onLogout={onLogout} active="Dashboard" breadcrumb={['Dashboard', 'Overview']}>
-    <Greeting now={now} name={firstName} />
+    <Greeting now={now} name={firstName} canAddEmployee={isHr(me)} />
     <KpiBand now={now} />
 
     {/* 12-column grid on wide screens: leadership video + news, then requests + time off.

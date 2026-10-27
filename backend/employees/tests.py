@@ -225,12 +225,13 @@ class AccountCreationTests(EmployeeTestCase):
                 validate_password(password, user=user)
         validate_password("Sbd-Nouveau-2026!", user=user)  # OK
 
-    def test_admin_add_creates_the_account(self):
+    def admin_add(self, role):
+        """L'IT crée une fiche dans /admin, avec ce rôle pour le compte."""
         it = get_user_model().objects.create_superuser("it.admin", password="Strong-Pass-2026!")
         self.client.force_login(it)
         fiche = self.fiche("CD987654")
         data = {
-            "status": fiche.status, "title": fiche.title, "last_name": "Bennani", "first_name": "Sara",
+            "role": role, "status": fiche.status, "title": fiche.title, "last_name": "Bennani", "first_name": "Sara",
             "birth_date": "1995-03-10", "cin": "cd987654", "marital_status": fiche.marital_status,
             "phone": fiche.phone, "professional_email": "sara.bennani@sbd.ma", "address": fiche.address,
             "city": fiche.city, "country": fiche.country, "department": self.sales.pk, "position": self.salesman.pk,
@@ -241,8 +242,22 @@ class AccountCreationTests(EmployeeTestCase):
             "children-TOTAL_FORMS": "0", "children-INITIAL_FORMS": "0",
         }
         response = self.client.post(reverse("admin:employees_employee_add"), data)
-
         self.assertEqual(response.status_code, 302)  # saved, back to the list
-        employee = Employee.objects.get(cin="CD987654")
+        return Employee.objects.get(cin="CD987654")
+
+    def test_admin_add_creates_the_account(self):
+        employee = self.admin_add("COLLABORATOR")
         self.assertEqual(employee.user.username, "sara.bennani")
         self.assertTrue(employee.user.check_password("CD987654"))
+        self.assertEqual(employee.user.role, "COLLABORATOR")
+
+    def test_admin_add_gives_the_chosen_role(self):
+        """L'IT crée le premier Admin RH depuis la fiche."""
+        self.assertEqual(self.admin_add("HR_ADMIN").user.role, "HR_ADMIN")
+
+    def test_admin_change_page_shows_the_role(self):
+        employee = self.admin_add("HR")
+        response = self.client.get(reverse("admin:employees_employee_change", args=[employee.pk]))
+        self.assertContains(response, "changer dans le compte")
+        # La modification s'enregistre sans champ "Rôle du compte".
+        self.assertNotContains(response, 'name="role"')

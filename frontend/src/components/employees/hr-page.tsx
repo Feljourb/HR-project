@@ -13,17 +13,18 @@ import { useMe } from '@/lib/use-me'
 
 type HrPageProps = {
   page: string                      // le fil d'Ariane, ex. "New employee"
+  active?: string                   // le lien surligné dans la sidebar (par défaut "Employees")
   children: (me: Me) => ReactNode   // le contenu, qui reçoit l'utilisateur connecté
 }
 
-export function HrPage({ page, children }: HrPageProps) {
+export function HrPage({ page, active = 'Employees', children }: HrPageProps) {
   const { me, logout } = useMe()
 
   if (me === null) {
     return <p className="m-auto text-sm text-slate-500">Loading...</p>
   }
 
-  return <AppShell me={me} onLogout={logout} active="Employees" breadcrumb={['Management & HR', page]}>
+  return <AppShell me={me} onLogout={logout} active={active} breadcrumb={['Management & HR', page]}>
     {isHr(me) ? children(me) : (
       // Quelqu'un qui tape l'adresse à la main sans être RH. (L'API refuserait de toute façon : 403.)
       <Panel className="items-center gap-2 px-4 py-12 text-center">

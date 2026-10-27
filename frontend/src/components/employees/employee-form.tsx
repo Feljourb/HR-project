@@ -14,7 +14,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, CheckCircle2, Loader2 } from 'lucide-react'
-import { apiFetch, seesBothPoles, type Me } from '@/lib/api'
+import { apiFetch, roleLabel, seesBothPoles, type Me } from '@/lib/api'
 import {
   FORM_FIELDS, MARITAL_LABELS, RELATIONSHIP_LABELS, STATUS_LABELS, TITLE_LABELS,
   type Child, type EmployeeFiche, type FormField, type ReferenceItem,
@@ -52,9 +52,14 @@ const TEXT_FIELDS = new Set<FormField>([
 ])
 const STATUS_OPTIONS = toOptions(STATUS_LABELS)
 
-// Le rôle du compte créé. Seuls Admin RH / IT peuvent donner un rôle RH (Django vérifie aussi).
-const BASE_ROLES = [{ id: 'COLLABORATOR', name: 'Collaborateur' }, { id: 'MANAGER', name: 'Manager' }]
-const HR_ROLES = [{ id: 'HR', name: 'RH' }, { id: 'HR_ADMIN', name: 'Admin RH' }]
+// Le rôle du compte créé : chacun donne des rôles EN DESSOUS du sien (Django vérifie aussi).
+// RH : Collaborateur, Manager. Admin RH : + RH. IT : + Admin RH.
+function creatableRoles(me: Me) {
+  const roles = ['COLLABORATOR', 'MANAGER']
+  if (seesBothPoles(me)) roles.push('HR')
+  if (me.is_superuser) roles.push('HR_ADMIN')
+  return roles.map((id) => ({ id, name: roleLabel(id) }))
+}
 
 /** Le dossier reçu de l'API -> les valeurs du formulaire (tout en texte, '' si vide). */
 function valuesOf(fiche: EmployeeFiche): Values {
@@ -98,6 +103,8 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
   // L'agence d'intérim n'apparaît que pour un contrat "Intérimaire" (règle du modèle).
   const contractName = contractTypes.items.find((item) => String(item.id) === values.contract_type)?.name ?? ''
   const isInterim = contractName.toLowerCase() === 'intérimaire'
+  // Statut "Sorti" : la date de sortie devient obligatoire (même règle que le modèle Django).
+  const isLeft = values.status === 'LEFT'
 
   // --- "+ Ajouter…" : seulement Admin RH et IT (Django refuse les autres de toute façon) ---
   const [addRequest, setAddRequest] = useState<AddRequest | null>(null)
@@ -140,6 +147,7 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
         setDirection(String(data.direction))
         setManagerLabel(data.manager_label ?? '')
         setChildren(data.children)
+        setRole(data.account_role)
       })
       .catch(() => setLoadError('Cannot reach the server. Please try again later.'))
   }, [employeeId])
@@ -198,7 +206,8 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
     const body: Record<string, unknown> = {}
     for (const name of FORM_FIELDS) body[name] = values[name] === '' && !TEXT_FIELDS.has(name) ? null : values[name]
     if (!isInterim) body.temp_agency = null  // pas d'agence hors contrat Intérimaire
-    if (!isEdit) body.role = role
+    // Le rôle : à la création, et en modification seulement s'il a changé.
+    if (!isEdit || (fiche && role !== fiche.account_role)) body.role = role
     body.children = children.map(({ first_name, birth_date }) => ({ first_name, birth_date }))
 
     try {
@@ -212,6 +221,7 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
           setFiche(data)
           setValues(valuesOf(data))
           setChildren(data.children)
+          setRole(data.account_role)
           setSavedMessage('Changes saved.')
         } else {
           setCreated(data)  // affiche l'écran "compte créé"
@@ -299,6 +309,28 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
     {error('non_field_errors') && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">{error('non_field_errors')}</p>}
     {!error('non_field_errors') && hasErrors && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">Please correct the fields in red.</p>}
 
+    {/* Le compte de connexion EN PREMIER : le rôle se voit tout de suite (on ne l'oublie pas). */}
+    <FormSection title="Login account" description={isEdit ? undefined : 'Created automatically with the file.'}>
+      {/* Création : les rôles selon qui crée. Modification : les rôles que Django autorise pour CE compte
+          (assignable_roles). Liste vide (son propre compte, un RH vu par un RH...) : affiché, pas modifiable. */}
+      {fiche
+        ? <SelectField id="role" label="Account role" required value={role} onChange={(v) => { setRole(v); setSavedMessage('') }}
+            options={(fiche.assignable_roles.length ? fiche.assignable_roles : [fiche.account_role]).map((id) => ({ id, name: roleLabel(id) }))}
+            disabled={fiche.assignable_roles.length === 0} error={error('role')}
+            hint={fiche.assignable_roles.length === 0 ? 'You cannot change the role of this account.' : undefined} />
+        : <SelectField id="role" label="Account role" required value={role} onChange={setRole} options={creatableRoles(me)} error={error('role')} />}
+      <div>
+        <p className="text-xs font-semibold text-slate-700">Username</p>
+        <p className="mt-1.5 flex h-10 items-center text-sm text-slate-600">
+          {fiche ? <span className="font-mono">{fiche.username}</span> : 'firstname.lastname (created automatically)'}
+        </p>
+      </div>
+      {!isEdit && <div>
+        <p className="text-xs font-semibold text-slate-700">Temporary password</p>
+        <p className="mt-1.5 flex h-10 items-center text-sm text-slate-600">The CIN (to change at first sign-in)</p>
+      </div>}
+    </FormSection>
+
     <FormSection title="Identity">
       <SelectField id="title" label="Title" required value={values.title} onChange={(v) => set('title', v)} options={TITLE_OPTIONS} error={error('title')} />
       <TextField id="last_name" label="Last name" required value={values.last_name} onChange={(v) => set('last_name', v)} error={error('last_name')} />
@@ -367,14 +399,14 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
     <FormSection title="Hierarchy & dates">
       <ManagerPicker value={values.manager} label={managerLabel} excludeId={employeeId} error={error('manager')}
         onChange={(id, label) => { set('manager', id); setManagerLabel(label) }} />
-      <SelectField id="status" label="Status" required value={values.status} onChange={(v) => set('status', v)} options={STATUS_OPTIONS} error={error('status')} />
+      {/* "Sorti" : Django bloque le compte à l'enregistrement (et le débloque si on revient en arrière). */}
+      <SelectField id="status" label="Status" required value={values.status} onChange={(v) => set('status', v)} options={STATUS_OPTIONS} error={error('status')}
+        hint={isLeft ? 'Their account will be blocked when you save.' : undefined} />
       <TextField id="hire_date" label="Hire date" type="date" required value={values.hire_date} onChange={(v) => set('hire_date', v)} error={error('hire_date')} />
       <TextField id="trial_end_date" label="End of trial period" type="date" value={values.trial_end_date} onChange={(v) => set('trial_end_date', v)} error={error('trial_end_date')} />
       <TextField id="onboarding_end_date" label="End of onboarding" type="date" value={values.onboarding_end_date} onChange={(v) => set('onboarding_end_date', v)} error={error('onboarding_end_date')} />
-      <TextField id="departure_date" label="Departure date" type="date" value={values.departure_date} onChange={(v) => set('departure_date', v)} error={error('departure_date')} />
+      <TextField id="departure_date" label="Departure date" type="date" required={isLeft} value={values.departure_date} onChange={(v) => set('departure_date', v)} error={error('departure_date')} />
       <TextField id="initial_leave_balance" label="Initial leave balance (days)" type="number" required value={values.initial_leave_balance} onChange={(v) => set('initial_leave_balance', v)} error={error('initial_leave_balance')} />
-      {!isEdit && <SelectField id="role" label="Account role" required value={role} onChange={setRole}
-        options={seesBothPoles(me) ? [...BASE_ROLES, ...HR_ROLES] : BASE_ROLES} error={error('role')} />}
     </FormSection>
 
     {/* Barre d'actions, toujours visible en bas de l'écran. */}

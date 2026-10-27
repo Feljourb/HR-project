@@ -50,10 +50,10 @@ Frontend (Next.js in frontend/src/app, backend on http://localhost:8000):
 Done: reference lists, Employee, account created from the fiche, lists + employees API, employees table and form (cascade, "+ Ajouter"), password reset.
 - [x] A. Annuaire (directory): every role, both pôles, public fields only, "Sorti" employees hidden.
 - [x] B. "Mon profil" page: each employee sees their own fiche (/api/employees/me/) and edits only personal fields.
-- [ ] C. Lists management page for Admin RH: rename, deactivate, reactivate values.
+- [x] C. Lists management page for Admin RH: rename, deactivate, reactivate values (and delete a value nobody uses).
 - [x] D. Fields from the HR fiche (all optional): CNSS, CIMR, bank + RIB (24 digits), emergency contact (name, relationship, phone; the employee can edit it), marital status, children (first name + birth date; the count is computed).
-- [ ] E. Status "Sorti": departure date required, account blocked.
-- [ ] F. History (audit): who changed / reset what, and when.
+- [x] E. Status "Sorti": departure date required, account blocked.
+- [x] F. History (audit): who changed / reset what, and when; "History" tab in the fiche and an "Audit log" page for all fiches (+ change the account role from the fiche: RH Collaborateur <-> Manager, HR roles by Admin RH only, never your own role).
 - [ ] G. End of trial period: notify HR 10 days before (1 month for cadres).
 - [ ] H. NOOR export (need the NOOR file format from HR).
 - [ ] I. HR validates the reference lists (send `make export-lists`).

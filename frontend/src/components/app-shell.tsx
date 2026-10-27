@@ -15,20 +15,22 @@ import { useState, type FormEvent, type ReactNode } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
-  Bell, BookOpen, BriefcaseBusiness, Building2, CalendarDays, Check, ChevronDown, ChevronRight,
-  CircleHelp, ClipboardCheck, FolderOpen, Headphones, LayoutDashboard, type LucideIcon,
-  LogOut, Menu, Plane, ReceiptText, Search, Settings2, ShieldCheck, UserRound, UserRoundCog, UsersRound, X,
+  Bell, BookOpen, BriefcaseBusiness, Building2, CalendarDays, Check, ChevronDown, ChevronRight, ChevronsUpDown,
+  CircleHelp, ClipboardCheck, FolderOpen, Headphones, LayoutDashboard, ListChecks, type LucideIcon,
+  LogOut, Menu, Plane, ReceiptText, ScrollText, Search, ShieldCheck, UserRound, UserRoundCog, UsersRound, X,
 } from 'lucide-react'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { BrandLogo } from '@/components/brand-logo'
 import { Input } from '@/components/ui/input'
-import { isHr, roleLabel, type Me } from '@/lib/api'
+import { UserMenu } from '@/components/user-menu'
+import { isHr, roleLabel, seesBothPoles, type Me } from '@/lib/api'
 
 type NavItem = {
   label: string
   icon: LucideIcon
   href?: string      // sans href : la page n'existe pas encore (bouton inactif)
   hrOnly?: boolean   // visible seulement pour RH et Admin RH
+  adminOnly?: boolean  // visible seulement pour Admin RH (et l'IT)
 }
 
 type NavGroup = {
@@ -62,6 +64,8 @@ const navGroups: NavGroup[] = [
     { label: 'Team Approvals', icon: Check },
     { label: 'Maker-Checker Audit', icon: ShieldCheck },
     { label: 'Employees', icon: UserRoundCog, href: '/employees', hrOnly: true },
+    { label: 'Audit log', icon: ScrollText, href: '/audit', hrOnly: true },
+    { label: 'Reference lists', icon: ListChecks, href: '/lists', adminOnly: true },
   ] },
 ]
 
@@ -89,7 +93,8 @@ export function AppShell({ me, onLogout, active, breadcrumb, children }: AppShel
   // Ce que ce rôle a le droit de voir dans la sidebar.
   const visibleGroups = navGroups
     .filter((group) => !group.restricted || me.role !== 'COLLABORATOR' || me.is_superuser)
-    .map((group) => ({ ...group, items: group.items.filter((item) => !item.hrOnly || isHr(me)) }))
+    .map((group) => ({ ...group, items: group.items.filter((item) =>
+      (!item.hrOnly || isHr(me)) && (!item.adminOnly || seesBothPoles(me))) }))
 
   // Au départ, on ouvre le groupe qui contient la page active.
   const activeGroup = navGroups.find((group) => group.items.some((item) => item.label === active))?.label
@@ -147,14 +152,16 @@ export function AppShell({ me, onLogout, active, breadcrumb, children }: AppShel
       </nav>
 
       <div className="border-t border-white/10 p-4">
-        <div className="flex items-center gap-3 rounded-lg bg-white/5 p-3">
+        {/* La carte du compte : un clic ouvre le même menu que l'avatar du header (vers le haut). */}
+        <UserMenu me={me} displayName={displayName} onLogout={onLogout} side="top" align="start"
+          triggerClassName="flex w-full items-center gap-3 rounded-lg bg-white/5 p-3 text-left hover:bg-white/10 aria-expanded:bg-white/10">
           <Avatar className="size-9 border border-blue-300/40"><AvatarFallback className="bg-blue-100 text-xs font-bold text-blue-800">{initials}</AvatarFallback></Avatar>
           <div className="min-w-0 flex-1">
             <p className="truncate text-xs font-semibold">{displayName}</p>
             <p className="truncate text-[10px] text-slate-400">{roleLabel(me.role)}</p>
           </div>
-          <Settings2 className="size-4 text-slate-400" />
-        </div>
+          <ChevronsUpDown className="size-4 text-slate-400" />
+        </UserMenu>
         <button onClick={onLogout} className="mt-3 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium text-slate-400 hover:bg-[#5574c5] hover:text-white"><LogOut className="size-4" /> Log out</button>
       </div>
     </aside>
@@ -174,7 +181,11 @@ export function AppShell({ me, onLogout, active, breadcrumb, children }: AppShel
         <div className="hidden items-center gap-5 sm:flex">
           <button aria-label="Notifications, 3 unread" className="relative rounded-lg p-2 text-slate-500 hover:bg-slate-100"><Bell className="size-[19px]" /><span className="absolute right-0.5 top-0.5 flex size-4 items-center justify-center rounded-full bg-[#23355d] text-[9px] font-bold text-white ring-2 ring-white">3</span></button>
           <button className="flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-[#23355d]"><CircleHelp className="size-4" /> Help</button>
-          <Avatar className="size-9 border border-slate-200"><AvatarFallback className="bg-[#0F172A] text-xs font-bold text-white">{initials}</AvatarFallback></Avatar>
+          {/* L'avatar ouvre le menu du compte (profil, mot de passe, déconnexion). */}
+          <UserMenu me={me} displayName={displayName} onLogout={onLogout}
+            triggerClassName="rounded-full outline-none focus-visible:ring-3 focus-visible:ring-[#23355d]/30">
+            <Avatar className="size-9 border border-slate-200"><AvatarFallback className="bg-[#0F172A] text-xs font-bold text-white">{initials}</AvatarFallback></Avatar>
+          </UserMenu>
         </div>
       </header>
 

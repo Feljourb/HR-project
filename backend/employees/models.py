@@ -7,6 +7,8 @@ from django.core.validators import MinValueValidator
 from django.db import models, transaction
 from django.db.models.functions import Lower
 
+from accounts.services import set_account_active
+
 
 class ReferenceItem(models.Model):
     """The mould of every dropdown list: a name, and "inactive" instead of delete
@@ -386,6 +388,14 @@ class Employee(models.Model):
         elif has_phone and not has_name:
             errors["emergency_contact_name"] = "Indiquez le nom du contact d'urgence."
 
+        # Règle 7 : un collaborateur "Sorti" a une date de sortie (son compte sera bloqué, voir save()).
+        if self.status == self.Status.LEFT and not self.departure_date:
+            errors["departure_date"] = "Obligatoire pour un collaborateur sorti."
+
+        # Règle 8 : on ne sort pas avant d'être entré.
+        if self.departure_date and self.hire_date and self.departure_date < self.hire_date:
+            errors["departure_date"] = "La date de sortie est avant la date d'embauche."
+
         if errors:
             raise ValidationError(errors)
 
@@ -399,8 +409,12 @@ class Employee(models.Model):
         self.rib = digits_only(self.rib)
         self.cnss_number = digits_only(self.cnss_number)
 
-        # atomic : les deux écritures passent ensemble, ou aucune (jamais de dossier sans matricule).
+        # atomic : toutes les écritures passent ensemble, ou aucune (jamais de dossier sans matricule,
+        # jamais un "Sorti" avec un compte encore ouvert).
         with transaction.atomic():
+            # Le statut AVANT cette modification (None pour un nouveau dossier).
+            old_status = Employee.objects.filter(pk=self.pk).values_list("status", flat=True).first() if self.pk else None
+
             super().save(*args, **kwargs)  # 1. PostgreSQL enregistre et donne un id (ex. 7)
             if self.u_number is None:  # 2. seulement pour un nouveau dossier
                 # 3. Le matricule vient de l'id : 7 -> "U000007" (6 chiffres).
@@ -408,6 +422,15 @@ class Employee(models.Model):
                 #    donc un matricule n'est jamais donné deux fois.
                 self.u_number = f"U{self.pk:06d}"
                 super().save(update_fields=["u_number"])
+
+            # 4. Le compte suit le statut, mais SEULEMENT quand le statut change :
+            #    -> "Sorti" : compte bloqué ; "Sorti" -> autre (réintégré, erreur corrigée) : débloqué.
+            #    Modifier un téléphone ne débloque donc jamais un compte que l'IT a bloqué à la main.
+            if self.user_id and self.status != old_status:
+                if self.status == self.Status.LEFT:
+                    set_account_active(self.user, False)
+                elif old_status == self.Status.LEFT:
+                    set_account_active(self.user, True)
 
 
 class Child(models.Model):
@@ -424,3 +447,36 @@ class Child(models.Model):
 
     def __str__(self):
         return f"{self.first_name} ({self.birth_date:%d/%m/%Y})"
+
+
+class EmployeeHistory(models.Model):
+    """L'historique d'un dossier : qui a fait quoi, et quand (une ligne par action).
+
+    Écrit par employees/history.py (API, admin, "Mon profil"), jamais modifié ensuite.
+    `changes` : la liste des champs changés, ex. [{"field": "Téléphone", "old": "0600...", "new": "0611..."}].
+    Pour un champ secret (RIB, CNSS, CIMR) : {"field": "RIB", "hidden": true}, sans les numéros.
+    """
+
+    class Action(models.TextChoices):
+        CREATED = "CREATED", "Création"
+        UPDATED = "UPDATED", "Modification"
+        ROLE = "ROLE", "Changement de rôle"
+        PASSWORD_RESET = "PASSWORD_RESET", "Réinitialisation du mot de passe"
+
+    employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name="history", verbose_name="Collaborateur")
+    # Qui : le compte (SET_NULL : l'historique reste même si le compte disparaît un jour),
+    # et son username recopié au moment de l'action.
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                              related_name="+", verbose_name="Fait par")
+    actor_name = models.CharField("Fait par (username)", max_length=150)
+    action = models.CharField("Action", max_length=20, choices=Action.choices)
+    changes = models.JSONField("Changements", default=list, blank=True)
+    created_at = models.DateTimeField("Date", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Historique"
+        verbose_name_plural = "Historique"
+        ordering = ["-created_at", "-id"]  # le plus récent d'abord
+
+    def __str__(self):
+        return f"{self.get_action_display()} - {self.employee} - {self.actor_name}"

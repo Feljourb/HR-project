@@ -1,4 +1,6 @@
 """Tests de l'annuaire (step A)."""
+import datetime
+
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 from rest_framework.test import APIClient
@@ -22,7 +24,8 @@ class DirectoryApiTests(EmployeeTestCase):
         self.karim = self.saved("AB000001", first_name="Karim")  # SBD
         self.salma = self.saved("AB000002", first_name="Salma", department=production,  # Riaya
                                 position=production.positions.get(name="Opérateur de production"))
-        self.youssef = self.saved("AB000003", first_name="Youssef", status=Employee.Status.LEFT)  # sorti
+        self.youssef = self.saved("AB000003", first_name="Youssef", status=Employee.Status.LEFT,
+                                  departure_date=datetime.date(2026, 6, 30))  # sorti
 
     def saved(self, cin, **fields):
         employee = services.create_with_account(self.fiche(cin, **fields))

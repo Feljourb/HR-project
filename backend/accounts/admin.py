@@ -21,8 +21,13 @@ def reset_password(modeladmin, request, queryset):
     if not request.user.is_superuser:
         modeladmin.message_user(request, "Réservé à l'IT.", messages.ERROR)
         return
+    from employees import history  # import ici : l'app accounts ne dépend pas d'employees au chargement
+    from employees.models import EmployeeHistory
+
     for user in queryset:
         password = services.reset_password(user)
+        if hasattr(user, "employee"):  # un compte avec un dossier RH : on le note dans son historique
+            history.record(user.employee, request.user, EmployeeHistory.Action.PASSWORD_RESET)
         modeladmin.message_user(
             request,
             f"{user.username} : mot de passe temporaire {password} (à changer à la prochaine connexion).",
@@ -50,6 +55,15 @@ class CustomUserAdmin(UserAdmin):
     add_fieldsets = (
         (None, {"fields": ("username", "password1", "password2", "role")}),
     )
+
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        # L'IT change le rôle d'un compte qui a un dossier RH : on le note dans son historique.
+        if change and "role" in form.changed_data and hasattr(obj, "employee"):
+            from employees import history  # import ici : voir reset_password plus haut
+
+            old_label = User.Role(form.initial["role"]).label
+            history.record_role(obj.employee, request.user, old_label, obj.get_role_display())
 
 
 @admin.register(SecuritySettings)

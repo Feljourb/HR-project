@@ -54,9 +54,28 @@ export type EmployeeFiche = {
   pole: number;
   manager_label: string | null;
   can_reset_password: boolean;  // Django dit si ce RH peut réinitialiser le mot de passe de ce compte
+  account_role: string;         // le rôle actuel du compte, ex. "COLLABORATOR"
+  assignable_roles: string[];   // les rôles que CE RH peut lui donner (vide : il ne peut pas le changer)
   children: Child[];
   number_of_children: number;   // calculé par Django à partir de la liste
 } & Record<FormField, string | number | null>;
+
+// Une ligne de l'historique d'un dossier (/api/employees/<id>/history/).
+export type HistoryEntry = {
+  id: number;
+  created_at: string;     // ex. "2026-10-27T14:05:12.345+01:00"
+  actor_name: string;     // le username de la personne qui a agi
+  action: "CREATED" | "UPDATED" | "ROLE" | "PASSWORD_RESET";
+  action_label: string;   // ex. "Modification"
+  // Les champs changés. hidden : un secret (RIB, CNSS, CIMR), sans les numéros.
+  changes: { field: string; old?: string; new?: string; hidden?: boolean }[];
+};
+
+// Une ligne du journal de tous les dossiers (/api/employees/history/) : + le dossier concerné.
+export type AuditEntry = HistoryEntry & {
+  employee: number;        // l'id du dossier (pour le lien vers la fiche)
+  employee_label: string;  // ex. "U000007 - ALAMI Ahmed"
+};
 
 // Un enfant (allocations familiales). id absent pour un enfant pas encore enregistré.
 export type Child = {

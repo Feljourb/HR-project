@@ -9,10 +9,10 @@ from django.core.exceptions import NON_FIELD_ERRORS, ValidationError as DjangoVa
 from django.db import transaction
 from rest_framework import serializers
 
-from accounts.services import can_reset_password
+from accounts.services import can_change_role, can_give_role_to_new_account, can_reset_password
 
-from . import services
-from .models import Child, Employee
+from . import history, services
+from .models import Child, Employee, EmployeeHistory
 
 User = get_user_model()
 
@@ -113,8 +113,12 @@ class EmployeeSerializer(serializers.ModelSerializer):
     # Le frontend affiche le bouton "Réinitialiser le mot de passe" seulement si c'est vrai.
     # Même règle que l'API (accounts.services.can_reset_password) : jamais deux règles différentes.
     can_reset_password = serializers.SerializerMethodField()
-    # Écriture seule, et seulement à la création : le rôle du compte créé (Collaborateur par défaut).
+    # Écriture : le rôle du compte (création : Collaborateur par défaut ; modification : voir validate).
     role = serializers.ChoiceField(choices=User.Role.choices, write_only=True, required=False)
+    # Lecture : le rôle actuel du compte, et les rôles que CE RH peut lui donner (liste vide : il ne
+    # peut pas le changer). Le frontend construit la liste déroulante avec : une seule règle, celle de Django.
+    account_role = serializers.CharField(source="user.role", read_only=True)
+    assignable_roles = serializers.SerializerMethodField()
     # Les enfants : une liste dans le dossier. À l'enregistrement, la liste envoyée REMPLACE
     # l'ancienne (voir save_children). Le nombre d'enfants est calculé, jamais saisi.
     children = ChildSerializer(many=True, required=False)
@@ -129,10 +133,17 @@ class EmployeeSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         return bool(request and can_reset_password(request.user, employee.user))
 
+    def get_assignable_roles(self, employee):
+        request = self.context.get("request")
+        if request is None:
+            return []
+        return [role for role in User.Role.values if can_change_role(request.user, employee.user, role)]
+
     def validate_role(self, role):
-        # Sans cette règle, un RH pourrait créer un compte Admin RH... et se donner tous les droits.
-        if role in (User.Role.HR, User.Role.HR_ADMIN) and not services.sees_both_poles(self.context["request"].user):
-            raise serializers.ValidationError("Seul l'Admin RH peut donner un rôle RH.")
+        # Création : sans cette règle, un RH pourrait créer un compte Admin RH... et se donner tous
+        # les droits. (Modification d'un compte existant : voir validate, étape 3.)
+        if self.instance is None and not can_give_role_to_new_account(self.context["request"].user, role):
+            raise serializers.ValidationError("Vous ne pouvez pas donner ce rôle.")
         return role
 
     def validate(self, attrs):
@@ -148,6 +159,13 @@ class EmployeeSerializer(serializers.ModelSerializer):
             pole = services.user_pole(user)
             if pole is None or instance.pole.pk != pole.pk:
                 raise serializers.ValidationError({"department": "Ce service n'appartient pas à votre pôle."})
+
+        # 3. Changer le rôle d'un compte EXISTANT : jamais le sien, RH <-> Admin RH seulement
+        #    par l'Admin RH... (voir accounts.services.can_change_role).
+        role = attrs.get("role")
+        if self.instance is not None and role and role != self.instance.user.role:
+            if not can_change_role(user, self.instance.user, role):
+                raise serializers.ValidationError({"role": "Vous ne pouvez pas donner ce rôle à ce compte."})
         return attrs
 
     # atomic : le dossier et ses enfants sont enregistrés ensemble, ou pas du tout.
@@ -158,15 +176,27 @@ class EmployeeSerializer(serializers.ModelSerializer):
         children = validated_data.pop("children", [])
         employee = services.create_with_account(Employee(**validated_data), role=role)
         self.save_children(employee, children)
+        history.record(employee, self.context["request"].user, EmployeeHistory.Action.CREATED,
+                       [{"field": "Rôle du compte", "old": "", "new": employee.user.get_role_display()}])
         return employee
 
     @transaction.atomic
     def update(self, instance, validated_data):
-        validated_data.pop("role", None)  # le rôle se change dans les comptes (IT), pas ici
+        actor = self.context["request"].user
+        before = history.snapshot(instance)  # la "photo" AVANT les changements, pour l'historique
+        role = validated_data.pop("role", None)
         children = validated_data.pop("children", None)  # None = liste pas envoyée : on n'y touche pas
         employee = super().update(instance, validated_data)
         if children is not None:
             self.save_children(employee, children)
+        history.record_changes(employee, actor, before)  # une ligne seulement si quelque chose a changé
+
+        # Le rôle est dans le compte, pas dans le dossier (validate a déjà vérifié le droit de le changer).
+        if role and role != employee.user.role:
+            old_label = employee.user.get_role_display()
+            employee.user.role = role
+            employee.user.save(update_fields=["role"])
+            history.record_role(employee, actor, old_label, employee.user.get_role_display())
         return employee
 
     @staticmethod
@@ -175,6 +205,25 @@ class EmployeeSerializer(serializers.ModelSerializer):
         ce qui est à l'écran est exactement ce qui est en base)."""
         employee.children.all().delete()
         Child.objects.bulk_create(Child(employee=employee, **child) for child in children)
+
+
+class HistorySerializer(serializers.ModelSerializer):
+    """Une ligne de l'historique d'un dossier (lecture seule)."""
+
+    action_label = serializers.CharField(source="get_action_display", read_only=True)
+
+    class Meta:
+        model = EmployeeHistory
+        fields = ["id", "created_at", "actor_name", "action", "action_label", "changes"]
+
+
+class AuditLogSerializer(HistorySerializer):
+    """Une ligne du journal de tous les dossiers : la même chose + le dossier concerné."""
+
+    employee_label = serializers.StringRelatedField(source="employee")  # "U000007 - ALAMI Ahmed"
+
+    class Meta(HistorySerializer.Meta):
+        fields = [*HistorySerializer.Meta.fields, "employee", "employee_label"]
 
 
 class DirectorySerializer(serializers.ModelSerializer):
@@ -209,7 +258,8 @@ class MyFicheSerializer(EmployeeSerializer):
     n_plus_2 = serializers.StringRelatedField()
     n_plus_3 = serializers.StringRelatedField()
 
-    role = None  # "role = None" retire ce champ hérité : rien à faire ici
+    role = None  # "role = None" retire ce champ hérité : on ne change pas son propre rôle
+    assignable_roles = None
     children = ChildSerializer(many=True, read_only=True)  # visibles, modifiables seulement par les RH
 
     class Meta(EmployeeSerializer.Meta):

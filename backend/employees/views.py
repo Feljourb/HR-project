@@ -6,7 +6,8 @@ LISTES : une adresse par liste, ex. /api/employees/lists/positions/ :
   GET   .../positions/?all=1            -> Admin RH : aussi les valeurs désactivées
   POST  .../positions/                  -> Admin RH : ajouter une valeur
   PATCH .../positions/12/               -> Admin RH : renommer, ou désactiver (is_active=false)
-Pas de DELETE : une valeur n'est jamais supprimée, seulement désactivée.
+  DELETE .../positions/12/              -> Admin RH : supprimer une valeur que PERSONNE n'utilise
+                                           (sinon 400 : on la désactive à la place)
 
 COLLABORATEURS : /api/employees/
   GET   /api/employees/?search=alami&status=ACTIVE&entity=2&page=1  -> le tableau (RH)
@@ -14,11 +15,14 @@ COLLABORATEURS : /api/employees/
   GET   /api/employees/7/      -> RH : un dossier complet
   PATCH /api/employees/7/      -> RH : modifier un dossier
   POST  /api/employees/7/reset-password/ -> RH : mot de passe temporaire (mot de passe oublié)
+  GET   /api/employees/7/history/  -> RH : l'historique du dossier (qui a changé quoi, quand)
+  GET   /api/employees/history/?search=&actor=&action=&date_from=&date_to= -> RH : le journal de tous les dossiers
   GET   /api/employees/directory/?search=karim&page=1 -> tout le monde : l'annuaire (champs publics)
   GET   /api/employees/me/     -> tout le monde : MON dossier
   PATCH /api/employees/me/     -> tout le monde : modifier MES infos personnelles
 """
-from django.db.models import Q
+from django.db.models import ProtectedError, Q
+from django.utils.dateparse import parse_date
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
@@ -29,12 +33,14 @@ from rest_framework.response import Response
 from accounts.permissions import AccountReady, IsHR, IsHRAdmin
 from accounts.services import can_reset_password, reset_password as reset_account_password
 
+from . import history
 from .models import (
     Assignment, Bank, Category, ContractType, CostCenter, Department, Direction, Division,
-    Employee, Entity, Grade, Pole, Position, Region, TempAgency,
+    Employee, EmployeeHistory, Entity, Grade, Pole, Position, Region, TempAgency,
 )
 from .serializers import (
-    DirectorySerializer, EmployeeListSerializer, EmployeeSerializer, MyFicheSerializer, ReferenceSerializer,
+    AuditLogSerializer, DirectorySerializer, EmployeeListSerializer, EmployeeSerializer, HistorySerializer,
+    MyFicheSerializer, ReferenceSerializer,
 )
 from .services import limited_to_own_pole, sees_both_poles, user_pole
 
@@ -52,8 +58,8 @@ class ReferenceViewSet(viewsets.ModelViewSet):
     """Le comportement commun à toutes les listes. Chaque liste est une copie de
     cette classe avec son modèle et ses réglages (voir make_viewset plus bas)."""
 
-    # Méthodes HTTP autorisées : pas de "delete" ni "put" (PATCH suffit pour modifier).
-    http_method_names = ["get", "post", "patch", "head", "options"]
+    # Méthodes HTTP autorisées : pas de "put" (PATCH suffit pour modifier).
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
     # Champ parent pour le filtre en cascade (ex. "department" pour les postes), ou None.
     parent_field = None
     # Chemin du modèle vers son pôle (ex. "entity__pole" pour une direction), ou None
@@ -93,6 +99,17 @@ class ReferenceViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(**{self.pole_path: pole.pk}) if pole else queryset.none()
 
         return queryset
+
+    def destroy(self, request, *args, **kwargs):
+        """Supprimer : seulement une valeur que personne n'utilise (ex. une proposition fausse).
+
+        Les liens sont en PROTECT : si un collaborateur l'utilise, ou si elle a des "enfants"
+        (ex. une direction qui a des services), PostgreSQL refuse (ProtectedError).
+        On répond alors 400 avec un message clair, au lieu d'une erreur 500."""
+        try:
+            return super().destroy(request, *args, **kwargs)
+        except ProtectedError:
+            raise ValidationError({"non_field_errors": ["Cette valeur est utilisée : désactivez-la au lieu de la supprimer."]})
 
 
 def make_viewset(model, parent_field=None, pole_path=None):
@@ -203,10 +220,56 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         if not can_reset_password(request.user, employee.user):
             raise PermissionDenied("Vous ne pouvez pas réinitialiser le mot de passe de ce compte.")
         password = reset_account_password(employee.user)
+        history.record(employee, request.user, EmployeeHistory.Action.PASSWORD_RESET)  # jamais le mot de passe
         response = Response({"username": employee.user.username, "temporary_password": password})
         # no-store : le navigateur (ou un proxy) ne doit garder aucune copie de cette réponse.
         response["Cache-Control"] = "no-store"
         return response
+
+    # Méthode "file_history" (pas "history" : c'est déjà le nom du module employees/history.py).
+    @action(detail=True, methods=["get"], url_path="history", url_name="history")
+    def file_history(self, request, pk=None):
+        """L'historique du dossier, le plus récent d'abord, par pages de 25.
+        get_object() : un RH ne voit que l'historique des dossiers de son pôle (sinon 404)."""
+        employee = self.get_object()
+        page = self.paginate_queryset(employee.history.all())
+        return self.get_paginated_response(HistorySerializer(page, many=True).data)
+
+    @action(detail=False, methods=["get"], url_path="history", url_name="audit-log")
+    def audit_log(self, request):
+        """Le journal de TOUS les dossiers (page "Audit log"), le plus récent d'abord, par pages de 25.
+
+        Filtres : ?search=alami (collaborateur : nom, prénom, matricule), ?actor=rh.alami (qui),
+        ?action=ROLE, ?date_from=2026-10-01&date_to=2026-10-31.
+        Un RH ne voit que les dossiers de son pôle : on part de get_queryset() (le même filtre que le tableau).
+        """
+        params = request.query_params
+        entries = EmployeeHistory.objects.filter(employee__in=self.get_queryset()).select_related("employee")
+
+        if search := params.get("search", "").strip():
+            entries = entries.filter(
+                Q(employee__last_name__icontains=search) | Q(employee__first_name__icontains=search)
+                | Q(employee__u_number__icontains=search)
+            )
+        if actor := params.get("actor", "").strip():
+            entries = entries.filter(actor_name__icontains=actor)
+        if action_name := params.get("action"):
+            if action_name not in EmployeeHistory.Action.values:
+                raise ValidationError({"action": "Action inconnue."})
+            entries = entries.filter(action=action_name)
+        # Les dates : "2026-10-31" -> filtre sur le jour (la fin de journée est comprise).
+        for name, lookup in (("date_from", "created_at__date__gte"), ("date_to", "created_at__date__lte")):
+            if value := params.get(name):
+                try:
+                    day = parse_date(value)  # None si le format est faux, ValueError si la date n'existe pas
+                except ValueError:
+                    day = None
+                if day is None:
+                    raise ValidationError({name: "Date invalide (format AAAA-MM-JJ)."})
+                entries = entries.filter(**{lookup: day})
+
+        page = self.paginate_queryset(entries)
+        return self.get_paginated_response(AuditLogSerializer(page, many=True).data)
 
     # detail=False : adresse sans id (/api/employees/me/). AccountReady : tous les rôles,
     # pas seulement les RH (chaque collaborateur voit son propre dossier).

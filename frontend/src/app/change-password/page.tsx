@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AuthCard, FormErrors, PasswordInput, SubmitButton, labelClass, linkClass } from "@/components/auth-card";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, type Me } from "@/lib/api";
 
 export default function ChangePasswordPage() {
   const router = useRouter();
@@ -12,6 +13,18 @@ export default function ChangePasswordPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [errors, setErrors] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+  // Forcé (mot de passe temporaire) ou volontaire (depuis le menu du compte) ?
+  // Par défaut : forcé, le cas le plus strict (pas de bouton "Annuler").
+  const [forced, setForced] = useState(true);
+
+  useEffect(() => {
+    apiFetch("/api/auth/me/")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((user: Me | null) => {
+        if (user) setForced(user.must_change_password);
+      })
+      .catch(() => {});
+  }, []);
 
   // Next.js keeps this page alive (hidden): never leave passwords in it.
   // The cleanup runs once it is hidden, so the form stays as is while the next page loads.
@@ -21,6 +34,7 @@ export default function ChangePasswordPage() {
     setConfirmPassword("");
     setErrors([]);
     setLoading(false);
+    setForced(true);
   }, []);
 
   function leave(path: string) {
@@ -61,7 +75,10 @@ export default function ChangePasswordPage() {
   }
 
   return (
-    <AuthCard title="Choose a new password" subtitle="For your security, replace your temporary password before continuing.">
+    <AuthCard
+      title="Choose a new password"
+      subtitle={forced ? "For your security, replace your temporary password before continuing." : "Your other sessions will be signed out."}
+    >
       <form onSubmit={handleSubmit}>
         <label htmlFor="current" className={labelClass}>Current password</label>
         <PasswordInput id="current" autoComplete="current-password" value={currentPassword} onChange={setCurrentPassword} />
@@ -77,9 +94,16 @@ export default function ChangePasswordPage() {
         <SubmitButton loading={loading} label="Save new password" loadingLabel="Saving..." />
       </form>
 
-      <button type="button" onClick={signOut} className={linkClass}>
-        Sign out
-      </button>
+      {/* Forcé : on ne peut que sortir. Volontaire : on peut revenir sans rien changer. */}
+      {forced ? (
+        <button type="button" onClick={signOut} className={linkClass}>
+          Sign out
+        </button>
+      ) : (
+        <Link href="/" className={linkClass}>
+          Cancel
+        </Link>
+      )}
     </AuthCard>
   );
 }
