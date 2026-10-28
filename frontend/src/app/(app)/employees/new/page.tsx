@@ -5,5 +5,5 @@ import { HrPage } from "@/components/employees/hr-page";
 
 // /employees/new : créer un collaborateur (et son compte).
 export default function NewEmployeePage() {
-  return <HrPage page="New employee">{(me) => <EmployeeForm me={me} />}</HrPage>;
+  return <HrPage>{(me) => <EmployeeForm me={me} />}</HrPage>;
 }

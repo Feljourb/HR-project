@@ -4,9 +4,9 @@
  * La gestion des listes de référence (Admin RH et IT) : la page /lists.
  *
  * - À gauche : les 14 listes. À droite : les valeurs de la liste choisie, actives ET désactivées (?all=1).
- * - Pour chaque valeur : Renommer, Désactiver / Réactiver, Supprimer (voir ValueRow).
- * - Supprimer : seulement une valeur que personne n'utilise. Sinon Django répond
- *   "désactivez-la" : une valeur utilisée par un collaborateur ne disparaît jamais.
+ * - Pour chaque valeur : Renommer, Désactiver / Réactiver (voir ValueRow).
+ * - Jamais Supprimer (décision de l'encadrant) : une valeur désactivée reste sur les anciens
+ *   dossiers, mais n'est plus proposée dans les formulaires.
  * - Organisation (Directions, Services, Postes) : on choisit d'abord les niveaux au-dessus
  *   (Entité -> Direction...), car un même nom ("Ventes") existe dans plusieurs entités.
  */
@@ -98,7 +98,7 @@ export function ListsManager() {
 
     <div>
       <h1 className="text-lg font-semibold text-[#192646]">Reference lists</h1>
-      <p className="text-xs text-slate-500">The values of the dropdown lists. A value used by an employee cannot be deleted: deactivate it instead.</p>
+      <p className="text-xs text-slate-500">The values of the dropdown lists. Values are never deleted: deactivate a value to stop offering it.</p>
     </div>
 
     <div className="grid items-start gap-4 lg:grid-cols-[230px_1fr]">
@@ -170,8 +170,7 @@ export function ListsManager() {
                       <tbody>
                         {/* key avec le nom de la liste : une ligne en cours de modification ne passe jamais à une autre liste. */}
                         {shown.map((item) => <ValueRow key={`${current.name}-${item.id}`} list={current.name} item={item} withCode={current.withCode}
-                          onChanged={(changed) => update((list) => list.map((value) => (value.id === changed.id ? changed : value)).sort(byName))}
-                          onDeleted={(id) => update((list) => list.filter((value) => value.id !== id))} />)}
+                          onChanged={(changed) => update((list) => list.map((value) => (value.id === changed.id ? changed : value)).sort(byName))} />)}
                       </tbody>
                     </table>
                   </div>}

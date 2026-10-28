@@ -12,7 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 // Deux onglets : la fiche (File) et son historique (History).
 export default function EmployeePage() {
   return (
-    <HrPage page="Employee file">
+    <HrPage>
       {(me) => (
         // Suspense : obligatoire autour de useParams (lecture du numéro dans l'adresse), comme l'annuaire.
         <Suspense fallback={<p className="py-12 text-center text-sm text-slate-500">Loading...</p>}>

@@ -19,7 +19,6 @@ class NotCinValidator:
         except (AttributeError, ObjectDoesNotExist):
             # Pas d'utilisateur, ou utilisateur sans dossier RH (ex. un compte IT) : rien à vérifier.
             return
-        # Le CIN est stocké en majuscules : on compare avec le mot de passe en majuscules.
         if cin and cin in password.upper():
             raise ValidationError("Le mot de passe ne doit pas contenir votre CIN.", code="password_contains_cin")
 

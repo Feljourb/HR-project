@@ -35,7 +35,7 @@ Frontend (Next.js in frontend/src/app, backend on http://localhost:8000):
 - Never change the architecture decisions in CLAUDE.md without asking me.
 
 ## Module "Gestion des collaborateurs" (app `employees`): rules for the next steps
-- Reference lists (`employees/models.py`): Pole, Entity (→ Pole), Direction (→ Entity), Department (→ Direction), Position (→ Department), Division, Assignment, Category, ContractType, TempAgency, Grade, Region, CostCenter (+ code), Bank. All inherit the abstract `ReferenceItem` (name + is_active). Names are unique case-insensitively; Direction names are unique per entity, Department names per direction and Position names per department. A value used by an employee is never deleted, only deactivated; a value nobody uses yet (e.g. a wrong proposal) can be deleted.
+- Reference lists (`employees/models.py`): Pole, Entity (→ Pole), Direction (→ Entity), Department (→ Direction), Position (→ Department), Division, Assignment, Category, ContractType, TempAgency, Grade, Region, CostCenter (+ code), Bank. All inherit the abstract `ReferenceItem` (name + is_active). Names are unique case-insensitively; Direction names are unique per entity, Department names per direction and Position names per department. A value is NEVER deleted, only deactivated (decision of the encadrant, 2026-10-27), even a value nobody uses yet.
 - The initial values (banks, regions, categories, directions → services → postes) are a standard PROPOSAL until HR validates them; `python manage.py export_lists` exports every list to Excel (one sheet per list) for HR.
 - Employee (step 2) stores only `department` + `position`, and the position must belong to that same department. Direction, entité and pôle are never stored: they come from `department.direction.entity.pole`.
 - Employee form (frontend): cascading lists Entité → Direction → Service → Poste; each list filters the next one. HR only sees the entités of their pôle (Admin RH: all).
@@ -50,7 +50,7 @@ Frontend (Next.js in frontend/src/app, backend on http://localhost:8000):
 Done: reference lists, Employee, account created from the fiche, lists + employees API, employees table and form (cascade, "+ Ajouter"), password reset.
 - [x] A. Annuaire (directory): every role, both pôles, public fields only, "Sorti" employees hidden.
 - [x] B. "Mon profil" page: each employee sees their own fiche (/api/employees/me/) and edits only personal fields.
-- [x] C. Lists management page for Admin RH: rename, deactivate, reactivate values (and delete a value nobody uses).
+- [x] C. Lists management page for Admin RH: rename, deactivate, reactivate values (no delete).
 - [x] D. Fields from the HR fiche (all optional): CNSS, CIMR, bank + RIB (24 digits), emergency contact (name, relationship, phone; the employee can edit it), marital status, children (first name + birth date; the count is computed).
 - [x] E. Status "Sorti": departure date required, account blocked.
 - [x] F. History (audit): who changed / reset what, and when; "History" tab in the fiche and an "Audit log" page for all fiches (+ change the account role from the fiche: RH Collaborateur <-> Manager, HR roles by Admin RH only, never your own role).
@@ -58,5 +58,13 @@ Done: reference lists, Employee, account created from the fiche, lists + employe
 - [ ] H. NOOR export (need the NOOR file format from HR).
 - [ ] I. HR validates the reference lists (send `make export-lists`).
 - [ ] J. Final review: the 5 security functions line by line, and the Django admin.
+
+## Module "Gestion des workflows" (app `workflows`)
+Hypotheses (standard practice, to validate with the encadrant): circuits are configurable by Admin RH; a step names a ROLE (N+1, N+2, RH du pôle, Admin RH), never a person; no maker-checker, only history; a circuit is never deleted, only deactivated.
+- [x] 1. The "tableau": Workflow (type de demande) + WorkflowStep (order, approver).
+- [ ] 2. Standard circuits proposal (migration) + API + Admin RH page to manage them.
+- [ ] 3. The engine: a request follows its circuit (who validates next, approve / reject).
+- [ ] 4. "My requests" + "Team approvals" pages, bell notification for the next validator.
+- [ ] 5. History of each request; remove the "Maker-Checker Audit" sidebar placeholder.
  
 Start with step 1.

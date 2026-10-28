@@ -2,7 +2,7 @@
 
 /*
  * Une ligne du tableau des listes : la valeur, son état (active ou non), et les actions
- * Renommer, Désactiver / Réactiver, Supprimer.
+ * Renommer, Désactiver / Réactiver. Jamais Supprimer (décision de l'encadrant) : on désactive.
  *
  * Les règles (doublon, valeur utilisée, Admin RH seulement) sont vérifiées par Django :
  * ici on affiche simplement sa réponse sous la valeur.
@@ -19,7 +19,6 @@ type ValueRowProps = {
   item: ListValue
   withCode?: boolean
   onChanged: (item: ListValue) => void   // renommée, désactivée ou réactivée : la nouvelle version
-  onDeleted: (id: number) => void
 }
 
 const actionClass = 'rounded-md px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-100 hover:text-[#23355d] disabled:opacity-50'
@@ -30,33 +29,29 @@ function firstMessage(data: Record<string, unknown>) {
   return Array.isArray(messages) ? String(messages[0]) : 'Something went wrong. Please try again.'
 }
 
-export function ValueRow({ list, item, withCode, onChanged, onDeleted }: ValueRowProps) {
+export function ValueRow({ list, item, withCode, onChanged }: ValueRowProps) {
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(item.name)
   const [code, setCode] = useState(item.code ?? '')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
-  // Envoie la demande à Django (PATCH : modifier, DELETE : supprimer) et affiche sa réponse.
-  async function send(method: 'PATCH' | 'DELETE', body?: object) {
+  // Envoie la modification à Django (PATCH) et affiche sa réponse.
+  async function send(body: object) {
     setBusy(true)
     setError('')
     try {
       const response = await apiFetch(`/api/employees/lists/${list}/${item.id}/`, {
-        method,
-        body: body && JSON.stringify(body),
+        method: 'PATCH',
+        body: JSON.stringify(body),
       })
       if (response.ok) {
-        if (method === 'DELETE') {
-          onDeleted(item.id)
-          return
-        }
         onChanged(await response.json())
         setEditing(false)
       } else if (response.status === 403) {
         setError('Only Admin RH can change the lists.')
       } else {
-        // 400 : doublon, nom vide, ou "Cette valeur est utilisée : désactivez-la..."
+        // 400 : doublon ("Cette valeur existe déjà."), nom vide...
         setError(firstMessage(await response.json().catch(() => ({}))))
       }
     } catch {
@@ -67,7 +62,7 @@ export function ValueRow({ list, item, withCode, onChanged, onDeleted }: ValueRo
 
   function rename(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    send('PATCH', withCode ? { name: name.trim(), code: code.trim() } : { name: name.trim() })
+    send(withCode ? { name: name.trim(), code: code.trim() } : { name: name.trim() })
   }
 
   function cancel() {
@@ -75,11 +70,6 @@ export function ValueRow({ list, item, withCode, onChanged, onDeleted }: ValueRo
     setName(item.name)
     setCode(item.code ?? '')
     setError('')
-  }
-
-  function remove() {
-    // Supprimer est définitif : on demande confirmation (Django refuse si la valeur est utilisée).
-    if (window.confirm(`Delete "${item.name}"? This cannot be undone.`)) send('DELETE')
   }
 
   return <tr className="border-t border-slate-100 align-top">
@@ -115,10 +105,9 @@ export function ValueRow({ list, item, withCode, onChanged, onDeleted }: ValueRo
       {!editing && <div className="flex justify-end gap-1">
         <button type="button" disabled={busy} onClick={() => setEditing(true)} className={actionClass}>Rename</button>
         {/* Désactiver : la valeur reste sur les anciens dossiers, mais n'est plus proposée dans les formulaires. */}
-        <button type="button" disabled={busy} onClick={() => send('PATCH', { is_active: !item.is_active })} className={actionClass}>
+        <button type="button" disabled={busy} onClick={() => send({ is_active: !item.is_active })} className={actionClass}>
           {item.is_active ? 'Deactivate' : 'Reactivate'}
         </button>
-        <button type="button" disabled={busy} onClick={remove} className={cn(actionClass, 'text-red-600 hover:bg-red-50 hover:text-red-700')}>Delete</button>
       </div>}
     </td>
   </tr>

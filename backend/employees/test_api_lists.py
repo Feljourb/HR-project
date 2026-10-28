@@ -133,26 +133,9 @@ class ListsApiTests(EmployeeTestCase):
         response = self.client.get(url("positions"), {"department": other.pk, "include": self.salesman.pk})
         self.assertNotIn("Commercial terrain", self.names(response))
 
-    def test_a_used_value_is_never_deleted(self):
-        self.make_employee("k.karim", "AB000001")  # utilise le poste "Commercial terrain"
+    def test_values_are_never_deleted(self):
+        """Décision de l'encadrant : on ne supprime jamais, même une valeur que personne n'utilise."""
+        unused = Position.objects.create(name="Poste en trop", department=self.sales)
         self.login_as(User.Role.HR_ADMIN)
-        response = self.client.delete(url("positions", self.salesman.pk))
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("désactivez-la", response.json()["non_field_errors"][0])
-        self.assertTrue(Position.objects.filter(pk=self.salesman.pk).exists())
-
-    def test_a_parent_with_children_is_never_deleted(self):
-        self.login_as(User.Role.HR_ADMIN)
-        self.assertEqual(self.client.delete(url("departments", self.sales.pk)).status_code, 400)  # a des postes
-
-    def test_an_unused_value_is_deleted(self):
-        wrong = Position.objects.create(name="Poste en trop", department=self.sales)
-        self.login_as(User.Role.HR_ADMIN)
-        self.assertEqual(self.client.delete(url("positions", wrong.pk)).status_code, 204)
-        self.assertFalse(Position.objects.filter(pk=wrong.pk).exists())
-
-    def test_only_hr_admin_deletes(self):
-        wrong = Position.objects.create(name="Poste en trop", department=self.sales)
-        self.login_as(User.Role.COLLABORATOR)
-        self.assertEqual(self.client.delete(url("positions", wrong.pk)).status_code, 403)
-        self.assertTrue(Position.objects.filter(pk=wrong.pk).exists())
+        self.assertEqual(self.client.delete(url("positions", unused.pk)).status_code, 405)
+        self.assertTrue(Position.objects.filter(pk=unused.pk).exists())

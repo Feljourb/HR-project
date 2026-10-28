@@ -7,8 +7,7 @@ LISTES : une adresse par liste, ex. /api/employees/lists/positions/ :
   GET   .../positions/?include=12       -> les actives + la valeur 12 (celle du dossier qu'on modifie)
   POST  .../positions/                  -> Admin RH : ajouter une valeur
   PATCH .../positions/12/               -> Admin RH : renommer, ou désactiver (is_active=false)
-  DELETE .../positions/12/              -> Admin RH : supprimer une valeur que PERSONNE n'utilise
-                                           (sinon 400 : on la désactive à la place)
+Pas de DELETE (décision de l'encadrant) : une valeur n'est jamais supprimée, seulement désactivée.
 
 COLLABORATEURS : /api/employees/
   GET   /api/employees/?search=alami&status=ACTIVE&entity=2&page=1  -> le tableau (RH)
@@ -22,7 +21,7 @@ COLLABORATEURS : /api/employees/
   GET   /api/employees/me/     -> tout le monde : MON dossier
   PATCH /api/employees/me/     -> tout le monde : modifier MES infos personnelles
 """
-from django.db.models import ProtectedError, Q
+from django.db.models import Q
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 from rest_framework import viewsets
@@ -60,8 +59,8 @@ class ReferenceViewSet(viewsets.ModelViewSet):
     """Le comportement commun à toutes les listes. Chaque liste est une copie de
     cette classe avec son modèle et ses réglages (voir make_viewset plus bas)."""
 
-    # Méthodes HTTP autorisées : pas de "put" (PATCH suffit pour modifier).
-    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+    # Méthodes HTTP autorisées : pas de "delete" (on désactive) ni "put" (PATCH suffit pour modifier).
+    http_method_names = ["get", "post", "patch", "head", "options"]
     # Champ parent pour le filtre en cascade (ex. "department" pour les postes), ou None.
     parent_field = None
     # Chemin du modèle vers son pôle (ex. "entity__pole" pour une direction), ou None
@@ -105,17 +104,6 @@ class ReferenceViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(**{self.pole_path: pole.pk}) if pole else queryset.none()
 
         return queryset
-
-    def destroy(self, request, *args, **kwargs):
-        """Supprimer : seulement une valeur que personne n'utilise (ex. une proposition fausse).
-
-        Les liens sont en PROTECT : si un collaborateur l'utilise, ou si elle a des "enfants"
-        (ex. une direction qui a des services), PostgreSQL refuse (ProtectedError).
-        On répond alors 400 avec un message clair, au lieu d'une erreur 500."""
-        try:
-            return super().destroy(request, *args, **kwargs)
-        except ProtectedError:
-            raise ValidationError({"non_field_errors": ["Cette valeur est utilisée : désactivez-la au lieu de la supprimer."]})
 
 
 def make_viewset(model, parent_field=None, pole_path=None):

@@ -1,11 +1,11 @@
 'use client'
 
 /*
- * Le tableau de bord (page d'accueil). Le cadre (sidebar + header) est dans AppShell ;
- * ici il n'y a que le contenu : salutation, chiffres clés, vidéo, actualités...
+ * Le tableau de bord (page d'accueil). Le cadre (sidebar + header) est dans AppShell,
+ * affiché par le layout ; ici il n'y a que le contenu : salutation, chiffres clés, vidéo, actualités...
  */
 import { FileText } from 'lucide-react'
-import { AppShell, displayNameOf } from '@/components/app-shell'
+import { displayNameOf } from '@/components/app-shell'
 import { FeaturedVideo } from '@/components/dashboard/featured-video'
 import { Greeting } from '@/components/dashboard/greeting'
 import { KpiBand } from '@/components/dashboard/kpi-band'
@@ -15,16 +15,11 @@ import { TimeOffPanel } from '@/components/dashboard/time-off-panel'
 import { useNow } from '@/components/dashboard/time'
 import { isHr, type Me } from '@/lib/api'
 
-type SbdDashboardProps = {
-  me: Me
-  onLogout: () => void
-}
-
-export function SbdDashboard({ me, onLogout }: SbdDashboardProps) {
+export function SbdDashboard({ me }: { me: Me }) {
   const firstName = displayNameOf(me.username).split(' ')[0]
   const now = useNow()
 
-  return <AppShell me={me} onLogout={onLogout} active="Dashboard" breadcrumb={['Dashboard', 'Overview']}>
+  return <>
     <Greeting now={now} name={firstName} canAddEmployee={isHr(me)} />
     <KpiBand now={now} />
 
@@ -38,7 +33,7 @@ export function SbdDashboard({ me, onLogout }: SbdDashboardProps) {
     </div>
 
     <footer className="flex flex-col gap-2 border-t border-slate-200 pt-4 text-[11px] text-slate-400 sm:flex-row sm:items-center sm:justify-between"><span>© 2026 Silent Believers Distribution</span><span className="flex items-center gap-1 font-mono"><FileText className="size-3" /> SBD-HR-PORTAL</span></footer>
-  </AppShell>
+  </>
 }
 
 export default SbdDashboard
