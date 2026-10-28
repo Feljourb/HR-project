@@ -1,15 +1,35 @@
-"""Tests du tableau des circuits (step 1)."""
+"""Tests de la configuration des circuits (step 1)."""
 from django.core.exceptions import ValidationError
 from django.test import TestCase
 
 from .models import Workflow, WorkflowStep
 
 Approver = WorkflowStep.Approver
+Mode = WorkflowStep.Mode
 
 
-class WorkflowModelTests(TestCase):
+def circuit(code):
+    """Le circuit d'un type, en clair : [("MANAGER", "VALIDATE"), ("HR", "INFORM")]."""
+    return [(step.approver, step.mode) for step in Workflow.objects.get(code=code).steps.all()]
+
+
+class StandardCircuitsTests(TestCase):
+    """Les 3 circuits créés par la migration 0002."""
+
+    def test_leave(self):
+        self.assertEqual(circuit(Workflow.Code.LEAVE), [(Approver.MANAGER, Mode.VALIDATE), (Approver.HR, Mode.INFORM)])
+
+    def test_expense(self):
+        self.assertEqual(circuit(Workflow.Code.EXPENSE), [(Approver.MANAGER, Mode.VALIDATE)])
+
+    def test_admin_request(self):
+        self.assertEqual(circuit(Workflow.Code.ADMIN_REQUEST), [(Approver.HR, Mode.VALIDATE)])
+
+
+class WorkflowStepRulesTests(TestCase):
     def setUp(self):
-        self.leave = Workflow.objects.create(name="Congé annuel")
+        # Le circuit Congé de la migration : 1. N+1 valide, 2. RH informée.
+        self.leave = Workflow.objects.get(code=Workflow.Code.LEAVE)
 
     def add(self, order, approver, workflow=None):
         """Ajoute une étape en passant par les règles du modèle (comme un formulaire)."""
@@ -18,32 +38,26 @@ class WorkflowModelTests(TestCase):
         step.save()
         return step
 
-    def test_steps_come_in_order(self):
-        self.add(2, Approver.HR)
-        self.add(1, Approver.MANAGER)
-        self.assertEqual([step.approver for step in self.leave.steps.all()], [Approver.MANAGER, Approver.HR])
+    def test_a_new_step_validates_by_default(self):
+        self.assertEqual(self.add(3, Approver.DG).mode, Mode.VALIDATE)
 
     def test_two_steps_at_the_same_position_are_refused(self):
-        self.add(1, Approver.MANAGER)
         with self.assertRaisesMessage(ValidationError, "Il y a déjà une étape à cette position."):
-            self.add(1, Approver.HR)
+            self.add(1, Approver.DG)
 
     def test_the_same_approver_twice_is_refused(self):
-        self.add(1, Approver.MANAGER)
         with self.assertRaisesMessage(ValidationError, "Ce valideur est déjà dans le circuit."):
-            self.add(2, Approver.MANAGER)
+            self.add(3, Approver.MANAGER)
 
     def test_order_starts_at_one(self):
         with self.assertRaises(ValidationError):
-            self.add(0, Approver.HR)
+            self.add(0, Approver.DG)
 
     def test_another_workflow_has_its_own_steps(self):
-        """La position 1 et le N+1 existent aussi dans un autre circuit : pas de conflit."""
-        self.add(1, Approver.MANAGER)
-        expenses = Workflow.objects.create(name="Note de frais")
-        self.add(1, Approver.MANAGER, workflow=expenses)
-        self.assertEqual(expenses.steps.count(), 1)
+        """Position 1 et N+1 existent dans Congé ET dans Note de frais : pas de conflit."""
+        expense = Workflow.objects.get(code=Workflow.Code.EXPENSE)
+        self.assertEqual(expense.steps.get(order=1).approver, Approver.MANAGER)
 
     def test_workflow_names_are_unique_ignoring_case(self):
         with self.assertRaisesMessage(ValidationError, "Cette valeur existe déjà."):
-            Workflow(name="congé annuel").full_clean()
+            Workflow(name="congé", code=Workflow.Code.LEAVE).validate_constraints()

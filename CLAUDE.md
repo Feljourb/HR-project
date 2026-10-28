@@ -60,11 +60,20 @@ Done: reference lists, Employee, account created from the fiche, lists + employe
 - [ ] J. Final review: the 5 security functions line by line, and the Django admin.
 
 ## Module "Gestion des workflows" (app `workflows`)
-Hypotheses (standard practice, to validate with the encadrant): circuits are configurable by Admin RH; a step names a ROLE (N+1, N+2, RH du pôle, Admin RH), never a person; no maker-checker, only history; a circuit is never deleted, only deactivated.
-- [x] 1. The "tableau": Workflow (type de demande) + WorkflowStep (order, approver).
-- [ ] 2. Standard circuits proposal (migration) + API + Admin RH page to manage them.
-- [ ] 3. The engine: a request follows its circuit (who validates next, approve / reject).
-- [ ] 4. "My requests" + "Team approvals" pages, bell notification for the next validator.
-- [ ] 5. History of each request; remove the "Maker-Checker Audit" sidebar placeholder.
+- One validation engine for every request type. Admin RH configures the steps from a screen (no code); request types come from the code (`Workflow.code`), Admin RH cannot add them. A circuit is never deleted, only deactivated.
+- A step = order + validator (a ROLE: N+1, N+2, RH du pôle, DG du pôle; never a person) + mode (VALIDATE waits for an answer, INFORM only notifies). Admin RH is NOT a validator. No maker-checker.
+- DG: one per pôle (`Pole.director`), chosen by Admin RH (today the same person for both pôles). DG validates by e-mail later (needs SMTP).
+- Circuits now: Congé (N+1 validate → RH inform), Note de frais (N+1 validate), Demande administrative (RH validate). Recrutement: waiting for HR, do not add.
+- After the final validation, each module runs its own logic (the engine knows nothing about congés, frais...).
+- Rules: a missing validator (e.g. no N+2) is skipped; if every VALIDATE step is skipped, the request goes to RH du pôle; nobody validates their own request (another RH of the pôle does); reject ends the request at once; comment required on reject, optional on approve; the requester can cancel while IN_PROGRESS; a request copies its circuit when submitted (config changes never touch requests in progress); full history (who, what, when, comment).
+- [x] 1. Config: Workflow (code, name) + WorkflowStep (order, approver, mode) + the 3 circuits (migration 0002).
+- [ ] 2. DG per pôle: `Pole.director`.
+- [ ] 3. Admin RH "Workflows" screen: API + page (edit steps, choose the DG).
+- [ ] 4. Engine, submit: Request + RequestStep (copy of the circuit, who exactly, skip).
+- [ ] 5. Engine, decide: approve / reject / cancel, INFORM passes, then hand over to the module.
+- [ ] 6. "My requests" + "Team approvals" pages.
+- [ ] 7. Bell notifications (next validator, informed, result for the requester).
+- [ ] 8. History of each request; remove the "Maker-Checker Audit" sidebar placeholder.
+- [ ] 9. Later (SMTP): DG validates by e-mail.
  
 Start with step 1.

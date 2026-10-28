@@ -8,3 +8,15 @@ nouveau.test AB123456@	        Collaborateur
 
 generate list:
 docker compose exec backend python manage.py export_lists
+
+
+
+----------------
+mah.zakaria : BL4526
+
+ID
+U000008
+Username
+hajar.ej
+Temporary password
+their CIN (WA11111)

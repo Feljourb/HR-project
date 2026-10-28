@@ -1,8 +1,8 @@
 """
-Le "tableau" des circuits de validation : pour chaque type de demande,
-qui doit valider, et dans quel ordre.
+La configuration des circuits de validation : pour chaque type de demande,
+quelles étapes, dans quel ordre, et pour chaque étape : valider ou seulement informer.
 
-Exemple :  Congé annuel  ->  1. N+1   2. RH du pôle
+Exemple :  Congé  ->  1. N+1 valide   2. RH est informée
 """
 from django.db import models
 
@@ -10,9 +10,17 @@ from employees.models import ReferenceItem
 
 
 class Workflow(ReferenceItem):
-    """Un type de demande (ex. "Attestation de travail") et son circuit.
-    Hérite de ReferenceItem : un nom unique, et "désactivé" au lieu de supprimé
-    (les anciennes demandes gardent leur circuit)."""
+    """Un type de demande (ex. "Congé") et son circuit.
+    Hérite de ReferenceItem : un nom unique, et "désactivé" au lieu de supprimé."""
+
+    class Code(models.TextChoices):
+        # Chaque module retrouve SON circuit par ce code, jamais par le nom :
+        # si Admin RH renomme "Congé" en "Congés payés", rien ne casse.
+        LEAVE = "LEAVE", "Congé"
+        EXPENSE = "EXPENSE", "Note de frais"
+        ADMIN_REQUEST = "ADMIN_REQUEST", "Demande administrative"
+
+    code = models.CharField("Code", max_length=30, choices=Code.choices, unique=True)
 
     class Meta(ReferenceItem.Meta):
         verbose_name = "Circuit de validation"
@@ -23,17 +31,22 @@ class WorkflowStep(models.Model):
     """Une étape du circuit : "en position 1, le N+1 valide"."""
 
     class Approver(models.TextChoices):
-        # Une étape dit QUI valide (un rôle), jamais une personne précise :
-        # le N+1 de Karim n'est pas le N+1 de Sara.
+        # Un RÔLE, jamais une personne : le N+1 de Sara n'est pas le N+1 de Karim.
+        # Admin RH n'est pas un valideur (il configure seulement).
         MANAGER = "MANAGER", "N+1"
         MANAGER_2 = "MANAGER_2", "N+2"
         HR = "HR", "RH du pôle"
-        HR_ADMIN = "HR_ADMIN", "Admin RH"
+        DG = "DG", "DG du pôle"
+
+    class Mode(models.TextChoices):
+        VALIDATE = "VALIDATE", "Valider"   # la demande attend sa réponse
+        INFORM = "INFORM", "Informer"      # une notification, et on passe à la suite
 
     # CASCADE : sans son circuit, une étape n'a pas de sens (et un circuit n'est jamais supprimé).
     workflow = models.ForeignKey(Workflow, on_delete=models.CASCADE, related_name="steps", verbose_name="Circuit")
     order = models.PositiveSmallIntegerField("Ordre")
-    approver = models.CharField("Validé par", max_length=20, choices=Approver.choices)
+    approver = models.CharField("Valideur", max_length=20, choices=Approver.choices)
+    mode = models.CharField("Mode", max_length=10, choices=Mode.choices, default=Mode.VALIDATE)
 
     class Meta:
         ordering = ["workflow", "order"]
@@ -60,4 +73,4 @@ class WorkflowStep(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.workflow} - {self.order}. {self.get_approver_display()}"
+        return f"{self.workflow} - {self.order}. {self.get_approver_display()} ({self.get_mode_display()})"
