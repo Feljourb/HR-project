@@ -1,6 +1,11 @@
-"""Tests de la configuration des circuits (step 1)."""
+"""Tests de la configuration des circuits (step 1) et du DG de chaque pôle (step 2)."""
+from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.test import TestCase
+from django.urls import reverse
+from rest_framework.test import APIClient
+
+from employees.models import Director, Pole
 
 from .models import Workflow, WorkflowStep
 
@@ -61,3 +66,46 @@ class WorkflowStepRulesTests(TestCase):
     def test_workflow_names_are_unique_ignoring_case(self):
         with self.assertRaisesMessage(ValidationError, "Cette valeur existe déjà."):
             Workflow(name="congé", code=Workflow.Code.LEAVE).validate_constraints()
+
+
+class PoleDirectorTests(TestCase):
+    """Le DG de chaque pôle (step 2)."""
+
+    def setUp(self):
+        self.sbd = Pole.objects.get(name="SBD")
+        self.riaya = Pole.objects.get(name="Riaya")
+        # Un DG n'est pas un collaborateur : juste un nom et un e-mail, pas de dossier RH.
+        self.soufiane = Director.objects.create(name="Soufiane Badaa", email="s.badaa@example.com")
+
+    def choose(self, pole, director):
+        """Admin RH choisit le DG (en passant par les règles du modèle)."""
+        pole.director = director
+        pole.full_clean()
+        pole.save()
+
+    def test_a_pole_has_no_dg_at_first(self):
+        self.assertIsNone(self.sbd.director)
+
+    def test_the_same_person_can_be_dg_of_both_poles(self):
+        self.choose(self.sbd, self.soufiane)
+        self.choose(self.riaya, self.soufiane)
+        self.assertEqual(set(self.soufiane.poles.all()), {self.sbd, self.riaya})
+
+    def test_an_inactive_dg_cannot_be_chosen(self):
+        former = Director.objects.create(name="Ancien DG", email="ancien@example.com", is_active=False)
+        with self.assertRaisesMessage(ValidationError, "Ce DG est désactivé."):
+            self.choose(self.sbd, former)
+
+    def test_the_same_email_twice_is_refused(self):
+        with self.assertRaises(ValidationError):
+            Director(name="Autre nom", email="s.badaa@example.com").full_clean()
+
+    def test_the_lists_api_does_not_show_the_dg(self):
+        """Le DG se choisit dans l'écran Workflows, pas dans la liste des pôles."""
+        self.choose(self.sbd, self.soufiane)
+        user = get_user_model().objects.create_user("collab", must_change_password=False)
+        client = APIClient()
+        client.force_authenticate(user)
+        poles = client.get(reverse("employees:poles-list")).json()
+        self.assertTrue(poles)
+        self.assertNotIn("director", poles[0])

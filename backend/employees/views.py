@@ -106,13 +106,13 @@ class ReferenceViewSet(viewsets.ModelViewSet):
         return queryset
 
 
-def make_viewset(model, parent_field=None, pole_path=None):
+def make_viewset(model, parent_field=None, pole_path=None, exclude=()):
     """Fabrique la vue d'une liste à partir de son modèle, pour ne pas écrire
     14 fois les mêmes classes. type(nom, (classe_mère,), attributs) crée une classe,
     exactement comme si on l'écrivait avec "class ...:"."""
     # Le serializer de cette liste : tous les champs du modèle (id, name, is_active,
-    # + le parent ex. "department", + "code" pour les centres de coût).
-    meta = type("Meta", (), {"model": model, "fields": "__all__"})
+    # + le parent ex. "department", + "code" pour les centres de coût), sauf `exclude`.
+    meta = type("Meta", (), {"model": model, "exclude": exclude} if exclude else {"model": model, "fields": "__all__"})
     serializer = type(f"{model.__name__}Serializer", (ReferenceSerializer,), {"Meta": meta})
     return type(f"{model.__name__}ViewSet", (ReferenceViewSet,), {
         "queryset": model.objects.all(),
@@ -125,7 +125,8 @@ def make_viewset(model, parent_field=None, pole_path=None):
 # Toutes les listes : morceau d'adresse -> vue. Utilisé par urls.py.
 LIST_VIEWSETS = {
     # Organisation : chaque niveau se filtre par son parent, et dépend du pôle.
-    "poles": make_viewset(Pole, pole_path="pk"),
+    # Sans le DG : il se choisit dans l'écran "Workflows" (app workflows), pas dans les listes.
+    "poles": make_viewset(Pole, pole_path="pk", exclude=["director"]),
     "entities": make_viewset(Entity, parent_field="pole", pole_path="pole"),
     "directions": make_viewset(Direction, parent_field="entity", pole_path="entity__pole"),
     "departments": make_viewset(Department, parent_field="direction", pole_path="direction__entity__pole"),

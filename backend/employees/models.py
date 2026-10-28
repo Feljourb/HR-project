@@ -35,9 +35,33 @@ class ReferenceItem(models.Model):
 
 # --- Organisation (each level points to the one above) ------------------------
 
+class Director(ReferenceItem):
+    """Un DG (le propriétaire de la société) : pas un collaborateur, donc pas de dossier RH.
+    Hérite de ReferenceItem : un nom unique, et "désactivé" au lieu de supprimé."""
+
+    # Pour le contacter (validation par e-mail, plus tard). Unique : une personne = une ligne.
+    email = models.EmailField("E-mail", unique=True)
+
+    class Meta(ReferenceItem.Meta):
+        verbose_name = "DG"
+        verbose_name_plural = "DG"
+
+
 class Pole(ReferenceItem):
+    # Le DG du pôle, choisi par Admin RH : il valide les étapes "DG" des circuits (app workflows).
+    # ForeignKey : la même personne peut être DG des deux pôles.
+    director = models.ForeignKey(
+        Director, on_delete=models.PROTECT, null=True, blank=True,
+        related_name="poles", verbose_name="DG",
+    )
+
     class Meta(ReferenceItem.Meta):
         verbose_name = "Pôle"
+
+    def clean(self):
+        # Un DG désactivé ne valide plus : on ne peut pas le choisir.
+        if self.director and not self.director.is_active:
+            raise ValidationError({"director": "Ce DG est désactivé."})
 
 
 class Entity(ReferenceItem):
