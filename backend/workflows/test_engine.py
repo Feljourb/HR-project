@@ -1,8 +1,8 @@
-"""Tests du moteur : envoyer une demande (step 4)."""
+"""Tests du moteur : envoyer une demande (step 4), puis décider (step 5)."""
 import datetime
 
 from django.contrib.auth import get_user_model
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 
 from employees.models import Department, Director, Employee, Pole
 from employees.tests import EmployeeTestCase
@@ -16,7 +16,9 @@ Mode = WorkflowStep.Mode
 Status = RequestStep.Status
 
 
-class SubmitTests(EmployeeTestCase):
+class EngineTestCase(EmployeeTestCase):
+    """L'équipe commune aux tests du moteur, et les petites aides."""
+
     def setUp(self):
         super().setUp()
         # Une petite équipe à SBD : Karim (N+2) > Youssef (N+1) > Sara. Nadia et Hind sont RH.
@@ -43,6 +45,8 @@ class SubmitTests(EmployeeTestCase):
         """Les étapes d'une demande, en clair : [("MANAGER", "VALIDATE", "PENDING"), ...]."""
         return [(step.approver, step.mode, step.status) for step in request.steps.all()]
 
+
+class SubmitTests(EngineTestCase):
     # --- Les 3 circuits de départ -------------------------------------------------------
 
     def test_leave_waits_for_the_manager(self):
@@ -143,3 +147,135 @@ class SubmitTests(EmployeeTestCase):
         with self.assertRaisesMessage(ValidationError, "Ce type de demande est désactivé."):
             engine.submit("LEAVE", self.sara, "Congé")
         self.assertFalse(Request.objects.exists())
+
+
+class DecideTests(EngineTestCase):
+    """Valider, refuser, annuler (step 5)."""
+
+    def pending(self, request):
+        """L'étape qui attend une réponse."""
+        return request.steps.get(status=Status.PENDING)
+
+    # --- Valider ---------------------------------------------------------------------------
+
+    def test_manager_approves_then_hr_is_informed_and_the_leave_is_approved(self):
+        request = engine.submit("LEAVE", self.sara, "Congé")
+        engine.approve(self.pending(request), self.youssef.user, "Bon repos")
+        request.refresh_from_db()
+        self.assertEqual(request.status, Request.Status.APPROVED)
+        self.assertIsNotNone(request.closed_at)
+        self.assertEqual(self.steps(request), [
+            (Approver.MANAGER, Mode.VALIDATE, Status.APPROVED),
+            (Approver.HR, Mode.INFORM, Status.INFORMED),
+        ])
+        # L'historique : qui, quand, quel commentaire.
+        first = request.steps.first()
+        self.assertEqual((first.decided_by, first.comment), (self.youssef.user, "Bon repos"))
+        self.assertIsNotNone(first.decided_at)
+
+    def test_the_comment_is_optional_to_approve(self):
+        request = engine.submit("EXPENSE", self.sara, "Note de frais")
+        engine.approve(self.pending(request), self.youssef.user)
+        self.assertEqual(request.steps.first().comment, "")
+
+    def test_two_validate_steps_one_after_the_other(self):
+        self.set_circuit("LEAVE", ("MANAGER", "VALIDATE"), ("MANAGER_2", "VALIDATE"))
+        request = engine.submit("LEAVE", self.sara, "Congé")
+        engine.approve(self.pending(request), self.youssef.user)
+        request.refresh_from_db()
+        self.assertEqual(request.status, Request.Status.IN_PROGRESS)  # pas fini : c'est le tour de Karim
+        self.assertEqual(self.pending(request).assignee, self.karim)
+        engine.approve(self.pending(request), self.karim.user)
+        request.refresh_from_db()
+        self.assertEqual(request.status, Request.Status.APPROVED)
+
+    # --- Qui peut répondre --------------------------------------------------------------------
+
+    def test_only_the_right_person_can_answer(self):
+        request = engine.submit("LEAVE", self.sara, "Congé")
+        step = self.pending(request)
+        for intruder in (self.sara, self.karim, self.nadia):  # la demandeuse, le N+2, une RH
+            with self.subTest(user=intruder.user.username), self.assertRaises(PermissionDenied):
+                engine.approve(step, intruder.user)
+
+    def test_any_hr_of_the_pole_but_not_the_requester(self):
+        request = engine.submit("ADMIN_REQUEST", self.nadia, "Attestation de travail")  # Nadia est RH
+        with self.assertRaises(PermissionDenied):
+            engine.approve(self.pending(request), self.nadia.user)  # pas sa propre demande
+        engine.approve(self.pending(request), self.hind.user)       # une autre RH du pôle : oui
+        request.refresh_from_db()
+        self.assertEqual(request.status, Request.Status.APPROVED)
+
+    def test_hr_of_the_other_pole_cannot_answer(self):
+        production = Department.objects.get(name="Production", direction__entity__name="Eureka")
+        riaya_hr = self.make_hr("rh.riaya", "AA100007", department=production, position=production.positions.first())
+        request = engine.submit("ADMIN_REQUEST", self.sara, "Attestation de travail")
+        with self.assertRaises(PermissionDenied):
+            engine.approve(self.pending(request), riaya_hr.user)
+
+    def test_a_step_already_answered_cannot_be_answered_again(self):
+        request = engine.submit("EXPENSE", self.sara, "Note de frais")
+        step = self.pending(request)
+        engine.approve(step, self.youssef.user)
+        with self.assertRaisesMessage(ValidationError, "Cette étape n'attend plus de réponse."):
+            engine.approve(step, self.youssef.user)
+
+    # --- Refuser --------------------------------------------------------------------------------
+
+    def test_reject_needs_a_comment(self):
+        request = engine.submit("LEAVE", self.sara, "Congé")
+        with self.assertRaisesMessage(ValidationError, "Un commentaire est obligatoire pour refuser."):
+            engine.reject(self.pending(request), self.youssef.user, "   ")
+        self.assertEqual(self.pending(request).status, Status.PENDING)  # rien n'a changé
+
+    def test_reject_stops_the_request(self):
+        request = engine.submit("LEAVE", self.sara, "Congé")
+        engine.reject(self.pending(request), self.youssef.user, "Période chargée")
+        request.refresh_from_db()
+        self.assertEqual(request.status, Request.Status.REJECTED)
+        self.assertEqual(self.steps(request), [
+            (Approver.MANAGER, Mode.VALIDATE, Status.REJECTED),
+            (Approver.HR, Mode.INFORM, Status.WAITING),   # jamais atteinte : la RH n'est pas informée
+        ])
+        self.assertEqual(request.steps.first().comment, "Période chargée")
+
+    # --- Annuler ----------------------------------------------------------------------------------
+
+    def test_the_requester_cancels(self):
+        request = engine.submit("LEAVE", self.sara, "Congé")
+        engine.cancel(request, self.sara.user)
+        request.refresh_from_db()
+        self.assertEqual(request.status, Request.Status.CANCELLED)
+        # Après l'annulation, Youssef ne peut plus répondre.
+        with self.assertRaises(ValidationError):
+            engine.approve(request.steps.first(), self.youssef.user)
+
+    def test_only_the_requester_can_cancel(self):
+        request = engine.submit("LEAVE", self.sara, "Congé")
+        with self.assertRaises(PermissionDenied):
+            engine.cancel(request, self.youssef.user)
+
+    def test_a_finished_request_cannot_be_cancelled(self):
+        request = engine.submit("EXPENSE", self.sara, "Note de frais")
+        engine.approve(self.pending(request), self.youssef.user)
+        with self.assertRaisesMessage(ValidationError, "Cette demande est déjà terminée."):
+            engine.cancel(request, self.sara.user)
+
+    # --- Passer la main au module ---------------------------------------------------------------------
+
+    def test_the_module_is_called_once_when_the_request_is_approved(self):
+        called = []
+        engine.HANDLERS["EXPENSE"] = called.append          # un faux module "Note de frais"
+        self.addCleanup(engine.HANDLERS.pop, "EXPENSE")      # on le retire après le test
+        request = engine.submit("EXPENSE", self.sara, "Note de frais")
+        self.assertEqual(called, [])                         # pas encore acceptée
+        engine.approve(self.pending(request), self.youssef.user)
+        self.assertEqual(called, [request])
+
+    def test_the_module_is_not_called_when_the_request_is_rejected(self):
+        called = []
+        engine.HANDLERS["EXPENSE"] = called.append
+        self.addCleanup(engine.HANDLERS.pop, "EXPENSE")
+        request = engine.submit("EXPENSE", self.sara, "Note de frais")
+        engine.reject(self.pending(request), self.youssef.user, "Justificatif manquant")
+        self.assertEqual(called, [])

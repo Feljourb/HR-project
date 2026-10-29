@@ -73,10 +73,11 @@ Done: reference lists, Employee, account created from the fiche, lists + employe
   - [x] 3b. DG API: `/api/workflows/directors/` (GET, POST, PATCH; no delete; cannot deactivate the DG of a pôle) and `/api/workflows/poles/` (PATCH `director` only).
   - [x] 3c. Frontend page `/workflows` (sidebar "Workflows", Admin RH + IT): circuits (draft + Save), DG, DG of each pôle.
 - [x] 4. Engine, submit: Request + RequestStep (copy of the circuit, who exactly, skip) in `workflows/engine.py` (`submit`, `advance`). Requests are read-only in /admin. Open question: a pôle with no other RH than the requester → the added "RH validate" step has nobody.
-- [ ] 5. Engine, decide: approve / reject / cancel, INFORM passes, then hand over to the module.
+- [x] 5. Engine, decide: approve / reject / cancel (`can_decide`, row lock with `select_for_update`), INFORM passes, then hand over to the module (`@on_approved("LEAVE")` → `HANDLERS`). DG steps cannot be answered until the DG has an account (step 6).
 - [ ] 6. "My requests" + "Team approvals" pages.
 - [ ] 7. Bell notifications (next validator, informed, result for the requester).
 - [ ] 8. History of each request; remove the "Maker-Checker Audit" sidebar placeholder.
 - [ ] 9. Later (SMTP): DG validates by e-mail.
+- [ ] 10. Final review before the soutenance: `submit`, `advance`, `can_decide`, `approve` / `reject` line by line (the user knows the big picture; details later).
  
 Start with step 1.
