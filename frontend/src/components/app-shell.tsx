@@ -12,7 +12,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import {
   BookOpen, BriefcaseBusiness, Building2, CalendarDays, Check, ChevronDown, ChevronRight, ChevronsUpDown,
   CircleHelp, ClipboardCheck, FolderOpen, Headphones, LayoutDashboard, ListChecks, type LucideIcon,
-  LogOut, Menu, Plane, ReceiptText, ScrollText, Search, ShieldCheck, UserRound, UserRoundCog, UsersRound, X,
+  LogOut, Menu, Plane, ReceiptText, ScrollText, Search, ShieldCheck, UserRound, UserRoundCog, UsersRound, Workflow, X,
 } from 'lucide-react'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { BrandLogo } from '@/components/brand-logo'
@@ -62,6 +62,7 @@ const navGroups: NavGroup[] = [
     { label: 'Employees', icon: UserRoundCog, href: '/employees', hrOnly: true },
     { label: 'Audit log', icon: ScrollText, href: '/audit', hrOnly: true },
     { label: 'Reference lists', icon: ListChecks, href: '/lists', adminOnly: true },
+    { label: 'Workflows', icon: Workflow, href: '/workflows', adminOnly: true },
   ] },
 ]
 

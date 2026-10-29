@@ -68,7 +68,10 @@ Done: reference lists, Employee, account created from the fiche, lists + employe
 - Rules: a missing validator (e.g. no N+2) is skipped; if every VALIDATE step is skipped, the request goes to RH du pôle; nobody validates their own request (another RH of the pôle does); reject ends the request at once; comment required on reject, optional on approve; the requester can cancel while IN_PROGRESS; a request copies its circuit when submitted (config changes never touch requests in progress); full history (who, what, when, comment).
 - [x] 1. Config: Workflow (code, name) + WorkflowStep (order, approver, mode) + the 3 circuits (migration 0002).
 - [x] 2. DG per pôle: `Director` table + `Pole.director` (never an inactive DG; hidden from the lists API).
-- [ ] 3. Admin RH "Workflows" screen: API + page (edit steps, choose the DG).
+- [x] 3. Admin RH "Workflows" screen: API + page (edit steps, choose the DG).
+  - [x] 3a. Circuits API `/api/workflows/` (GET, PATCH with the whole list of steps; order = place in the list; at least one VALIDATE step; Admin RH + IT only).
+  - [x] 3b. DG API: `/api/workflows/directors/` (GET, POST, PATCH; no delete; cannot deactivate the DG of a pôle) and `/api/workflows/poles/` (PATCH `director` only).
+  - [x] 3c. Frontend page `/workflows` (sidebar "Workflows", Admin RH + IT): circuits (draft + Save), DG, DG of each pôle.
 - [ ] 4. Engine, submit: Request + RequestStep (copy of the circuit, who exactly, skip).
 - [ ] 5. Engine, decide: approve / reject / cancel, INFORM passes, then hand over to the module.
 - [ ] 6. "My requests" + "Team approvals" pages.

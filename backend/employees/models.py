@@ -40,11 +40,18 @@ class Director(ReferenceItem):
     Hérite de ReferenceItem : un nom unique, et "désactivé" au lieu de supprimé."""
 
     # Pour le contacter (validation par e-mail, plus tard). Unique : une personne = une ligne.
-    email = models.EmailField("E-mail", unique=True)
+    email = models.EmailField("E-mail", unique=True, error_messages={"unique": "Cet e-mail existe déjà."})
 
     class Meta(ReferenceItem.Meta):
         verbose_name = "DG"
         verbose_name_plural = "DG"
+
+    def clean(self):
+        # Désactiver le DG d'un pôle laisserait ce pôle sans DG valable : on choisit d'abord un autre DG.
+        if not self.is_active and self.pk:
+            poles = ", ".join(pole.name for pole in self.poles.all())
+            if poles:
+                raise ValidationError({"is_active": f"Ce DG est encore DG de : {poles}. Choisissez d'abord un autre DG."})
 
 
 class Pole(ReferenceItem):
