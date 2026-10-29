@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Workflow, WorkflowStep
+from .models import Request, RequestStep, Workflow, WorkflowStep
 
 
 class WorkflowStepInline(admin.TabularInline):
@@ -28,4 +28,34 @@ class WorkflowAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         # Jamais supprimé, seulement désactivé (même règle que les listes).
+        return False
+
+
+# --- Les demandes : en lecture seule ----------------------------------------------
+# Une demande ne change QUE par le moteur (envoyer, valider...), jamais à la main :
+# sinon l'historique ne dirait plus la vérité.
+
+class RequestStepInline(admin.TabularInline):
+    model = RequestStep
+    extra = 0
+    fields = ["order", "approver", "mode", "assignee", "director", "status", "decided_by", "decided_at", "comment"]
+    readonly_fields = fields
+    can_delete = False
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(Request)
+class RequestAdmin(admin.ModelAdmin):
+    list_display = ["title", "requester", "workflow", "status", "created_at"]
+    list_filter = ["status", "workflow"]
+    search_fields = ["title", "requester__last_name", "requester__first_name"]
+    readonly_fields = ["workflow", "requester", "title", "status", "created_at", "closed_at"]
+    inlines = [RequestStepInline]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
         return False

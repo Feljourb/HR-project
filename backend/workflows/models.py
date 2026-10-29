@@ -4,9 +4,10 @@ quelles étapes, dans quel ordre, et pour chaque étape : valider ou seulement i
 
 Exemple :  Congé  ->  1. N+1 valide   2. RH est informée
 """
+from django.conf import settings
 from django.db import models
 
-from employees.models import ReferenceItem
+from employees.models import Director, Employee, ReferenceItem
 
 
 class Workflow(ReferenceItem):
@@ -74,3 +75,76 @@ class WorkflowStep(models.Model):
 
     def __str__(self):
         return f"{self.workflow} - {self.order}. {self.get_approver_display()} ({self.get_mode_display()})"
+
+
+# --- Les demandes (step 4) ----------------------------------------------------------
+
+class Request(models.Model):
+    """Une demande (ex. le congé de Sara) qui suit son circuit.
+    Le moteur ne sait rien des congés : le module Congé garde ses propres infos (dates...)
+    dans sa table, qui pointe vers cette demande."""
+
+    class Status(models.TextChoices):
+        IN_PROGRESS = "IN_PROGRESS", "En cours"
+        APPROVED = "APPROVED", "Acceptée"
+        REJECTED = "REJECTED", "Refusée"
+        CANCELLED = "CANCELLED", "Annulée"
+
+    # PROTECT : une demande ne perd jamais son circuit ni son demandeur.
+    workflow = models.ForeignKey(Workflow, on_delete=models.PROTECT, related_name="requests", verbose_name="Circuit")
+    requester = models.ForeignKey(Employee, on_delete=models.PROTECT, related_name="requests", verbose_name="Demandeur")
+    # Donné par le module, pour l'afficher dans les listes : "Congé du 10 au 15 novembre".
+    title = models.CharField("Titre", max_length=200)
+    status = models.CharField("Statut", max_length=20, choices=Status.choices, default=Status.IN_PROGRESS)
+    created_at = models.DateTimeField("Envoyée le", auto_now_add=True)
+    closed_at = models.DateTimeField("Terminée le", null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]  # la plus récente d'abord
+        verbose_name = "Demande"
+
+    def __str__(self):
+        return f"{self.title} ({self.requester})"
+
+
+class RequestStep(models.Model):
+    """Une étape d'UNE demande : la COPIE d'une étape du circuit, faite à l'envoi.
+    Si Admin RH change le circuit ensuite, cette copie ne bouge pas.
+    Elle garde aussi l'historique : qui a décidé, quand, avec quel commentaire."""
+
+    class Status(models.TextChoices):
+        WAITING = "WAITING", "Pas encore son tour"
+        PENDING = "PENDING", "À traiter"          # c'est le tour de cette étape
+        APPROVED = "APPROVED", "Validée"
+        REJECTED = "REJECTED", "Refusée"
+        INFORMED = "INFORMED", "Informée"
+        SKIPPED = "SKIPPED", "Sautée"             # personne à ce poste (ex. pas de N+2)
+
+    request = models.ForeignKey(Request, on_delete=models.CASCADE, related_name="steps", verbose_name="Demande")
+    # La copie de l'étape du circuit.
+    order = models.PositiveSmallIntegerField("Ordre")
+    approver = models.CharField("Valideur", max_length=20, choices=WorkflowStep.Approver.choices)
+    mode = models.CharField("Mode", max_length=10, choices=WorkflowStep.Mode.choices)
+
+    # QUI exactement, trouvé à l'envoi :
+    # - N+1 / N+2 : un collaborateur (assignee) ;
+    # - DG : un DG (director), qui n'est pas un collaborateur ;
+    # - RH : personne en particulier (les deux vides) : n'importe quel RH du pôle, sauf le demandeur.
+    assignee = models.ForeignKey(Employee, on_delete=models.PROTECT, null=True, blank=True, related_name="+", verbose_name="Valideur (collaborateur)")
+    director = models.ForeignKey(Director, on_delete=models.PROTECT, null=True, blank=True, related_name="+", verbose_name="Valideur (DG)")
+
+    status = models.CharField("Statut", max_length=10, choices=Status.choices, default=Status.WAITING)
+    # L'historique de l'étape. SET_NULL : si un compte disparaît, la ligne reste.
+    decided_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+", verbose_name="Décidé par")
+    decided_at = models.DateTimeField("Décidé le", null=True, blank=True)
+    comment = models.TextField("Commentaire", blank=True)
+
+    class Meta:
+        ordering = ["request", "order"]
+        verbose_name = "Étape de demande"
+        constraints = [
+            models.UniqueConstraint("request", "order", name="workflows_requeststep_unique_order"),
+        ]
+
+    def __str__(self):
+        return f"{self.request} - {self.order}. {self.get_approver_display()} ({self.get_status_display()})"

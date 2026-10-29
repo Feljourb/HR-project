@@ -72,7 +72,7 @@ Done: reference lists, Employee, account created from the fiche, lists + employe
   - [x] 3a. Circuits API `/api/workflows/` (GET, PATCH with the whole list of steps; order = place in the list; at least one VALIDATE step; Admin RH + IT only).
   - [x] 3b. DG API: `/api/workflows/directors/` (GET, POST, PATCH; no delete; cannot deactivate the DG of a pôle) and `/api/workflows/poles/` (PATCH `director` only).
   - [x] 3c. Frontend page `/workflows` (sidebar "Workflows", Admin RH + IT): circuits (draft + Save), DG, DG of each pôle.
-- [ ] 4. Engine, submit: Request + RequestStep (copy of the circuit, who exactly, skip).
+- [x] 4. Engine, submit: Request + RequestStep (copy of the circuit, who exactly, skip) in `workflows/engine.py` (`submit`, `advance`). Requests are read-only in /admin. Open question: a pôle with no other RH than the requester → the added "RH validate" step has nobody.
 - [ ] 5. Engine, decide: approve / reject / cancel, INFORM passes, then hand over to the module.
 - [ ] 6. "My requests" + "Team approvals" pages.
 - [ ] 7. Bell notifications (next validator, informed, result for the requester).
