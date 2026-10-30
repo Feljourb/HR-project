@@ -35,40 +35,24 @@ class ReferenceItem(models.Model):
 
 # --- Organisation (each level points to the one above) ------------------------
 
-class Director(ReferenceItem):
-    """Un DG (le propriétaire de la société) : pas un collaborateur, donc pas de dossier RH.
-    Hérite de ReferenceItem : un nom unique, et "désactivé" au lieu de supprimé."""
-
-    # Pour le contacter (validation par e-mail, plus tard). Unique : une personne = une ligne.
-    email = models.EmailField("E-mail", unique=True, error_messages={"unique": "Cet e-mail existe déjà."})
-
-    class Meta(ReferenceItem.Meta):
-        verbose_name = "DG"
-        verbose_name_plural = "DG"
-
-    def clean(self):
-        # Désactiver le DG d'un pôle laisserait ce pôle sans DG valable : on choisit d'abord un autre DG.
-        if not self.is_active and self.pk:
-            poles = ", ".join(pole.name for pole in self.poles.all())
-            if poles:
-                raise ValidationError({"is_active": f"Ce DG est encore DG de : {poles}. Choisissez d'abord un autre DG."})
-
-
 class Pole(ReferenceItem):
     # Le DG du pôle, choisi par Admin RH : il valide les étapes "DG" des circuits (app workflows).
+    # Le DG est un collaborateur comme les autres (décision de l'encadrant) : un dossier RH, un compte
+    # "Manager", tout en haut de l'organigramme (le N+1 des directeurs).
+    # "Employee" entre guillemets : la classe est écrite plus bas dans ce fichier.
     # ForeignKey : la même personne peut être DG des deux pôles.
     director = models.ForeignKey(
-        Director, on_delete=models.PROTECT, null=True, blank=True,
-        related_name="poles", verbose_name="DG",
+        "Employee", on_delete=models.PROTECT, null=True, blank=True,
+        related_name="directed_poles", verbose_name="DG",
     )
 
     class Meta(ReferenceItem.Meta):
         verbose_name = "Pôle"
 
     def clean(self):
-        # Un DG désactivé ne valide plus : on ne peut pas le choisir.
-        if self.director and not self.director.is_active:
-            raise ValidationError({"director": "Ce DG est désactivé."})
+        # Un collaborateur "Sorti" ne travaille plus ici : il ne peut pas être DG.
+        if self.director and self.director.status == Employee.Status.LEFT:
+            raise ValidationError({"director": "Un collaborateur sorti ne peut pas être DG."})
 
 
 class Entity(ReferenceItem):

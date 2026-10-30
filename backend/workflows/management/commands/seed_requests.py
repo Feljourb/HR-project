@@ -25,6 +25,9 @@ DEMOS = [
     ("manager.test", "LEAVE", "Congé du 1er au 5 décembre (démo)"),
     # Envoyée après l'arrivée de la cloche (step 7) : manager.test reçoit "Demande à valider".
     ("collab.test", "EXPENSE", "Note de frais : formation à Rabat (démo)"),
+    # Pour une présentation : des demandes neuves, donc des 🔔 pas encore lues.
+    ("collab.test", "LEAVE", "Congé du 24 au 28 novembre (démo)"),
+    ("collab.test", "ADMIN_REQUEST", "Attestation de salaire (démo)"),
 ]
 
 

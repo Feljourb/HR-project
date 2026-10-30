@@ -85,4 +85,4 @@ class RequestNotificationTests(EngineTestCase):
         client.force_authenticate(self.sara.user)
         item = client.get(reverse("employees:notification-list")).json()["results"][0]
         self.assertEqual(item["message"], "Votre demande a été refusée : Note de frais. Motif : Justificatif manquant")
-        self.assertEqual(item["link"], "/requests")
+        self.assertEqual(item["link"], f"/requests/{request.pk}")  # l'historique de la demande

@@ -6,6 +6,7 @@
  * les boutons arrivent par `children`.
  */
 import type { ReactNode } from 'react'
+import Link from 'next/link'
 import { Check, Circle, Clock, Info, Minus, X, type LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { formatDateTime } from '@/components/employees/history-changes'
@@ -45,7 +46,10 @@ export function RequestCard({ request, showRequester, children }: { request: Wor
     <header className="flex flex-wrap items-start gap-x-3 gap-y-1 border-b border-slate-100 px-4 py-3">
       <div className="min-w-0 flex-1">
         <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8C6D52]">{request.workflow}</p>
-        <h3 className="text-sm font-semibold text-[#192646]">{request.title}</h3>
+        {/* Le titre ouvre l'historique complet de la demande. */}
+        <h3 className="text-sm font-semibold text-[#192646]">
+          <Link href={`/requests/${request.id}`} className="hover:underline">{request.title}</Link>
+        </h3>
         <p className="text-[11px] text-slate-500">
           {showRequester && <>{request.requester} · </>}Sent on {formatDateTime(request.created_at)} · {whereIsIt(request)}
         </p>

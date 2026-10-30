@@ -23,9 +23,8 @@ export type Workflow = {
 // (l'ordre = la place dans la liste, Django le calcule).
 export type StepDraft = { approver: string; mode: string }
 
-export type Director = { id: number; name: string; email: string; is_active: boolean }
-
-export type PoleDirector = { id: number; name: string; director: number | null }
+// Un pôle et son DG (un collaborateur) : director = le numéro de son dossier, director_label = "U000007 - BADAA Soufiane".
+export type PoleDirector = { id: number; name: string; director: number | null; director_label: string | null }
 
 // Les valideurs et les modes possibles (les mêmes que WorkflowStep.Approver / Mode côté Django).
 export const APPROVERS = [

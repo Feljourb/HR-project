@@ -34,13 +34,17 @@ def still_here(employee):
     return employee if employee is not None and employee.status != Employee.Status.LEFT else None
 
 
-def hr_of_pole(pole, requester):
-    """Les RH du pôle qui peuvent valider une demande : jamais le demandeur lui-même
-    (règle : personne ne valide sa propre demande)."""
+def hr_validators(requester):
+    """Les comptes qui répondent à une étape "RH du pôle" pour ce demandeur :
+    - les RH du pôle du demandeur ;
+    - les Admin RH (une Admin RH est une RH des DEUX pôles, avec plus de droits) ;
+    jamais le demandeur lui-même (personne ne valide sa propre demande).
+    is_active : un compte bloqué (collaborateur "Sorti") ne valide plus."""
+    Role = get_user_model().Role
     return (
-        Employee.objects.filter(user__role=get_user_model().Role.HR, department__direction__entity__pole=pole)
-        .exclude(status=Employee.Status.LEFT)
-        .exclude(pk=requester.pk)
+        get_user_model().objects.filter(is_active=True)
+        .filter(Q(role=Role.HR, employee__department__direction__entity__pole=requester.pole) | Q(role=Role.HR_ADMIN))
+        .exclude(pk=requester.user_id)
     )
 
 
@@ -54,30 +58,19 @@ def find_validator(approver, requester):
         n_plus_2 = still_here(requester.n_plus_2)
         return {"assignee": n_plus_2} if n_plus_2 else None
     if approver == Approver.DG:
-        director = requester.pole.director
-        return {"director": director} if director and director.is_active else None
+        # Le DG est un collaborateur (dossier RH) ; pas le demandeur lui-même (le DG qui demande un congé).
+        director = still_here(requester.pole.director)
+        return {"assignee": director} if director and director.pk != requester.pk else None
     # RH du pôle : pas une personne précise ({} = champs vides), mais il faut qu'il en existe au moins un.
-    if hr_of_pole(requester.pole, requester).exists():
-        return {}
-    # Aucun autre RH dans le pôle (ex. la seule RH demande une attestation) : Admin RH la remplace.
-    return {"hr_admin_replaces": True} if hr_admins(requester).exists() else None
-
-
-def hr_admins(requester):
-    """Les Admin RH qui peuvent remplacer la RH : comptes actifs, jamais le demandeur lui-même."""
-    return get_user_model().objects.filter(role=get_user_model().Role.HR_ADMIN, is_active=True).exclude(pk=requester.user_id)
+    return {} if hr_validators(requester).exists() else None
 
 
 def people_of(step):
     """Les comptes concernés par cette étape (ceux qui répondent, ou qu'on informe) : pour la cloche."""
     requester = step.request.requester
     if step.assignee_id:
-        return [step.assignee.user]
-    if step.director_id:
-        return []  # le DG n'a pas encore de compte (step 6c)
-    if step.hr_admin_replaces:
-        return list(hr_admins(requester))
-    return [hr.user for hr in hr_of_pole(requester.pole, requester).select_related("user")]
+        return [step.assignee.user]  # N+1, N+2 ou DG
+    return list(hr_validators(requester))  # RH du pôle + Admin RH
 
 
 @transaction.atomic
@@ -103,11 +96,10 @@ def submit(code, requester, title):
             steps.append(RequestStep(request=request, order=step.order, approver=step.approver, mode=step.mode, **validator))
 
     # Règle : si toutes les étapes "Valider" sont sautées, personne ne vérifierait la demande.
-    # On ajoute donc à la fin une étape "RH du pôle valide" (ou Admin RH, s'il n'y a pas d'autre RH).
+    # On ajoute donc à la fin une étape "RH du pôle valide" (les RH du pôle et les Admin RH).
     if not any(step.mode == Mode.VALIDATE and step.status != Status.SKIPPED for step in steps):
         last = max((step.order for step in steps), default=0)
-        validator = find_validator(Approver.HR, requester) or {}
-        steps.append(RequestStep(request=request, order=last + 1, approver=Approver.HR, mode=Mode.VALIDATE, **validator))
+        steps.append(RequestStep(request=request, order=last + 1, approver=Approver.HR, mode=Mode.VALIDATE))
 
     RequestStep.objects.bulk_create(steps)
 
@@ -168,18 +160,11 @@ def can_decide(user, step):
     """Est-ce que CET utilisateur peut répondre à CETTE étape ?"""
     if step.status != Status.PENDING or step.request.status != Request.Status.IN_PROGRESS:
         return False
-    # N+1 / N+2 : seulement la personne trouvée à l'envoi.
+    # N+1 / N+2 / DG : seulement la personne trouvée à l'envoi.
     if step.assignee_id:
         return step.assignee.user_id == user.pk
-    # DG : il n'a pas encore de compte (step 6). Personne ne peut répondre à sa place.
-    if step.director_id:
-        return False
-    requester = step.request.requester
-    # Pas d'autre RH dans le pôle : n'importe quel Admin RH, sauf le demandeur lui-même.
-    if step.hr_admin_replaces:
-        return hr_admins(requester).filter(pk=user.pk).exists()
-    # RH du pôle : n'importe quel RH du pôle du demandeur, sauf le demandeur lui-même.
-    return hr_of_pole(requester.pole, requester).filter(user=user).exists()
+    # RH du pôle : un RH du pôle du demandeur, ou une Admin RH ; jamais le demandeur lui-même.
+    return hr_validators(step.request.requester).filter(pk=user.pk).exists()
 
 
 def steps_waiting_for(user):
@@ -189,15 +174,30 @@ def steps_waiting_for(user):
     mine = Q(assignee__user=user)  # N+1 / N+2 : c'est moi qu'on attend
     pole = user_pole(user)
     if user.role == Role.HR and pole is not None:
-        # RH : les étapes "RH du pôle" des demandes de MON pôle (sauf celles qu'Admin RH remplace).
-        mine |= Q(approver=Approver.HR, hr_admin_replaces=False, request__requester__department__direction__entity__pole=pole)
+        # RH : les étapes "RH du pôle" des demandes de MON pôle.
+        mine |= Q(approver=Approver.HR, request__requester__department__direction__entity__pole=pole)
     if user.role == Role.HR_ADMIN:
-        # Admin RH : les étapes RH des pôles qui n'ont pas d'autre RH (des deux pôles).
-        mine |= Q(hr_admin_replaces=True)
+        # Admin RH : une RH des deux pôles -> toutes les étapes "RH du pôle".
+        mine |= Q(approver=Approver.HR)
     return (
         RequestStep.objects.filter(mine, status=Status.PENDING, request__status=Request.Status.IN_PROGRESS)
         .exclude(request__requester__user=user)  # jamais ma propre demande
     )
+
+
+def requests_visible_to(user):
+    """Les demandes dont CET utilisateur peut lire l'historique (step 8) : celles qui le concernent.
+    - le demandeur ; ceux qu'une étape attend ou a attendus (N+1, N+2), ceux qui ont répondu ;
+    - les RH : les demandes de leur pôle ; Admin RH et IT : toutes.
+    distinct() : une demande liée deux fois (ex. N+1 ET a répondu) ne revient qu'une fois."""
+    Role = get_user_model().Role
+    if user.is_superuser or user.role == Role.HR_ADMIN:
+        return Request.objects.all()
+    mine = Q(requester__user=user) | Q(steps__assignee__user=user) | Q(steps__decided_by=user)
+    pole = user_pole(user)
+    if user.role == Role.HR and pole is not None:
+        mine |= Q(requester__department__direction__entity__pole=pole)
+    return Request.objects.filter(mine).distinct()
 
 
 def pending_step(step):

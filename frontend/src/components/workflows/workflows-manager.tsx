@@ -1,17 +1,17 @@
 'use client'
 
 /*
- * La page "Workflows" d'Admin RH : les circuits de validation, les DG, et le DG de chaque pôle.
- * Les trois listes sont chargées une fois ; après chaque modification, Django renvoie la
+ * La page "Workflows" d'Admin RH : les circuits de validation, et le DG de chaque pôle.
+ * Les deux listes sont chargées une fois ; après chaque modification, Django renvoie la
  * nouvelle version et on la remplace dans la page (sans tout recharger).
  */
 import { useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/api'
-import type { Director, PoleDirector, Workflow } from '@/lib/workflows'
+import type { PoleDirector, Workflow } from '@/lib/workflows'
 import { CircuitCard } from './circuit-card'
 import { DirectorsSection } from './directors-section'
 
-type Data = { workflows: Workflow[]; directors: Director[]; poles: PoleDirector[] }
+type Data = { workflows: Workflow[]; poles: PoleDirector[] }
 
 // Remplace un élément de la liste par sa nouvelle version (ou l'ajoute à la fin s'il est nouveau).
 function put<T extends { id: number }>(list: T[], item: T) {
@@ -23,13 +23,13 @@ export function WorkflowsManager() {
   const [failed, setFailed] = useState(false)
 
   useEffect(() => {
-    // Les trois en même temps (Promise.all) : la page attend la plus lente, pas la somme des trois.
-    Promise.all(['/api/workflows/', '/api/workflows/directors/', '/api/workflows/poles/'].map(async (path) => {
+    // Les deux en même temps (Promise.all) : la page attend la plus lente, pas la somme des deux.
+    Promise.all(['/api/workflows/', '/api/workflows/poles/'].map(async (path) => {
       const response = await apiFetch(path)
       if (!response.ok) throw new Error(String(response.status))
       return response.json()
     }))
-      .then(([workflows, directors, poles]) => setData({ workflows, directors, poles }))
+      .then(([workflows, poles]) => setData({ workflows, poles }))
       .catch(() => setFailed(true))
   }, [])
 
@@ -56,8 +56,7 @@ export function WorkflowsManager() {
 
           <section className="flex flex-col gap-3">
             <h2 className="text-[11px] font-bold uppercase tracking-[0.1em] text-slate-400">DG</h2>
-            <DirectorsSection directors={data.directors} poles={data.poles}
-              onDirector={(director) => setData((value) => value && { ...value, directors: put(value.directors, director) })}
+            <DirectorsSection poles={data.poles}
               onPole={(pole) => setData((value) => value && { ...value, poles: put(value.poles, pole) })} />
           </section>
         </>}

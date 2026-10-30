@@ -2,7 +2,7 @@
 from django.db import transaction
 from rest_framework import serializers
 
-from employees.models import Director, Pole
+from employees.models import Pole
 from employees.serializers import ReferenceSerializer, check_model_rules, preview
 
 from .models import Request, RequestStep, Workflow, WorkflowStep
@@ -69,25 +69,21 @@ class WorkflowSerializer(serializers.ModelSerializer):
         return workflow
 
 
-# --- DG (step 3b) ----------------------------------------------------------------
-# ReferenceSerializer (app employees) lance les règles du modèle : nom unique, DG encore utilisé...
-
-class DirectorSerializer(ReferenceSerializer):
-    """Un DG : {"id": 1, "name": "Soufiane Badaa", "email": "...", "is_active": true}."""
-
-    class Meta:
-        model = Director
-        fields = ["id", "name", "email", "is_active"]
-
+# --- Le DG de chaque pôle (step 3b) ----------------------------------------------------------
+# ReferenceSerializer (app employees) lance les règles du modèle (ex. pas de DG "Sorti").
 
 class PoleDirectorSerializer(ReferenceSerializer):
-    """Un pôle et son DG : {"id": 1, "name": "SBD", "director": 1}. Seul le DG se change ici
+    """Un pôle et son DG : {"id": 1, "name": "SBD", "director": 7, "director_label": "U000007 - BADAA Soufiane"}.
+    Le DG est un collaborateur (son numéro de dossier). Seul le DG se change ici
     (le nom du pôle se change dans la page des listes)."""
+
+    director_label = serializers.StringRelatedField(source="director")
 
     class Meta:
         model = Pole
-        fields = ["id", "name", "director"]
+        fields = ["id", "name", "director", "director_label"]
         read_only_fields = ["name"]
+
 
 # --- Les demandes (step 6a) ------------------------------------------------------------
 
@@ -111,13 +107,9 @@ class RequestStepSerializer(serializers.ModelSerializer):
                   "validator", "decided_by", "decided_at", "comment"]
 
     def get_validator(self, step):
-        # Qui doit répondre : "Youssef Bennani", le nom du DG, ou "RH du pôle" (n'importe quel RH).
+        # Qui doit répondre : "Youssef Bennani" (N+1, N+2 ou DG), ou "RH du pôle" (n'importe quel RH).
         if step.assignee:
             return person(step.assignee)
-        if step.director:
-            return step.director.name
-        if step.hr_admin_replaces:
-            return "Admin RH (pas d'autre RH dans le pôle)"
         return step.get_approver_display()
 
     def get_decided_by(self, step):

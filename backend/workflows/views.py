@@ -6,13 +6,12 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 
 from accounts.permissions import IsHRAdmin
-from employees.models import Director, Pole
+from employees.models import Pole
 
 from . import engine
 from .models import Request, Workflow
 from .serializers import (
-    ApprovalSerializer, DecisionSerializer, DirectorSerializer, PoleDirectorSerializer, RequestSerializer,
-    WorkflowSerializer,
+    ApprovalSerializer, DecisionSerializer, PoleDirectorSerializer, RequestSerializer, WorkflowSerializer,
 )
 
 
@@ -30,27 +29,13 @@ class WorkflowViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.U
     http_method_names = ["get", "patch", "head", "options"]
 
 
-class DirectorViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin,
-                      mixins.UpdateModelMixin, viewsets.GenericViewSet):
-    """Les DG (actifs ET désactivés : Admin RH doit pouvoir en réactiver un).
-
-    GET / POST /api/workflows/directors/      -> la liste, ajouter un DG
-    PATCH      /api/workflows/directors/<id>/ -> renommer, changer l'e-mail, désactiver
-    Pas de DELETE (jamais supprimé)."""
-
-    queryset = Director.objects.all()
-    serializer_class = DirectorSerializer
-    permission_classes = [IsHRAdmin]
-    http_method_names = ["get", "post", "patch", "head", "options"]
-
-
 class PoleDirectorViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet):
-    """Le DG de chaque pôle.
+    """Le DG de chaque pôle : un collaborateur (dossier RH + compte), choisi par Admin RH.
 
-    GET   /api/workflows/poles/      -> [{"id": 1, "name": "SBD", "director": 1}, ...]
-    PATCH /api/workflows/poles/<id>/ -> {"director": 2} (ou null : pas de DG)"""
+    GET   /api/workflows/poles/      -> [{"id": 1, "name": "SBD", "director": 7, "director_label": "U000007 - ..."}, ...]
+    PATCH /api/workflows/poles/<id>/ -> {"director": 7} (le numéro du dossier, ou null : pas de DG)"""
 
-    queryset = Pole.objects.all()
+    queryset = Pole.objects.select_related("director")
     serializer_class = PoleDirectorSerializer
     permission_classes = [IsHRAdmin]
     http_method_names = ["get", "patch", "head", "options"]
@@ -72,7 +57,7 @@ def run(action):
 def with_steps(requests):
     """Les demandes avec leur circuit, en peu de requêtes SQL (sinon une requête par étape et par nom)."""
     return requests.select_related("workflow", "requester").prefetch_related(
-        "steps__assignee", "steps__director", "steps__decided_by")
+        "steps__assignee", "steps__decided_by")
 
 
 def answer(request_pk):
@@ -99,6 +84,18 @@ class MyRequestViewSet(viewsets.ReadOnlyModelViewSet):
         return answer(demand.pk)
 
 
+class RequestHistoryViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+    """L'historique d'UNE demande (page /requests/<id>), pour tous ceux qu'elle concerne.
+
+    GET /api/workflows/history/<id>/ -> la demande et son circuit (qui, quoi, quand, commentaire)
+    Une demande qui ne me concerne pas : 404 (comme si elle n'existait pas)."""
+
+    serializer_class = RequestSerializer
+
+    def get_queryset(self):
+        return with_steps(engine.requests_visible_to(self.request.user))
+
+
 class ApprovalViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     """Ce qui attend MA réponse (page "Team approvals"). L'id dans l'adresse est celui de l'ÉTAPE.
 
@@ -113,7 +110,7 @@ class ApprovalViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         return (
             engine.steps_waiting_for(self.request.user)
             .select_related("request__workflow", "request__requester")
-            .prefetch_related("request__steps__assignee", "request__steps__director", "request__steps__decided_by")
+            .prefetch_related("request__steps__assignee", "request__steps__decided_by")
             .order_by("request__created_at")  # celle qui attend depuis le plus longtemps d'abord
         )
 

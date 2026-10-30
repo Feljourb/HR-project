@@ -6,7 +6,7 @@ from django.utils.html import format_html
 
 from . import history, services
 from .models import (
-    Assignment, Bank, Category, Child, ContractType, CostCenter, Department, Direction, Director, Division,
+    Assignment, Bank, Category, Child, ContractType, CostCenter, Department, Direction, Division,
     Employee, EmployeeHistory, Entity, Grade, Pole, Position, Region, TempAgency,
 )
 
@@ -25,15 +25,11 @@ for model in (Division, Assignment,Category, ContractType, TempAgency, Grade, Re
     admin.site.register(model, ReferenceAdmin)
 
 
-@admin.register(Director)
-class DirectorAdmin(ReferenceAdmin):
-    list_display = ("name", "email", "is_active")
-    search_fields = ("name", "email")
-
-
 @admin.register(Pole)
 class PoleAdmin(ReferenceAdmin):
     list_display = ("name", "director", "is_active")
+    # Le DG est un collaborateur : une case de recherche (nom, matricule...) au lieu d'une longue liste.
+    autocomplete_fields = ("director",)
 
 
 @admin.register(Entity)

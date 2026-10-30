@@ -18,9 +18,15 @@ type ManagerPickerProps = {
   onChange: (id: string, label: string) => void
   excludeId?: number            // on ne peut pas être son propre manager
   error?: string
+  // Pour réutiliser la recherche ailleurs (ex. choisir le DG d'un pôle) :
+  id?: string
+  fieldLabel?: string
+  placeholder?: string
+  disabled?: boolean
 }
 
-export function ManagerPicker({ value, label, onChange, excludeId, error }: ManagerPickerProps) {
+export function ManagerPicker({ value, label, onChange, excludeId, error, id = 'manager', fieldLabel = 'Manager (N+1)',
+  placeholder = 'Search a manager...', disabled }: ManagerPickerProps) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<{ query: string; rows: EmployeeRow[] } | null>(null)
   const search = query.trim()
@@ -46,18 +52,18 @@ export function ManagerPicker({ value, label, onChange, excludeId, error }: Mana
 
   // Un manager est choisi : on l'affiche, avec un bouton pour l'enlever.
   if (value) {
-    return <Field id="manager" label="Manager (N+1)" error={error}>
+    return <Field id={id} label={fieldLabel} error={error}>
       <div className={cn(controlClass, 'flex items-center justify-between gap-2')}>
         <span className="truncate">{label}</span>
-        <button type="button" aria-label="Remove the manager" onClick={() => onChange('', '')} className="rounded p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-700"><X className="size-3.5" /></button>
+        <button type="button" aria-label={`Remove: ${fieldLabel}`} disabled={disabled} onClick={() => onChange('', '')} className="rounded p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-700 disabled:opacity-50"><X className="size-3.5" /></button>
       </div>
     </Field>
   }
 
-  return <Field id="manager" label="Manager (N+1)" error={error} hint="Type at least 2 letters of a name, a CIN or an ID.">
+  return <Field id={id} label={fieldLabel} error={error} hint="Type at least 2 letters of a name, a CIN or an ID.">
     <div className="relative">
       <Search className="pointer-events-none absolute left-3 top-[calc(50%+3px)] size-4 -translate-y-1/2 text-slate-400" />
-      <input id="manager" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search a manager..." autoComplete="off" className={cn(controlClass, 'pl-9')} />
+      <input id={id} value={query} disabled={disabled} onChange={(e) => setQuery(e.target.value)} placeholder={placeholder} autoComplete="off" className={cn(controlClass, 'pl-9')} />
       {rows.length > 0 && <ul className="absolute z-10 mt-1 max-h-60 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-xl">
         {rows.map((row) => {
           const text = `${row.u_number} - ${row.last_name.toUpperCase()} ${row.first_name}`

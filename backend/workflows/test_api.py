@@ -1,10 +1,13 @@
-"""Tests de l'API des circuits (step 3a) et des DG (step 3b)."""
+"""Tests de l'API des circuits (step 3a) et du DG de chaque pôle (step 3b)."""
+import datetime
+
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 from rest_framework.test import APIClient
 
-from employees.models import Director, Pole
+from employees.models import Employee, Pole
+from employees.tests import EmployeeTestCase
 
 from .models import Workflow
 
@@ -140,20 +143,18 @@ class WorkflowApiTests(TestCase):
         self.assertTrue(Workflow.objects.filter(pk=self.leave.pk).exists())
 
 
-class DirectorApiTests(TestCase):
-    """L'API des DG et du DG de chaque pôle (step 3b)."""
+class PoleDirectorApiTests(EmployeeTestCase):
+    """L'API du DG de chaque pôle (step 3b) : le DG est un collaborateur (son dossier RH)."""
 
     def setUp(self):
+        super().setUp()
         self.client = APIClient()
         self.sbd = Pole.objects.get(name="SBD")
-        self.soufiane = Director.objects.create(name="Soufiane Badaa", email="s.badaa@example.com")
+        self.soufiane = self.make_employee("soufiane.badaa", "DG111111", last_name="Badaa", first_name="Soufiane")
 
     def login_as(self, role=User.Role.HR_ADMIN):
         user = User.objects.create_user(f"user.{role.lower()}", role=role, must_change_password=False)
         self.client.force_authenticate(user)
-
-    def directors(self, pk=None):
-        return reverse("workflows:director-list") if pk is None else reverse("workflows:director-detail", args=[pk])
 
     def poles(self, pk=None):
         return reverse("workflows:pole-list") if pk is None else reverse("workflows:pole-detail", args=[pk])
@@ -161,51 +162,16 @@ class DirectorApiTests(TestCase):
     def choose(self, director_id):
         return self.client.patch(self.poles(self.sbd.pk), {"director": director_id}, format="json")
 
-    # --- Qui a accès ---------------------------------------------------------------
-
     def test_only_hr_admin(self):
         self.login_as(User.Role.HR)
-        self.assertEqual(self.client.get(self.directors()).status_code, 403)
         self.assertEqual(self.client.get(self.poles()).status_code, 403)
-
-    # --- Les DG ----------------------------------------------------------------------
-
-    def test_add_a_dg(self):
-        self.login_as()
-        response = self.client.post(self.directors(), {"name": "Karim Idrissi", "email": "k.idrissi@example.com"}, format="json")
-        self.assertEqual(response.status_code, 201)
-        self.assertTrue(response.json()["is_active"])
-
-    def test_the_same_email_twice_is_refused(self):
-        self.login_as()
-        response = self.client.post(self.directors(), {"name": "Autre", "email": "s.badaa@example.com"}, format="json")
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["email"], ["Cet e-mail existe déjà."])
-
-    def test_a_dg_is_never_deleted(self):
-        self.login_as()
-        self.assertEqual(self.client.delete(self.directors(self.soufiane.pk)).status_code, 405)
-
-    def test_cannot_deactivate_the_dg_of_a_pole(self):
-        self.login_as()
-        self.choose(self.soufiane.pk)
-        response = self.client.patch(self.directors(self.soufiane.pk), {"is_active": False}, format="json")
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["is_active"], ["Ce DG est encore DG de : SBD. Choisissez d'abord un autre DG."])
-
-    def test_deactivate_a_dg_of_no_pole(self):
-        self.login_as()
-        response = self.client.patch(self.directors(self.soufiane.pk), {"is_active": False}, format="json")
-        self.assertEqual(response.status_code, 200)
-        self.assertFalse(response.json()["is_active"])
-
-    # --- Le DG de chaque pôle ------------------------------------------------------------
 
     def test_choose_the_dg_of_a_pole(self):
         self.login_as()
         response = self.choose(self.soufiane.pk)
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"id": self.sbd.pk, "name": "SBD", "director": self.soufiane.pk})
+        self.assertEqual(response.json(), {"id": self.sbd.pk, "name": "SBD", "director": self.soufiane.pk,
+                                           "director_label": str(self.soufiane)})
 
     def test_remove_the_dg_of_a_pole(self):
         self.login_as()
@@ -214,12 +180,12 @@ class DirectorApiTests(TestCase):
         self.sbd.refresh_from_db()
         self.assertIsNone(self.sbd.director)
 
-    def test_an_inactive_dg_cannot_be_chosen(self):
+    def test_a_left_employee_cannot_be_chosen(self):
         self.login_as()
-        former = Director.objects.create(name="Ancien DG", email="ancien@example.com", is_active=False)
-        response = self.choose(former.pk)
+        gone = self.make_employee("ex.dg", "DG222222", status=Employee.Status.LEFT, departure_date=datetime.date(2026, 6, 1))
+        response = self.choose(gone.pk)
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["director"], ["Ce DG est désactivé."])
+        self.assertEqual(response.json()["director"], ["Un collaborateur sorti ne peut pas être DG."])
 
     def test_the_pole_name_does_not_change_here(self):
         self.login_as()

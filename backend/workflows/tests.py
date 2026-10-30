@@ -1,11 +1,14 @@
 """Tests de la configuration des circuits (step 1) et du DG de chaque pôle (step 2)."""
+import datetime
+
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.test import TestCase
 from django.urls import reverse
 from rest_framework.test import APIClient
 
-from employees.models import Director, Pole
+from employees.models import Employee, Pole
+from employees.tests import EmployeeTestCase
 
 from .models import Workflow, WorkflowStep
 
@@ -68,14 +71,15 @@ class WorkflowStepRulesTests(TestCase):
             Workflow(name="congé", code=Workflow.Code.LEAVE).validate_constraints()
 
 
-class PoleDirectorTests(TestCase):
-    """Le DG de chaque pôle (step 2)."""
+class PoleDirectorTests(EmployeeTestCase):
+    """Le DG de chaque pôle (step 2) : un collaborateur comme les autres (décision de l'encadrant)."""
 
     def setUp(self):
+        super().setUp()
         self.sbd = Pole.objects.get(name="SBD")
         self.riaya = Pole.objects.get(name="Riaya")
-        # Un DG n'est pas un collaborateur : juste un nom et un e-mail, pas de dossier RH.
-        self.soufiane = Director.objects.create(name="Soufiane Badaa", email="s.badaa@example.com")
+        # Le DG a un dossier RH et un compte "Manager", tout en haut de l'organigramme (pas de N+1).
+        self.soufiane = self.make_employee("soufiane.badaa", "DG111111", last_name="Badaa", first_name="Soufiane")
 
     def choose(self, pole, director):
         """Admin RH choisit le DG (en passant par les règles du modèle)."""
@@ -89,16 +93,12 @@ class PoleDirectorTests(TestCase):
     def test_the_same_person_can_be_dg_of_both_poles(self):
         self.choose(self.sbd, self.soufiane)
         self.choose(self.riaya, self.soufiane)
-        self.assertEqual(set(self.soufiane.poles.all()), {self.sbd, self.riaya})
+        self.assertEqual(set(self.soufiane.directed_poles.all()), {self.sbd, self.riaya})
 
-    def test_an_inactive_dg_cannot_be_chosen(self):
-        former = Director.objects.create(name="Ancien DG", email="ancien@example.com", is_active=False)
-        with self.assertRaisesMessage(ValidationError, "Ce DG est désactivé."):
-            self.choose(self.sbd, former)
-
-    def test_the_same_email_twice_is_refused(self):
-        with self.assertRaises(ValidationError):
-            Director(name="Autre nom", email="s.badaa@example.com").full_clean()
+    def test_a_left_employee_cannot_be_dg(self):
+        gone = self.make_employee("ex.dg", "DG222222", status=Employee.Status.LEFT, departure_date=datetime.date(2026, 6, 1))
+        with self.assertRaisesMessage(ValidationError, "Un collaborateur sorti ne peut pas être DG."):
+            self.choose(self.sbd, gone)
 
     def test_the_lists_api_does_not_show_the_dg(self):
         """Le DG se choisit dans l'écran Workflows, pas dans la liste des pôles."""

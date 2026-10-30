@@ -60,7 +60,6 @@ const navGroups: NavGroup[] = [
   ] },
   { label: 'Management & HR', icon: ShieldCheck, restricted: true, items: [
     { label: 'Team Approvals', icon: Check, href: '/approvals' },
-    { label: 'Maker-Checker Audit', icon: ShieldCheck },
     { label: 'Employees', icon: UserRoundCog, href: '/employees', hrOnly: true },
     { label: 'Audit log', icon: ScrollText, href: '/audit', hrOnly: true },
     { label: 'Reference lists', icon: ListChecks, href: '/lists', adminOnly: true },
@@ -82,6 +81,7 @@ export function displayNameOf(username: string) {
 const SUB_PAGES: [RegExp, string][] = [
   [/^\/employees\/new$/, 'New employee'],
   [/^\/employees\/\d+$/, 'Employee file'],
+  [/^\/requests\/\d+$/, 'Request history'],
 ]
 
 /**

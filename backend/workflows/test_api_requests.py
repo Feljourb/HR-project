@@ -1,4 +1,5 @@
 """Tests de l'API des demandes : "My requests" et "Team approvals" (step 6a)."""
+from django.contrib.auth import get_user_model
 from django.urls import reverse
 from rest_framework.test import APIClient
 
@@ -8,6 +9,8 @@ from . import engine
 from .models import Request
 from .serializers import person
 from .test_engine import EngineTestCase
+
+User = get_user_model()
 
 
 def url(name, pk=None):
@@ -129,3 +132,51 @@ class RequestApiTests(EngineTestCase):
         demand = engine.submit("EXPENSE", self.sara, "Note de frais")
         self.login(self.karim)  # pas son étape : il ne la voit même pas
         self.assertEqual(self.client.post(url("approval-approve", self.pending_id(demand))).status_code, 404)
+
+
+class RequestHistoryApiTests(EngineTestCase):
+    """L'historique d'une demande : seulement pour ceux qu'elle concerne (step 8)."""
+
+    def setUp(self):
+        super().setUp()
+        self.client = APIClient()
+
+    def can_see(self, employee_or_user, demand):
+        user = getattr(employee_or_user, "user", employee_or_user)
+        user.must_change_password = False
+        user.save()
+        self.client.force_authenticate(user)
+        return self.client.get(url("history-detail", demand.pk)).status_code == 200
+
+    def test_the_people_concerned_see_it(self):
+        demand = engine.submit("LEAVE", self.sara, "Congé")
+        self.assertTrue(self.can_see(self.sara, demand))     # la demandeuse
+        self.assertTrue(self.can_see(self.youssef, demand))  # son N+1, que l'étape attend
+        self.assertTrue(self.can_see(self.nadia, demand))    # une RH du même pôle
+
+    def test_the_others_get_a_404(self):
+        demand = engine.submit("LEAVE", self.sara, "Congé")
+        production = Department.objects.get(name="Production", direction__entity__name="Eureka")
+        riaya_hr = self.make_hr("rh.riaya", "AA100007", department=production, position=production.positions.first())
+        colleague = self.make_employee("collegue", "AA100010")
+        self.assertFalse(self.can_see(self.karim, demand))    # le N+2 : pas dans ce circuit
+        self.assertFalse(self.can_see(riaya_hr, demand))      # une RH de l'autre pôle
+        self.assertFalse(self.can_see(colleague, demand))     # un collègue
+
+    def test_admin_rh_and_it_see_every_request(self):
+        demand = engine.submit("LEAVE", self.sara, "Congé")
+        admin_rh = User.objects.create_user("admin.rh", role=User.Role.HR_ADMIN)
+        it = User.objects.create_superuser("it.admin")
+        self.assertTrue(self.can_see(admin_rh, demand))
+        self.assertTrue(self.can_see(it, demand))
+
+    def test_the_whole_story_is_there(self):
+        demand = engine.submit("LEAVE", self.sara, "Congé")
+        engine.approve(demand.steps.get(status="PENDING"), self.youssef.user, "Bon repos")
+        self.can_see(self.sara, demand)
+        item = self.client.get(url("history-detail", demand.pk)).json()
+        self.assertEqual(item["status"], "APPROVED")
+        self.assertIsNotNone(item["closed_at"])
+        first, second = item["steps"]
+        self.assertEqual((first["status"], first["decided_by"], first["comment"]), ("APPROVED", self.youssef.user.username, "Bon repos"))
+        self.assertEqual(second["status"], "INFORMED")

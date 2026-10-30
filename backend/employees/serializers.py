@@ -242,14 +242,13 @@ class NotificationSerializer(serializers.ModelSerializer):
         return notifications.message(notification)
 
     def get_link(self, notification):
-        # La page ouverte au clic, ou null (une simple information : pas de page à ouvrir).
-        Kind = Notification.Kind
-        return {
-            Kind.TRIAL_END: f"/employees/{notification.employee_id}",
-            Kind.TO_VALIDATE: "/approvals",
-            Kind.APPROVED: "/requests",
-            Kind.REJECTED: "/requests",
-        }.get(notification.kind)
+        # La page ouverte au clic : la fiche, "Team approvals" (pour répondre), ou l'historique de la demande.
+        Kind = notification.Kind
+        if notification.kind == Kind.TRIAL_END:
+            return f"/employees/{notification.employee_id}"
+        if notification.kind == Kind.TO_VALIDATE:
+            return "/approvals"
+        return f"/requests/{notification.request_id}"  # pour information, acceptée, refusée
 
     def get_read(self, notification):
         return notification.read_at is not None

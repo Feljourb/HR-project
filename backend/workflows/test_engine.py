@@ -4,7 +4,7 @@ import datetime
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied, ValidationError
 
-from employees.models import Department, Director, Employee, Pole
+from employees.models import Department, Employee, Pole
 from employees.tests import EmployeeTestCase
 
 from . import engine
@@ -117,23 +117,38 @@ class SubmitTests(EngineTestCase):
     # --- RH : jamais sa propre demande, seulement son pôle -------------------------------------
 
     def test_hr_never_validates_their_own_request(self):
-        validators = engine.hr_of_pole(self.nadia.pole, self.nadia)
-        self.assertNotIn(self.nadia, validators)
-        self.assertIn(self.hind, validators)
+        validators = engine.hr_validators(self.nadia)
+        self.assertNotIn(self.nadia.user, validators)
+        self.assertIn(self.hind.user, validators)
 
     def test_hr_of_the_other_pole_does_not_count(self):
         production = Department.objects.get(name="Production", direction__entity__name="Eureka")  # Riaya
         riaya_hr = self.make_hr("rh.riaya", "AA100007", department=production, position=production.positions.first())
-        self.assertNotIn(riaya_hr, engine.hr_of_pole(self.sara.pole, self.sara))
+        self.assertNotIn(riaya_hr.user, engine.hr_validators(self.sara))
 
     # --- DG ---------------------------------------------------------------------------------
 
-    def test_dg_of_the_pole(self):
-        soufiane = Director.objects.create(name="Soufiane Badaa", email="s.badaa@example.com")
+    def test_dg_of_the_pole_answers_like_a_manager(self):
+        # Le DG est un collaborateur (dossier + compte), tout en haut : le N+1 de Karim.
+        soufiane = self.make_employee("soufiane.dg", "AA100011", first_name="Soufiane", last_name="Badaa")
         Pole.objects.filter(name="SBD").update(director=soufiane)
         self.set_circuit("EXPENSE", ("DG", "VALIDATE"))
         request = engine.submit("EXPENSE", self.sara, "Note de frais")
-        self.assertEqual(request.steps.get().director, soufiane)
+        self.assertEqual(request.steps.get().assignee, soufiane)
+        engine.approve(request.steps.get(), soufiane.user)
+        request.refresh_from_db()
+        self.assertEqual(request.status, Request.Status.APPROVED)
+
+    def test_the_dg_never_validates_their_own_request(self):
+        soufiane = self.make_employee("soufiane.dg", "AA100011", first_name="Soufiane", last_name="Badaa")
+        Pole.objects.filter(name="SBD").update(director=soufiane)
+        self.set_circuit("EXPENSE", ("DG", "VALIDATE"))
+        request = engine.submit("EXPENSE", soufiane, "Note de frais du DG")
+        # Étape DG sautée (pas sa propre demande) -> la règle ajoute "RH du pôle valide".
+        self.assertEqual(self.steps(request), [
+            (Approver.DG, Mode.VALIDATE, Status.SKIPPED),
+            (Approver.HR, Mode.VALIDATE, Status.PENDING),
+        ])
 
     def test_a_pole_without_dg_is_skipped(self):
         self.set_circuit("EXPENSE", ("DG", "VALIDATE"), ("MANAGER", "VALIDATE"))
@@ -280,8 +295,9 @@ class DecideTests(EngineTestCase):
         engine.reject(self.pending(request), self.youssef.user, "Justificatif manquant")
         self.assertEqual(called, [])
 
-class AdminReplacementTests(EngineTestCase):
-    """Un pôle sans autre RH : Admin RH remplace la RH (step 4b)."""
+
+class AdminRhIsHrTests(EngineTestCase):
+    """Une Admin RH est une RH des deux pôles : elle répond aux étapes "RH du pôle" comme une RH."""
 
     def setUp(self):
         super().setUp()
@@ -290,44 +306,42 @@ class AdminReplacementTests(EngineTestCase):
         production = Department.objects.get(name="Production", direction__entity__name="Eureka")
         self.salma = self.make_hr("salma.rh", "AA100008", department=production, position=production.positions.first())
 
-    def test_the_only_hr_of_a_pole_goes_to_hr_admin(self):
+    def test_the_only_hr_of_a_pole_is_validated_by_admin_rh(self):
         request = engine.submit("ADMIN_REQUEST", self.salma, "Attestation de Salma")
-        step = request.steps.get()
-        self.assertEqual((step.approver, step.status, step.hr_admin_replaces), (Approver.HR, Status.PENDING, True))
-
-    def test_hr_admin_sees_it_and_approves(self):
-        request = engine.submit("ADMIN_REQUEST", self.salma, "Attestation de Salma")
+        self.assertEqual(request.steps.get().status, Status.PENDING)  # pas sautée : l'Admin RH est là
         self.assertEqual(list(engine.steps_waiting_for(self.admin_rh)), [request.steps.get()])
         engine.approve(request.steps.get(), self.admin_rh)
         request.refresh_from_db()
         self.assertEqual(request.status, Request.Status.APPROVED)
 
-    def test_hr_admin_does_not_see_the_normal_hr_steps(self):
-        engine.submit("ADMIN_REQUEST", self.sara, "Attestation de Sara")  # SBD a des RH : pas de remplacement
+    def test_admin_rh_sees_the_hr_steps_of_both_poles(self):
+        engine.submit("ADMIN_REQUEST", self.sara, "Attestation de Sara")    # SBD
+        engine.submit("ADMIN_REQUEST", self.salma, "Attestation de Salma")  # Riaya
+        titles = [step.request.title for step in engine.steps_waiting_for(self.admin_rh)]
+        self.assertEqual(sorted(titles), ["Attestation de Salma", "Attestation de Sara"])
+
+    def test_admin_rh_does_not_see_the_manager_steps(self):
+        engine.submit("LEAVE", self.sara, "Congé de Sara")  # attend Youssef (N+1), pas la RH
         self.assertEqual(list(engine.steps_waiting_for(self.admin_rh)), [])
 
-    def test_an_hr_cannot_answer_a_replaced_step(self):
+    def test_an_hr_of_another_pole_still_cannot_answer(self):
         request = engine.submit("ADMIN_REQUEST", self.salma, "Attestation de Salma")
         with self.assertRaises(PermissionDenied):
-            engine.approve(request.steps.get(), self.nadia.user)  # RH de l'autre pôle
-        self.assertNotIn(request.steps.get(), engine.steps_waiting_for(self.nadia.user))
+            engine.approve(request.steps.get(), self.nadia.user)  # RH de SBD
 
-    def test_no_replacement_when_another_hr_exists(self):
-        request = engine.submit("ADMIN_REQUEST", self.nadia, "Attestation de Nadia")  # Hind est RH de SBD
-        self.assertFalse(request.steps.get().hr_admin_replaces)
-
-    def test_hr_admin_never_validates_their_own_request(self):
-        # L'Admin RH (avec son dossier dans Riaya, sans autre RH que lui) demande une attestation.
-        self.admin_rh.delete()
+    def test_admin_rh_never_validates_their_own_request(self):
         production = Department.objects.get(name="Production", direction__entity__name="Eureka")
         admin_fiche = self.make_employee("admin.riaya", "AA100009", department=production, position=production.positions.first())
         admin_fiche.user.role = User.Role.HR_ADMIN
         admin_fiche.user.save()
-        other_admin = User.objects.create_user("admin.two", role=User.Role.HR_ADMIN, must_change_password=False)
-        self.salma.status, self.salma.departure_date = Employee.Status.LEFT, datetime.date(2026, 6, 1)
-        self.salma.save()  # plus aucune RH à Riaya
         request = engine.submit("ADMIN_REQUEST", admin_fiche, "Attestation de l'Admin RH")
         step = request.steps.get()
-        self.assertTrue(step.hr_admin_replaces)
         self.assertFalse(engine.can_decide(admin_fiche.user, step))  # pas sa propre demande
-        self.assertTrue(engine.can_decide(other_admin, step))
+        self.assertTrue(engine.can_decide(self.admin_rh, step))       # une autre Admin RH : oui
+        self.assertTrue(engine.can_decide(self.salma.user, step))     # la RH du pôle : oui
+
+    def test_nobody_left_is_skipped_then_hr_step_added(self):
+        """Ni autre RH, ni Admin RH : l'étape RH est sautée (personne), la règle ajoute une étape RH."""
+        self.admin_rh.delete()
+        request = engine.submit("ADMIN_REQUEST", self.salma, "Attestation de Salma")
+        self.assertEqual([step.status for step in request.steps.all()], [Status.SKIPPED, Status.PENDING])
