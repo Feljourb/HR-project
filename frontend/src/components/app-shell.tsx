@@ -11,7 +11,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import {
   BookOpen, BriefcaseBusiness, Building2, CalendarDays, Check, ChevronDown, ChevronRight, ChevronsUpDown,
-  CircleHelp, ClipboardCheck, FolderOpen, Headphones, LayoutDashboard, ListChecks, type LucideIcon,
+  CircleHelp, ClipboardCheck, FolderOpen, Headphones, Inbox, LayoutDashboard, ListChecks, LockKeyhole, type LucideIcon,
   LogOut, Menu, Plane, ReceiptText, ScrollText, Search, ShieldCheck, UserRound, UserRoundCog, UsersRound, Workflow, X,
 } from 'lucide-react'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -27,6 +27,7 @@ type NavItem = {
   href?: string      // sans href : la page n'existe pas encore (bouton inactif)
   hrOnly?: boolean   // visible seulement pour RH et Admin RH
   adminOnly?: boolean  // visible seulement pour Admin RH (et l'IT)
+  itOnly?: boolean     // visible seulement pour l'IT (superuser)
 }
 
 type NavGroup = {
@@ -40,6 +41,7 @@ const navGroups: NavGroup[] = [
   { label: 'Personal Space', icon: LayoutDashboard, items: [
     { label: 'Dashboard', icon: LayoutDashboard, href: '/' },
     { label: 'My Profile', icon: UserRound, href: '/profile' },
+    { label: 'My Requests', icon: Inbox, href: '/requests' },
     { label: 'Leave Requests', icon: CalendarDays },
     { label: 'Expense Claims', icon: ReceiptText },
     { label: 'Administrative Documents', icon: FolderOpen },
@@ -57,12 +59,13 @@ const navGroups: NavGroup[] = [
     { label: 'Internal Job Postings', icon: BriefcaseBusiness },
   ] },
   { label: 'Management & HR', icon: ShieldCheck, restricted: true, items: [
-    { label: 'Team Approvals', icon: Check },
+    { label: 'Team Approvals', icon: Check, href: '/approvals' },
     { label: 'Maker-Checker Audit', icon: ShieldCheck },
     { label: 'Employees', icon: UserRoundCog, href: '/employees', hrOnly: true },
     { label: 'Audit log', icon: ScrollText, href: '/audit', hrOnly: true },
     { label: 'Reference lists', icon: ListChecks, href: '/lists', adminOnly: true },
     { label: 'Workflows', icon: Workflow, href: '/workflows', adminOnly: true },
+    { label: 'Security settings', icon: LockKeyhole, href: '/security', itOnly: true },
   ] },
 ]
 
@@ -125,7 +128,8 @@ function NavList({ me, active }: { me: Me | null; active: string }) {
   const visibleGroups = navGroups
     .filter((group) => !group.restricted || (me !== null && (me.role !== 'COLLABORATOR' || me.is_superuser)))
     .map((group) => ({ ...group, items: group.items.filter((item) =>
-      (!item.hrOnly || (me !== null && isHr(me))) && (!item.adminOnly || (me !== null && seesBothPoles(me)))) }))
+      (!item.hrOnly || (me !== null && isHr(me))) && (!item.adminOnly || (me !== null && seesBothPoles(me)))
+      && (!item.itOnly || (me !== null && me.is_superuser))) }))
 
   // On ouvre le groupe qui contient la page active : au départ, puis à chaque changement de page
   // (le cadre reste en place, donc on ajuste l'état pendant le rendu, comme le conseille React).

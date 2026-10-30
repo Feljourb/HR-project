@@ -55,12 +55,13 @@ export function firstMessage(data: unknown): string {
   return ''
 }
 
-/** Envoie une modification à Django et renvoie la réponse, ou le message d'erreur à afficher. */
-export async function sendChange<T>(send: () => Promise<Response>): Promise<{ data: T } | { error: string }> {
+/** Envoie une modification à Django et renvoie la réponse, ou le message d'erreur à afficher.
+ *  `forbidden` : le message si Django répond 403 (pas le droit). */
+export async function sendChange<T>(send: () => Promise<Response>, forbidden = 'Only Admin RH can change the workflows.'): Promise<{ data: T } | { error: string }> {
   try {
     const response = await send()
     if (response.ok) return { data: await response.json() }
-    if (response.status === 403) return { error: 'Only Admin RH can change the workflows.' }
+    if (response.status === 403) return { error: forbidden }
     // 400 : une règle refusée ("Ce valideur est déjà dans le circuit.", "Cet e-mail existe déjà."...).
     return { error: firstMessage(await response.json().catch(() => ({}))) || 'Something went wrong. Please try again.' }
   } catch {

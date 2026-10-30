@@ -5,7 +5,7 @@ from rest_framework import serializers
 from employees.models import Director, Pole
 from employees.serializers import ReferenceSerializer, check_model_rules, preview
 
-from .models import Workflow, WorkflowStep
+from .models import Request, RequestStep, Workflow, WorkflowStep
 
 
 class StepSerializer(serializers.ModelSerializer):
@@ -88,3 +88,72 @@ class PoleDirectorSerializer(ReferenceSerializer):
         model = Pole
         fields = ["id", "name", "director"]
         read_only_fields = ["name"]
+
+# --- Les demandes (step 6a) ------------------------------------------------------------
+
+def person(employee):
+    """ "Sara Alami" : le nom affiché dans les pages (sans le matricule)."""
+    return f"{employee.first_name} {employee.last_name.title()}"
+
+
+class RequestStepSerializer(serializers.ModelSerializer):
+    """Une étape d'une demande, pour la suivre : qui doit répondre, et ce qui s'est passé."""
+
+    approver_label = serializers.CharField(source="get_approver_display")
+    mode_label = serializers.CharField(source="get_mode_display")
+    status_label = serializers.CharField(source="get_status_display")
+    validator = serializers.SerializerMethodField()
+    decided_by = serializers.SerializerMethodField()
+
+    class Meta:
+        model = RequestStep
+        fields = ["order", "approver", "approver_label", "mode", "mode_label", "status", "status_label",
+                  "validator", "decided_by", "decided_at", "comment"]
+
+    def get_validator(self, step):
+        # Qui doit répondre : "Youssef Bennani", le nom du DG, ou "RH du pôle" (n'importe quel RH).
+        if step.assignee:
+            return person(step.assignee)
+        if step.director:
+            return step.director.name
+        return step.get_approver_display()
+
+    def get_decided_by(self, step):
+        # Le compte qui a répondu (ex. "hind.rh"), ou null (pas encore, ou étape sautée / informée).
+        return step.decided_by.username if step.decided_by else None
+
+
+class RequestSerializer(serializers.ModelSerializer):
+    """Une demande et son circuit : pour "My requests" (le demandeur) et "Team approvals" (le valideur)."""
+
+    workflow = serializers.CharField(source="workflow.name")
+    workflow_code = serializers.CharField(source="workflow.code")
+    requester = serializers.SerializerMethodField()
+    status_label = serializers.CharField(source="get_status_display")
+    steps = RequestStepSerializer(many=True)
+
+    class Meta:
+        model = Request
+        fields = ["id", "workflow", "workflow_code", "title", "requester", "status", "status_label",
+                  "created_at", "closed_at", "steps"]
+
+    def get_requester(self, request):
+        return person(request.requester)
+
+
+class ApprovalSerializer(serializers.ModelSerializer):
+    """Une étape qui attend MA réponse, avec sa demande. L'id est celui de l'ÉTAPE
+    (c'est elle qu'on valide ou refuse)."""
+
+    request = RequestSerializer()
+    approver_label = serializers.CharField(source="get_approver_display")
+
+    class Meta:
+        model = RequestStep
+        fields = ["id", "approver", "approver_label", "request"]
+
+
+class DecisionSerializer(serializers.Serializer):
+    """Ce qu'on envoie pour répondre : {"comment": "..."} (obligatoire pour refuser : le moteur le vérifie)."""
+
+    comment = serializers.CharField(required=False, allow_blank=True, default="", max_length=1000)

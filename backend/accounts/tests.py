@@ -393,6 +393,15 @@ class MfaActivationTests(MfaTestCase):
         self.assertTrue(first["qr_code"].startswith("data:image/svg+xml;base64,"))
         self.assertEqual(first["secret"], second["secret"])
 
+    def test_two_setups_at_the_same_time_get_the_same_secret(self):
+        # Two requests at the same second: each one loaded the user BEFORE any secret existed.
+        first_request_user = User.objects.get(pk=self.user.pk)
+        second_request_user = User.objects.get(pk=self.user.pk)
+        shown = mfa.pending_secret(first_request_user)    # the QR code shown on the page
+        stored = mfa.pending_secret(second_request_user)  # used to replace it with another secret
+        self.assertEqual(shown, stored)
+        self.assertEqual(mfa.decrypt(User.objects.get(pk=self.user.pk).mfa_secret), shown)
+
     def test_wrong_first_code_is_rejected(self):
         self.client.post(reverse("accounts:mfa-setup"))
         response = self.client.post(reverse("accounts:mfa-confirm"), {"code": "000000"}, format="json")

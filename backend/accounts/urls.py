@@ -2,7 +2,7 @@ from django.urls import path
 
 from .views import (
     ChangePasswordView, LoginView, LogoutView, MeView, MfaConfirmView, MfaLoginView, MfaSetupView,
-    RefreshView,
+    RefreshView, SecuritySettingsView,
 )
 
 app_name = "accounts"
@@ -16,4 +16,5 @@ urlpatterns = [
     path("change-password/", ChangePasswordView.as_view(), name="change-password"),
     path("mfa/setup/", MfaSetupView.as_view(), name="mfa-setup"),
     path("mfa/confirm/", MfaConfirmView.as_view(), name="mfa-confirm"),
+    path("security-settings/", SecuritySettingsView.as_view(), name="security-settings"),
 ]

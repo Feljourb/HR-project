@@ -48,3 +48,9 @@ class IsHR(HasRole):
 
 class IsManager(HasRole):
     allowed_roles = (User.Role.MANAGER,)
+
+
+class IsIT(HasRole):
+    """IT (superusers) only: no role is allowed, and HasRole always lets IT in."""
+
+    allowed_roles = ()

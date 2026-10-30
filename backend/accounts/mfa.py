@@ -49,10 +49,15 @@ def decrypt(token):
 # --- TOTP codes (the 6 digits of the app) ------------------------------------
 
 def pending_secret(user):
-    """Secret of an activation in progress. Created once, reused if the page reloads."""
+    """Secret of an activation in progress. Created once, reused if the page reloads.
+
+    Two requests can arrive at the same time (the page asks twice). Each one used to create its
+    own secret: the page showed one QR code, the database kept the other, and every code failed.
+    Now the secret is written ONLY IF the column is still empty (one SQL UPDATE ... WHERE secret = ''):
+    the second request writes nothing, and both return the secret stored in the database."""
     if not user.mfa_secret:
-        user.mfa_secret = encrypt(pyotp.random_base32())
-        user.save(update_fields=["mfa_secret"])
+        User.objects.filter(pk=user.pk, mfa_secret="").update(mfa_secret=encrypt(pyotp.random_base32()))
+        user.refresh_from_db(fields=["mfa_secret"])
     return decrypt(user.mfa_secret)
 
 

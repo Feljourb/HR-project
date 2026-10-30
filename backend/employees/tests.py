@@ -137,6 +137,12 @@ class EmployeeTests(EmployeeTestCase):
         first.refresh_from_db()
         self.assertEqual(first.u_number, f"U{first.pk:06d}")
 
+    def test_leave_balance_is_18_days_by_default(self):
+        # Le congé annuel légal au Maroc, quand le RH ne change rien.
+        employee = self.make_employee("a.alami", "AB111111")
+        employee.refresh_from_db()
+        self.assertEqual(employee.initial_leave_balance, 18)
+
     def test_cin_is_unique_whatever_the_case(self):
         self.make_employee("a.alami", "AB111111")
         with self.assertRaises(ValidationError) as error:

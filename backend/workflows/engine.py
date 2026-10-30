@@ -15,9 +15,11 @@ ils n'ont pas besoin de savoir comment le circuit fonctionne.
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from employees.models import Employee
+from employees.services import user_pole
 
 from .models import Request, RequestStep, Workflow, WorkflowStep
 
@@ -150,6 +152,20 @@ def can_decide(user, step):
     # RH du pôle : n'importe quel RH du pôle du demandeur, sauf le demandeur lui-même.
     requester = step.request.requester
     return hr_of_pole(requester.pole, requester).filter(user=user).exists()
+
+
+def steps_waiting_for(user):
+    """Les étapes qui attendent la réponse de CET utilisateur (sa page "Team approvals").
+    La même règle que can_decide, mais pour toutes les étapes d'un coup (une seule requête SQL)."""
+    mine = Q(assignee__user=user)  # N+1 / N+2 : c'est moi qu'on attend
+    pole = user_pole(user)
+    if user.role == get_user_model().Role.HR and pole is not None:
+        # RH : les étapes "RH du pôle" des demandes de MON pôle.
+        mine |= Q(approver=Approver.HR, request__requester__department__direction__entity__pole=pole)
+    return (
+        RequestStep.objects.filter(mine, status=Status.PENDING, request__status=Request.Status.IN_PROGRESS)
+        .exclude(request__requester__user=user)  # jamais ma propre demande
+    )
 
 
 def pending_step(step):

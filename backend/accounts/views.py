@@ -7,12 +7,15 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from rest_framework import status
 from rest_framework.response import Response
+from rest_framework.generics import RetrieveUpdateAPIView
 from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.throttling import ScopedRateThrottle
 
 from . import mfa
-from .serializers import ChangePasswordSerializer
+from .models import SecuritySettings
+from .permissions import IsIT
+from .serializers import ChangePasswordSerializer, SecuritySettingsSerializer
 from .services import logout_everywhere
 
 
@@ -185,3 +188,19 @@ class MeView(APIView):
 
     def get(self, request):
         return Response(user_info(request.user))
+
+
+class SecuritySettingsView(RetrieveUpdateAPIView):
+    """The security settings, for IT only (same row as in the Django admin).
+
+    GET   /api/auth/security-settings/ -> {"mfa_enabled": false, "mfa_required_hr": true, ...}
+    PATCH /api/auth/security-settings/ -> only the fields that change
+
+    Here IT is logged in WITH MFA (the Django admin login has none), so this page is the safer place."""
+
+    serializer_class = SecuritySettingsSerializer
+    permission_classes = [IsIT]
+    http_method_names = ["get", "patch", "head", "options"]
+
+    def get_object(self):
+        return SecuritySettings.load()  # always the same row (created with the defaults if missing)

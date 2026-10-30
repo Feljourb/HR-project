@@ -13,7 +13,7 @@
  */
 import { useEffect, useState, type FormEvent } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, CheckCircle2, Loader2 } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, Info, Loader2 } from 'lucide-react'
 import { apiFetch, roleLabel, seesBothPoles, type Me } from '@/lib/api'
 import {
   FORM_FIELDS, MARITAL_LABELS, RELATIONSHIP_LABELS, STATUS_LABELS, TITLE_LABELS,
@@ -36,7 +36,18 @@ const EMPTY: Values = {
   ...(Object.fromEntries(FORM_FIELDS.map((name) => [name, ''])) as Values),
   country: 'Maroc',
   status: 'ACTIVE',
-  initial_leave_balance: '0',
+  initial_leave_balance: '18',  // le congé annuel légal au Maroc
+}
+
+/** "Hajar El Idrissi" -> "hajar.el-idrissi" : l'aperçu du nom de connexion
+ *  (comme make_username dans Django : sans accents, en minuscules, tirets entre les mots). */
+function usernamePreview(firstName: string, lastName: string) {
+  // NFKD sépare "é" en "e" + accent ; on enlève les accents, puis tout ce qui n'est pas a-z / 0-9 devient "-".
+  const clean = (text: string) => text.normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+  const first = clean(firstName)
+  const last = clean(lastName)
+  return first && last ? `${first}.${last}` : 'firstname.lastname'
 }
 
 // Les choix fixes, au format des listes déroulantes.
@@ -106,8 +117,12 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
   // L'agence d'intérim n'apparaît que pour un contrat "Intérimaire" (règle du modèle).
   const contractName = contractTypes.items.find((item) => String(item.id) === values.contract_type)?.name ?? ''
   const isInterim = contractName.toLowerCase() === 'intérimaire'
-  // Statut "Sorti" : la date de sortie devient obligatoire (même règle que le modèle Django).
+  // Les dates qui dépendent du statut : "Sorti" -> date de sortie (obligatoire, comme dans Django),
+  // "Période d'essai" -> fin de la période d'essai. Les autres statuts ne les affichent pas.
   const isLeft = values.status === 'LEFT'
+  const isTrial = values.status === 'TRIAL'
+  // Les enfants : seulement pour Marié(e), Divorcé(e) ou Veuf(ve) (pas pour Célibataire, ni sans réponse).
+  const hasFamily = ['MARRIED', 'DIVORCED', 'WIDOWED'].includes(values.marital_status)
 
   // --- "+ Ajouter…" : seulement Admin RH et IT (Django refuse les autres de toute façon) ---
   const [addRequest, setAddRequest] = useState<AddRequest | null>(null)
@@ -209,9 +224,14 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
     const body: Record<string, unknown> = {}
     for (const name of FORM_FIELDS) body[name] = values[name] === '' && !TEXT_FIELDS.has(name) ? null : values[name]
     if (!isInterim) body.temp_agency = null  // pas d'agence hors contrat Intérimaire
+    // Un champ caché n'a pas de valeur : pas de date de sortie si le collaborateur n'est pas "Sorti",
+    // pas de fin d'essai s'il n'est pas en période d'essai.
+    if (!isLeft) body.departure_date = null
+    if (!isTrial) body.trial_end_date = null
     // Le rôle : à la création, et en modification seulement s'il a changé.
     if (!isEdit || (fiche && role !== fiche.account_role)) body.role = role
-    body.children = children.map(({ first_name, birth_date }) => ({ first_name, birth_date }))
+    // Sans la liste (ex. Célibataire), on envoie une liste vide : Django retire les enfants enregistrés.
+    body.children = hasFamily ? children.map(({ first_name, birth_date }) => ({ first_name, birth_date })) : []
 
     try {
       const response = await apiFetch(isEdit ? `/api/employees/${employeeId}/` : '/api/employees/', {
@@ -301,7 +321,7 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
       <div className="min-w-0 flex-1">
         <h1 className="text-lg font-semibold text-[#192646]">{isEdit ? `${values.first_name} ${values.last_name.toUpperCase()}` : 'New employee'}</h1>
         <p className="text-xs text-slate-500">
-          {isEdit && fiche ? <><span className="font-mono">{fiche.u_number}</span> · {fiche.username}</> : 'The login account (firstname.lastname, CIN as temporary password) is created automatically.'}
+          {isEdit && fiche ? <><span className="font-mono">{fiche.u_number}</span> · {fiche.username}</> : 'Fields marked * are required.'}
         </p>
       </div>
       {/* Seulement si Django l'autorise pour ce compte (RH de son pôle, Admin RH, IT). */}
@@ -313,7 +333,7 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
     {!error('non_field_errors') && hasErrors && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">Please correct the fields in red.</p>}
 
     {/* Le compte de connexion EN PREMIER : le rôle se voit tout de suite (on ne l'oublie pas). */}
-    <FormSection title="Login account" description={isEdit ? undefined : 'Created automatically with the file.'}>
+    <FormSection title="Login account">
       {/* Création : les rôles selon qui crée. Modification : les rôles que Django autorise pour CE compte
           (assignable_roles). Liste vide (son propre compte, un RH vu par un RH...) : affiché, pas modifiable. */}
       {fiche
@@ -322,16 +342,21 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
             disabled={fiche.assignable_roles.length === 0} error={error('role')}
             hint={fiche.assignable_roles.length === 0 ? 'You cannot change the role of this account.' : undefined} />
         : <SelectField id="role" label="Account role" required value={role} onChange={setRole} options={creatableRoles(me)} error={error('role')} />}
-      <div>
-        <p className="text-xs font-semibold text-slate-700">Username</p>
-        <p className="mt-1.5 flex h-10 items-center text-sm text-slate-600">
-          {fiche ? <span className="font-mono">{fiche.username}</span> : 'firstname.lastname (created automatically)'}
-        </p>
-      </div>
-      {!isEdit && <div>
-        <p className="text-xs font-semibold text-slate-700">Temporary password</p>
-        <p className="mt-1.5 flex h-10 items-center text-sm text-slate-600">The CIN (to change at first sign-in)</p>
-      </div>}
+      {fiche
+        ? <div>
+            <p className="text-xs font-semibold text-slate-700">Username</p>
+            <p className="mt-1.5 flex h-10 items-center font-mono text-sm text-slate-600">{fiche.username}</p>
+          </div>
+        // Création : ce qui va se passer, en clair (le nom de connexion suit le prénom et le nom tapés).
+        : <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2.5 text-xs text-sky-900 sm:col-span-1 xl:col-span-2">
+            <p className="flex items-center gap-1.5 font-semibold"><Info className="size-3.5 shrink-0" /> The login account is created automatically when you save.</p>
+            <ul className="mt-1.5 list-disc space-y-1 pl-5">
+              <li>Username: <span className="font-mono font-semibold">{usernamePreview(values.first_name, values.last_name)}</span>
+                {' '}<span className="text-sky-800/80">(a number is added if it is already taken)</span></li>
+              <li>Temporary password: their <span className="font-semibold">CIN</span></li>
+              <li>At their first sign-in, they must choose a new password.</li>
+            </ul>
+          </div>}
     </FormSection>
 
     <FormSection title="Identity">
@@ -348,9 +373,11 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
     </FormSection>
 
     {/* Les 3 blocs de la fiche validée par les RH : tout est optionnel (rempli avec les papiers). */}
-    <FormSection title="Family situation" description="The number of children is the length of this list.">
-      <SelectField id="marital_status" label="Marital status" value={values.marital_status} onChange={(v) => set('marital_status', v)} options={MARITAL_OPTIONS} placeholder="None" error={error('marital_status')} />
-      <ChildrenEditor items={children} onChange={setChildren} errorOf={childError} />
+    <FormSection title="Family situation" description={hasFamily ? 'The number of children is the length of this list.' : undefined}>
+      {/* Passer à Célibataire avec des enfants dans la liste : on prévient avant qu'ils soient retirés. */}
+      <SelectField id="marital_status" label="Marital status" value={values.marital_status} onChange={(v) => set('marital_status', v)} options={MARITAL_OPTIONS} placeholder="None" error={error('marital_status')}
+        hint={!hasFamily && children.length > 0 ? `The ${children.length === 1 ? 'child' : `${children.length} children`} will be removed when you save.` : undefined} />
+      {hasFamily && <ChildrenEditor items={children} onChange={setChildren} errorOf={childError} />}
     </FormSection>
 
     <FormSection title="Administrative file">
@@ -406,10 +433,11 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
       <SelectField id="status" label="Status" required value={values.status} onChange={(v) => set('status', v)} options={STATUS_OPTIONS} error={error('status')}
         hint={isLeft ? 'Their account will be blocked when you save.' : undefined} />
       <TextField id="hire_date" label="Hire date" type="date" required value={values.hire_date} onChange={(v) => set('hire_date', v)} error={error('hire_date')} />
-      <TextField id="trial_end_date" label="End of trial period" type="date" value={values.trial_end_date}
-        hint="With the status Période d'essai, HR is notified 10 days before (1 month for a Cadre)." onChange={(v) => set('trial_end_date', v)} error={error('trial_end_date')} />
+      {/* La date qui va avec le statut, juste après la date d'embauche. */}
+      {isTrial && <TextField id="trial_end_date" label="End of trial period" type="date" value={values.trial_end_date}
+        hint="HR is notified 10 days before (1 month for a Cadre)." onChange={(v) => set('trial_end_date', v)} error={error('trial_end_date')} />}
+      {isLeft && <TextField id="departure_date" label="Departure date" type="date" required value={values.departure_date} onChange={(v) => set('departure_date', v)} error={error('departure_date')} />}
       <TextField id="onboarding_end_date" label="End of onboarding" type="date" value={values.onboarding_end_date} onChange={(v) => set('onboarding_end_date', v)} error={error('onboarding_end_date')} />
-      <TextField id="departure_date" label="Departure date" type="date" required={isLeft} value={values.departure_date} onChange={(v) => set('departure_date', v)} error={error('departure_date')} />
       <TextField id="initial_leave_balance" label="Initial leave balance (days)" type="number" required value={values.initial_leave_balance} onChange={(v) => set('initial_leave_balance', v)} error={error('initial_leave_balance')} />
     </FormSection>
 

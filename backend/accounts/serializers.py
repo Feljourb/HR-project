@@ -1,6 +1,8 @@
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 
+from .models import SecuritySettings
+
 
 class ChangePasswordSerializer(serializers.Serializer):
     current_password = serializers.CharField(write_only=True)
@@ -21,3 +23,11 @@ class ChangePasswordSerializer(serializers.Serializer):
                 {"new_password": "New password must be different from the current one."}
             )
         return attrs
+
+
+class SecuritySettingsSerializer(serializers.ModelSerializer):
+    """The single security row (MFA + password change at first sign-in), for the IT page."""
+
+    class Meta:
+        model = SecuritySettings
+        exclude = ["id"]

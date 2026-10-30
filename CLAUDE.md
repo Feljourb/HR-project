@@ -44,6 +44,7 @@ Frontend (Next.js in frontend/src/app, backend on http://localhost:8000):
 - Admin RH sees both pôles. Superuser (IT) sees everything.
 - Annuaire (directory): every role sees both pôles, but only public fields (nom, prénom, poste, service, direction, email pro, téléphone).
 - TempAgency is shown only when ContractType = Intérimaire.
+- Employee form: the children list is shown only for Marié(e), Divorcé(e), Veuf(ve) (not Célibataire / empty); "End of trial period" only for status Période d'essai, "Departure date" only for Sorti. A hidden field is sent empty (null, or [] for children: existing children are removed, with a warning).
 - Lists: every logged-in user can read them; only Admin RH can add, edit or deactivate (API in a next step, and a "+ Ajouter" button inside the dropdown in the frontend).
 
 ## Module "Gestion des collaborateurs": what is left (in this order, tick when done)
@@ -75,6 +76,9 @@ Done: reference lists, Employee, account created from the fiche, lists + employe
 - [x] 4. Engine, submit: Request + RequestStep (copy of the circuit, who exactly, skip) in `workflows/engine.py` (`submit`, `advance`). Requests are read-only in /admin. Open question: a pôle with no other RH than the requester → the added "RH validate" step has nobody.
 - [x] 5. Engine, decide: approve / reject / cancel (`can_decide`, row lock with `select_for_update`), INFORM passes, then hand over to the module (`@on_approved("LEAVE")` → `HANDLERS`). DG steps cannot be answered until the DG has an account (step 6).
 - [ ] 6. "My requests" + "Team approvals" pages.
+  - [x] 6a. API (all roles, each sees their own): `/api/workflows/requests/` (mine + `cancel`), `/api/workflows/approvals/` (steps waiting for me, `approve` / `reject` with `{"comment"}`; the id is the STEP id). Engine errors → 400/403 with the message.
+  - [x] 6b. Pages `/requests` ("My Requests", every role) + `/approvals` ("Team Approvals") + `make seed-requests` (demo requests through `engine.submit`, after `make seed`; no module form yet).
+  - [ ] 6c. DG account (ask first: new "DG" role?).
 - [ ] 7. Bell notifications (next validator, informed, result for the requester).
 - [ ] 8. History of each request; remove the "Maker-Checker Audit" sidebar placeholder.
 - [ ] 9. Later (SMTP): DG validates by e-mail.
