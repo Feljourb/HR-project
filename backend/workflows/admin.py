@@ -38,7 +38,7 @@ class WorkflowAdmin(admin.ModelAdmin):
 class RequestStepInline(admin.TabularInline):
     model = RequestStep
     extra = 0
-    fields = ["order", "approver", "mode", "assignee", "director", "status", "decided_by", "decided_at", "comment"]
+    fields = ["order", "approver", "mode", "assignee", "director", "hr_admin_replaces", "status", "decided_by", "decided_at", "comment"]
     readonly_fields = fields
     can_delete = False
 

@@ -279,3 +279,55 @@ class DecideTests(EngineTestCase):
         request = engine.submit("EXPENSE", self.sara, "Note de frais")
         engine.reject(self.pending(request), self.youssef.user, "Justificatif manquant")
         self.assertEqual(called, [])
+
+class AdminReplacementTests(EngineTestCase):
+    """Un pôle sans autre RH : Admin RH remplace la RH (step 4b)."""
+
+    def setUp(self):
+        super().setUp()
+        self.admin_rh = User.objects.create_user("admin.rh", role=User.Role.HR_ADMIN, must_change_password=False)
+        # Salma est la SEULE RH du pôle Riaya.
+        production = Department.objects.get(name="Production", direction__entity__name="Eureka")
+        self.salma = self.make_hr("salma.rh", "AA100008", department=production, position=production.positions.first())
+
+    def test_the_only_hr_of_a_pole_goes_to_hr_admin(self):
+        request = engine.submit("ADMIN_REQUEST", self.salma, "Attestation de Salma")
+        step = request.steps.get()
+        self.assertEqual((step.approver, step.status, step.hr_admin_replaces), (Approver.HR, Status.PENDING, True))
+
+    def test_hr_admin_sees_it_and_approves(self):
+        request = engine.submit("ADMIN_REQUEST", self.salma, "Attestation de Salma")
+        self.assertEqual(list(engine.steps_waiting_for(self.admin_rh)), [request.steps.get()])
+        engine.approve(request.steps.get(), self.admin_rh)
+        request.refresh_from_db()
+        self.assertEqual(request.status, Request.Status.APPROVED)
+
+    def test_hr_admin_does_not_see_the_normal_hr_steps(self):
+        engine.submit("ADMIN_REQUEST", self.sara, "Attestation de Sara")  # SBD a des RH : pas de remplacement
+        self.assertEqual(list(engine.steps_waiting_for(self.admin_rh)), [])
+
+    def test_an_hr_cannot_answer_a_replaced_step(self):
+        request = engine.submit("ADMIN_REQUEST", self.salma, "Attestation de Salma")
+        with self.assertRaises(PermissionDenied):
+            engine.approve(request.steps.get(), self.nadia.user)  # RH de l'autre pôle
+        self.assertNotIn(request.steps.get(), engine.steps_waiting_for(self.nadia.user))
+
+    def test_no_replacement_when_another_hr_exists(self):
+        request = engine.submit("ADMIN_REQUEST", self.nadia, "Attestation de Nadia")  # Hind est RH de SBD
+        self.assertFalse(request.steps.get().hr_admin_replaces)
+
+    def test_hr_admin_never_validates_their_own_request(self):
+        # L'Admin RH (avec son dossier dans Riaya, sans autre RH que lui) demande une attestation.
+        self.admin_rh.delete()
+        production = Department.objects.get(name="Production", direction__entity__name="Eureka")
+        admin_fiche = self.make_employee("admin.riaya", "AA100009", department=production, position=production.positions.first())
+        admin_fiche.user.role = User.Role.HR_ADMIN
+        admin_fiche.user.save()
+        other_admin = User.objects.create_user("admin.two", role=User.Role.HR_ADMIN, must_change_password=False)
+        self.salma.status, self.salma.departure_date = Employee.Status.LEFT, datetime.date(2026, 6, 1)
+        self.salma.save()  # plus aucune RH à Riaya
+        request = engine.submit("ADMIN_REQUEST", admin_fiche, "Attestation de l'Admin RH")
+        step = request.steps.get()
+        self.assertTrue(step.hr_admin_replaces)
+        self.assertFalse(engine.can_decide(admin_fiche.user, step))  # pas sa propre demande
+        self.assertTrue(engine.can_decide(other_admin, step))

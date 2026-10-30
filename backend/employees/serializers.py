@@ -232,13 +232,24 @@ class NotificationSerializer(serializers.ModelSerializer):
     title = serializers.CharField(source="get_kind_display", read_only=True)
     message = serializers.SerializerMethodField()
     read = serializers.SerializerMethodField()
+    link = serializers.SerializerMethodField()
 
     class Meta:
         model = Notification
-        fields = ["id", "kind", "title", "message", "employee", "due_date", "read", "created_at"]
+        fields = ["id", "kind", "title", "message", "employee", "due_date", "read", "link", "created_at"]
 
     def get_message(self, notification):
         return notifications.message(notification)
+
+    def get_link(self, notification):
+        # La page ouverte au clic, ou null (une simple information : pas de page à ouvrir).
+        Kind = Notification.Kind
+        return {
+            Kind.TRIAL_END: f"/employees/{notification.employee_id}",
+            Kind.TO_VALIDATE: "/approvals",
+            Kind.APPROVED: "/requests",
+            Kind.REJECTED: "/requests",
+        }.get(notification.kind)
 
     def get_read(self, notification):
         return notification.read_at is not None

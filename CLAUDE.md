@@ -73,13 +73,14 @@ Done: reference lists, Employee, account created from the fiche, lists + employe
   - [x] 3a. Circuits API `/api/workflows/` (GET, PATCH with the whole list of steps; order = place in the list; at least one VALIDATE step; Admin RH + IT only).
   - [x] 3b. DG API: `/api/workflows/directors/` (GET, POST, PATCH; no delete; cannot deactivate the DG of a pôle) and `/api/workflows/poles/` (PATCH `director` only).
   - [x] 3c. Frontend page `/workflows` (sidebar "Workflows", Admin RH + IT): circuits (draft + Save), DG, DG of each pôle.
-- [x] 4. Engine, submit: Request + RequestStep (copy of the circuit, who exactly, skip) in `workflows/engine.py` (`submit`, `advance`). Requests are read-only in /admin. Open question: a pôle with no other RH than the requester → the added "RH validate" step has nobody.
+- [x] 4. Engine, submit: Request + RequestStep (copy of the circuit, who exactly, skip) in `workflows/engine.py` (`submit`, `advance`). Requests are read-only in /admin.
+  - [x] 4b. (`RequestStep.hr_admin_replaces`, `engine.hr_admins`) Decision (2026-10-30): a pôle with no other RH than the requester → Admin RH validates the RH step instead (a replacement only; Admin RH is still not a validator in the circuits).
 - [x] 5. Engine, decide: approve / reject / cancel (`can_decide`, row lock with `select_for_update`), INFORM passes, then hand over to the module (`@on_approved("LEAVE")` → `HANDLERS`). DG steps cannot be answered until the DG has an account (step 6).
 - [ ] 6. "My requests" + "Team approvals" pages.
   - [x] 6a. API (all roles, each sees their own): `/api/workflows/requests/` (mine + `cancel`), `/api/workflows/approvals/` (steps waiting for me, `approve` / `reject` with `{"comment"}`; the id is the STEP id). Engine errors → 400/403 with the message.
   - [x] 6b. Pages `/requests` ("My Requests", every role) + `/approvals` ("Team Approvals") + `make seed-requests` (demo requests through `engine.submit`, after `make seed`; no module form yet).
-  - [ ] 6c. DG account (ask first: new "DG" role?).
-- [ ] 7. Bell notifications (next validator, informed, result for the requester).
+  - [ ] 6c. DG account, done LAST (after 7 and 8). Decision (2026-10-30): the DG has an account with a NEW role "DG" (User.Role), linked to `Director`. Standard without SMTP: a random temporary password shown ONCE to Admin RH, changed at first sign-in; with SMTP (step 9): an invitation e-mail with a link to choose the password.
+- [x] 7. Bell notifications (next validator, informed, result for the requester): same bell and table as the trial period (`employees.Notification` + kinds TO_VALIDATE / INFORMED / APPROVED / REJECTED + `request`), sent by the engine (`workflows/notify.py`); unread "à valider" removed once answered or cancelled; `link` opens the right page.
 - [ ] 8. History of each request; remove the "Maker-Checker Audit" sidebar placeholder.
 - [ ] 9. Later (SMTP): DG validates by e-mail.
 - [ ] 10. Final review before the soutenance: `submit`, `advance`, `can_decide`, `approve` / `reject` line by line (the user knows the big picture; details later).

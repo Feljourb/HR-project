@@ -1,4 +1,5 @@
 """Les notifications de la cloche 🔔 (step G) : la fin de la période d'essai approche.
+(Les notifications des demandes sont créées par le moteur : voir workflows/notify.py.)
 
 Règle (validée avec les RH) : les RH sont prévenus 10 jours avant la fin de la période d'essai,
 et 1 mois avant pour un cadre. La notification reste tant que le statut est "Période d'essai"
@@ -81,6 +82,23 @@ def message(notification):
     """Le texte affiché, calculé aujourd'hui : "... se termine le 15/11/2026 (dans 9 jours)."."""
     employee = notification.employee
     name = f"{employee.first_name} {employee.last_name}"
+    Kind = Notification.Kind
+
+    # Les demandes (app workflows, step 7).
+    if notification.kind != Kind.TRIAL_END:
+        title = notification.request.title
+        if notification.kind == Kind.TO_VALIDATE:
+            return f"{name} attend votre réponse : {title}."
+        if notification.kind == Kind.INFORMED:
+            return f"Pour information : {title} ({name})."
+        if notification.kind == Kind.APPROVED:
+            return f"Votre demande a été acceptée : {title}."
+        # Refusée : avec le motif (le commentaire est obligatoire pour refuser).
+        rejected = notification.request.steps.filter(status="REJECTED").first()
+        reason = f" Motif : {rejected.comment}" if rejected and rejected.comment else ""
+        return f"Votre demande a été refusée : {title}.{reason}"
+
+    # La fin de la période d'essai (step G).
     end = notification.due_date.strftime("%d/%m/%Y")
     days = (notification.due_date - timezone.localdate()).days
     if days > 1:

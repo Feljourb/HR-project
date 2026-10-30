@@ -116,6 +116,8 @@ class RequestStepSerializer(serializers.ModelSerializer):
             return person(step.assignee)
         if step.director:
             return step.director.name
+        if step.hr_admin_replaces:
+            return "Admin RH (pas d'autre RH dans le pôle)"
         return step.get_approver_display()
 
     def get_decided_by(self, step):

@@ -23,6 +23,8 @@ DEMOS = [
     ("collab.test", "EXPENSE", "Note de frais : déplacement à Agadir (démo)"),
     ("collab.test", "ADMIN_REQUEST", "Attestation de travail (démo)"),
     ("manager.test", "LEAVE", "Congé du 1er au 5 décembre (démo)"),
+    # Envoyée après l'arrivée de la cloche (step 7) : manager.test reçoit "Demande à valider".
+    ("collab.test", "EXPENSE", "Note de frais : formation à Rabat (démo)"),
 ]
 
 

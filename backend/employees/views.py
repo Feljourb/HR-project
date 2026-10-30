@@ -290,14 +290,15 @@ class NotificationViewSet(viewsets.GenericViewSet):
     GET  /api/employees/notifications/           -> {"unread": 2, "results": [les 20 dernières]}
     POST /api/employees/notifications/5/read/     -> la notification 5 est lue
     POST /api/employees/notifications/read-all/   -> toutes sont lues
-    Permission par défaut (connecté + compte prêt) : un collaborateur reçoit simplement une liste vide.
+    Permission par défaut (connecté + compte prêt) : tous les rôles (un collaborateur reçoit
+    les réponses à ses demandes, un manager les demandes à valider...).
     """
 
     serializer_class = NotificationSerializer
     lookup_value_regex = r"\d+"
 
     def get_queryset(self):
-        return Notification.objects.filter(recipient=self.request.user).select_related("employee")
+        return Notification.objects.filter(recipient=self.request.user).select_related("employee", "request")
 
     def list(self, request):
         notifications.refresh_for(request.user)  # crée les nouvelles, enlève celles qui ne servent plus

@@ -515,21 +515,34 @@ class EmployeeHistory(models.Model):
 
 
 class Notification(models.Model):
-    """Une notification pour un RH : la cloche 🔔 en haut de l'écran (step G).
+    """Une notification : la cloche 🔔 en haut de l'écran.
 
-    Créée par employees/notifications.py quand le RH ouvre la cloche (pas besoin de programme
-    qui tourne chaque nuit). Le texte n'est pas stocké : il est calculé à l'affichage
-    ("dans 3 jours" change chaque jour).
+    - Fin de période d'essai (step G) : créée par employees/notifications.py quand le RH ouvre
+      la cloche (pas besoin de programme qui tourne chaque nuit).
+    - Demandes (app workflows, step 7) : créées par le moteur au moment où ça se passe
+      (une demande attend quelqu'un, est acceptée, refusée...). Voir workflows/notify.py.
+    Le texte n'est pas stocké : il est calculé à l'affichage ("dans 3 jours" change chaque jour).
     """
 
     class Kind(models.TextChoices):
         TRIAL_END = "TRIAL_END", "Fin de période d'essai"
+        # Les demandes (app workflows) :
+        TO_VALIDATE = "TO_VALIDATE", "Demande à valider"
+        INFORMED = "INFORMED", "Pour information"
+        APPROVED = "APPROVED", "Demande acceptée"
+        REJECTED = "REJECTED", "Demande refusée"
 
     recipient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notifications",
                                   verbose_name="Destinataire")
+    # Le collaborateur concerné (pour une demande : le demandeur).
     employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name="+", verbose_name="Collaborateur")
     kind = models.CharField("Type", max_length=20, choices=Kind.choices)
-    due_date = models.DateField("Date concernée")  # ex. la date de fin de la période d'essai
+    # La date de fin de la période d'essai (vide pour une demande).
+    due_date = models.DateField("Date concernée", null=True, blank=True)
+    # La demande concernée (vide pour la fin de période d'essai). "workflows.Request" entre guillemets :
+    # l'app workflows importe déjà employees, on ne l'importe pas ici (sinon une boucle d'imports).
+    request = models.ForeignKey("workflows.Request", on_delete=models.CASCADE, null=True, blank=True,
+                                related_name="+", verbose_name="Demande")
     created_at = models.DateTimeField("Créée le", auto_now_add=True)
     read_at = models.DateTimeField("Lue le", null=True, blank=True)  # vide = pas encore lue
 

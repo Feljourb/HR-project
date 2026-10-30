@@ -129,9 +129,12 @@ class RequestStep(models.Model):
     # QUI exactement, trouvé à l'envoi :
     # - N+1 / N+2 : un collaborateur (assignee) ;
     # - DG : un DG (director), qui n'est pas un collaborateur ;
-    # - RH : personne en particulier (les deux vides) : n'importe quel RH du pôle, sauf le demandeur.
+    # - RH : personne en particulier (les deux vides) : n'importe quel RH du pôle, sauf le demandeur ;
+    #   s'il n'y a aucun autre RH dans le pôle, Admin RH le remplace (hr_admin_replaces).
     assignee = models.ForeignKey(Employee, on_delete=models.PROTECT, null=True, blank=True, related_name="+", verbose_name="Valideur (collaborateur)")
     director = models.ForeignKey(Director, on_delete=models.PROTECT, null=True, blank=True, related_name="+", verbose_name="Valideur (DG)")
+    # Pas un valideur des circuits : seulement un remplaçant, quand le pôle n'a pas d'autre RH.
+    hr_admin_replaces = models.BooleanField("Admin RH remplace la RH", default=False)
 
     status = models.CharField("Statut", max_length=10, choices=Status.choices, default=Status.WAITING)
     # L'historique de l'étape. SET_NULL : si un compte disparaît, la ligne reste.

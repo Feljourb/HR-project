@@ -21,6 +21,7 @@ from django.utils import timezone
 from employees.models import Employee
 from employees.services import user_pole
 
+from . import notify
 from .models import Request, RequestStep, Workflow, WorkflowStep
 
 Approver = WorkflowStep.Approver
@@ -56,7 +57,27 @@ def find_validator(approver, requester):
         director = requester.pole.director
         return {"director": director} if director and director.is_active else None
     # RH du pôle : pas une personne précise ({} = champs vides), mais il faut qu'il en existe au moins un.
-    return {} if hr_of_pole(requester.pole, requester).exists() else None
+    if hr_of_pole(requester.pole, requester).exists():
+        return {}
+    # Aucun autre RH dans le pôle (ex. la seule RH demande une attestation) : Admin RH la remplace.
+    return {"hr_admin_replaces": True} if hr_admins(requester).exists() else None
+
+
+def hr_admins(requester):
+    """Les Admin RH qui peuvent remplacer la RH : comptes actifs, jamais le demandeur lui-même."""
+    return get_user_model().objects.filter(role=get_user_model().Role.HR_ADMIN, is_active=True).exclude(pk=requester.user_id)
+
+
+def people_of(step):
+    """Les comptes concernés par cette étape (ceux qui répondent, ou qu'on informe) : pour la cloche."""
+    requester = step.request.requester
+    if step.assignee_id:
+        return [step.assignee.user]
+    if step.director_id:
+        return []  # le DG n'a pas encore de compte (step 6c)
+    if step.hr_admin_replaces:
+        return list(hr_admins(requester))
+    return [hr.user for hr in hr_of_pole(requester.pole, requester).select_related("user")]
 
 
 @transaction.atomic
@@ -82,10 +103,11 @@ def submit(code, requester, title):
             steps.append(RequestStep(request=request, order=step.order, approver=step.approver, mode=step.mode, **validator))
 
     # Règle : si toutes les étapes "Valider" sont sautées, personne ne vérifierait la demande.
-    # On ajoute donc à la fin une étape "RH du pôle valide".
+    # On ajoute donc à la fin une étape "RH du pôle valide" (ou Admin RH, s'il n'y a pas d'autre RH).
     if not any(step.mode == Mode.VALIDATE and step.status != Status.SKIPPED for step in steps):
         last = max((step.order for step in steps), default=0)
-        steps.append(RequestStep(request=request, order=last + 1, approver=Approver.HR, mode=Mode.VALIDATE))
+        validator = find_validator(Approver.HR, requester) or {}
+        steps.append(RequestStep(request=request, order=last + 1, approver=Approver.HR, mode=Mode.VALIDATE, **validator))
 
     RequestStep.objects.bulk_create(steps)
 
@@ -105,12 +127,15 @@ def advance(request):
         if step.mode == Mode.INFORM:
             step.status, step.decided_at = Status.INFORMED, now
             step.save(update_fields=["status", "decided_at"])
+            notify.send(people_of(step), notify.Kind.INFORMED, request)  # 🔔 "Pour information"
             continue
         step.status = Status.PENDING
         step.save(update_fields=["status"])
+        notify.send(people_of(step), notify.Kind.TO_VALIDATE, request)   # 🔔 "Demande à valider"
         return
     request.status, request.closed_at = Request.Status.APPROVED, now
     request.save(update_fields=["status", "closed_at"])
+    notify.send([request.requester.user], notify.Kind.APPROVED, request)  # 🔔 au demandeur
     # La demande est acceptée : le module fait son travail (ex. Congé : retirer les jours du solde).
     handler = HANDLERS.get(request.workflow.code)
     if handler:
@@ -149,19 +174,26 @@ def can_decide(user, step):
     # DG : il n'a pas encore de compte (step 6). Personne ne peut répondre à sa place.
     if step.director_id:
         return False
-    # RH du pôle : n'importe quel RH du pôle du demandeur, sauf le demandeur lui-même.
     requester = step.request.requester
+    # Pas d'autre RH dans le pôle : n'importe quel Admin RH, sauf le demandeur lui-même.
+    if step.hr_admin_replaces:
+        return hr_admins(requester).filter(pk=user.pk).exists()
+    # RH du pôle : n'importe quel RH du pôle du demandeur, sauf le demandeur lui-même.
     return hr_of_pole(requester.pole, requester).filter(user=user).exists()
 
 
 def steps_waiting_for(user):
     """Les étapes qui attendent la réponse de CET utilisateur (sa page "Team approvals").
     La même règle que can_decide, mais pour toutes les étapes d'un coup (une seule requête SQL)."""
+    Role = get_user_model().Role
     mine = Q(assignee__user=user)  # N+1 / N+2 : c'est moi qu'on attend
     pole = user_pole(user)
-    if user.role == get_user_model().Role.HR and pole is not None:
-        # RH : les étapes "RH du pôle" des demandes de MON pôle.
-        mine |= Q(approver=Approver.HR, request__requester__department__direction__entity__pole=pole)
+    if user.role == Role.HR and pole is not None:
+        # RH : les étapes "RH du pôle" des demandes de MON pôle (sauf celles qu'Admin RH remplace).
+        mine |= Q(approver=Approver.HR, hr_admin_replaces=False, request__requester__department__direction__entity__pole=pole)
+    if user.role == Role.HR_ADMIN:
+        # Admin RH : les étapes RH des pôles qui n'ont pas d'autre RH (des deux pôles).
+        mine |= Q(hr_admin_replaces=True)
     return (
         RequestStep.objects.filter(mine, status=Status.PENDING, request__status=Request.Status.IN_PROGRESS)
         .exclude(request__requester__user=user)  # jamais ma propre demande
@@ -183,6 +215,8 @@ def decide(step, user, status, comment):
         raise PermissionDenied("Vous ne pouvez pas répondre à cette étape.")
     step.status, step.decided_by, step.decided_at, step.comment = status, user, timezone.now(), comment.strip()
     step.save(update_fields=["status", "decided_by", "decided_at", "comment"])
+    # 🔔 L'étape a sa réponse : les autres (ex. les autres RH du pôle) n'ont plus à la valider.
+    notify.clear_waiting(step.request)
 
 
 @transaction.atomic
@@ -205,6 +239,7 @@ def reject(step, user, comment):
     request = step.request
     request.status, request.closed_at = Request.Status.REJECTED, step.decided_at
     request.save(update_fields=["status", "closed_at"])
+    notify.send([request.requester.user], notify.Kind.REJECTED, request)  # 🔔 au demandeur (avec le motif)
     return request
 
 
@@ -218,4 +253,5 @@ def cancel(request, user):
         raise ValidationError("Cette demande est déjà terminée.")
     request.status, request.closed_at = Request.Status.CANCELLED, timezone.now()
     request.save(update_fields=["status", "closed_at"])
+    notify.clear_waiting(request)  # 🔔 plus rien à valider : les "Demande à valider" pas lues partent
     return request

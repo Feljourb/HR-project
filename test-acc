@@ -12,6 +12,7 @@ docker compose exec backend python manage.py export_lists
 
 
 ----------------
+
 mah.zakaria : BL4526
 
 ID
@@ -20,3 +21,12 @@ Username
 hajar.ej
 Temporary password
 their CIN (WA11111)
+
+--------------------
+
+ID
+U000009
+Username
+elj.fz
+Temporary password
+their CIN (AA123)
