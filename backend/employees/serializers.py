@@ -150,8 +150,10 @@ class EmployeeSerializer(serializers.ModelSerializer):
         # 1. Les règles du modèle (poste du bon service, CIN unique, agence d'intérim, RIB...).
         #    "role" et "children" ne sont pas des champs du modèle : on les saute.
         #    "user" n'existe pas encore à la création.
+        #    Mon profil : les champs en lecture seule ne sont pas vérifiés un par un, le collaborateur ne
+        #    peut pas les corriger (ex. un ancien dossier sans situation familiale : c'est au RH de la remplir).
         instance = preview(self, attrs, skip=["role", "children"])
-        check_model_rules(instance, exclude=["user"])
+        check_model_rules(instance, exclude=["user", *getattr(self.Meta, "read_only_fields", [])])
 
         # 2. Un RH ne crée / ne déplace un collaborateur que dans SON pôle.
         user = self.context["request"].user

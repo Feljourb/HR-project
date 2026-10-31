@@ -15,7 +15,7 @@ import {
   MARITAL_LABELS, PERSONAL_FIELDS, RELATIONSHIP_LABELS, STATUS_LABELS, TITLE_LABELS,
   type MyFiche, type PersonalField,
 } from '@/lib/employees'
-import { FormSection, SelectField, TextField } from '@/components/employees/form-fields'
+import { FormSection, PhoneField, SelectField, TextField } from '@/components/employees/form-fields'
 
 type Values = Record<PersonalField, string>
 type Errors = Record<string, string[]>  // les erreurs de Django : {"champ": ["message"]}
@@ -135,7 +135,7 @@ export function MyProfile() {
 
     {/* Ce que le collaborateur peut modifier. */}
     <FormSection title="Contact details" description="You can update these yourself.">
-      <TextField id="phone" label="Phone" type="tel" required value={values.phone} onChange={(v) => set('phone', v)} error={error('phone')} placeholder="0600000000" />
+      <PhoneField id="phone" label="Phone" required value={values.phone} onChange={(v) => set('phone', v)} error={error('phone')} />
       <TextField id="address" label="Address" required value={values.address} onChange={(v) => set('address', v)} error={error('address')} />
       <TextField id="city" label="City" required value={values.city} onChange={(v) => set('city', v)} error={error('city')} />
       <TextField id="country" label="Country" required value={values.country} onChange={(v) => set('country', v)} error={error('country')} />
@@ -144,7 +144,7 @@ export function MyProfile() {
     <FormSection title="Emergency contact" description="The person to call if something happens to you at work.">
       <TextField id="emergency_contact_name" label="Full name" value={values.emergency_contact_name} onChange={(v) => set('emergency_contact_name', v)} error={error('emergency_contact_name')} />
       <SelectField id="emergency_contact_relationship" label="Relationship" value={values.emergency_contact_relationship} onChange={(v) => set('emergency_contact_relationship', v)} options={RELATIONSHIP_OPTIONS} placeholder="None" error={error('emergency_contact_relationship')} />
-      <TextField id="emergency_contact_phone" label="Phone" type="tel" value={values.emergency_contact_phone} onChange={(v) => set('emergency_contact_phone', v)} error={error('emergency_contact_phone')} placeholder="0600000000" />
+      <PhoneField id="emergency_contact_phone" label="Phone" value={values.emergency_contact_phone} onChange={(v) => set('emergency_contact_phone', v)} error={error('emergency_contact_phone')} />
     </FormSection>
 
     {/* Lecture seule : géré par les RH. */}

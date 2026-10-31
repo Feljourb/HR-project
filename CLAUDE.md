@@ -60,6 +60,12 @@ Done: reference lists, Employee, account created from the fiche, lists + employe
 - [ ] I. HR validates the reference lists (send `make export-lists`).
 - [ ] J. Final review: the 5 security functions line by line, and the Django admin.
 
+## Fiche fixes after the meeting (2026-10-31), BEFORE the "Congés" module (in this order)
+- [x] K1. Phones (phone + emergency contact): Moroccan only, stored "+212" + 9 digits (first digit 5-8); the form shows a fixed "+212" and the user types 9 digits; old numbers converted by migration 0016 (invalid ones kept for HR to fix). Marital status is required (an old fiche without it does not block "Mon profil").
+- [ ] K2. Professional email generated automatically: first letter of the first name + "." + last name + the domain of the pôle (`Pole.email_domain`: SBD = silent-believers.com, Riaya = riaya-industries.com), e.g. f.alami@silent-believers.com; duplicate -> f.alami2. Only for NEW fiches: existing employees keep their real email (the mailbox already exists; IT creates the mailbox with the generated address).
+- [ ] K3. City = reference list `City` (ReferenceItem, main Moroccan cities, "+ Ajouter" for Admin RH, searchable); old text values converted by migration.
+- [ ] K4. Automatic hierarchy (option B, standard): a "responsable" on Direction and on Service (= the team, e.g. Dev, Infra). N+1 = head of the service; if none (or it is the person) -> head of the direction; if it is the person -> DG of the pôle. `manager` on the fiche only for an exception. The fiche shows the whole chain N+1 ... up to the DG. The workflow engine uses this chain.
+
 ## Module "Gestion des workflows" (app `workflows`)
 - One validation engine for every request type. Admin RH configures the steps from a screen (no code); request types come from the code (`Workflow.code`), Admin RH cannot add them. A circuit is never deleted, only deactivated.
 - A step = order + validator (a ROLE: N+1, N+2, RH du pôle, DG du pôle; never a person) + mode (VALIDATE waits for an answer, INFORM only notifies). "Admin RH" is not a separate choice in the circuits, but an Admin RH IS an RH of both pôles: "RH du pôle" steps are answered by the RH of the requester's pôle AND the Admin RH (decision 2026-10-30). One account per person (RBAC). No maker-checker.
@@ -78,7 +84,7 @@ Done: reference lists, Employee, account created from the fiche, lists + employe
 - [x] 5. Engine, decide: approve / reject / cancel (`can_decide`, row lock with `select_for_update`), INFORM passes, then hand over to the module (`@on_approved("LEAVE")` → `HANDLERS`). DG steps cannot be answered until the DG has an account (step 6).
 - [ ] 6. "My requests" + "Team approvals" pages.
   - [x] 6a. API (all roles, each sees their own): `/api/workflows/requests/` (mine + `cancel`), `/api/workflows/approvals/` (steps waiting for me, `approve` / `reject` with `{"comment"}`; the id is the STEP id). Engine errors → 400/403 with the message.
-  - [x] 6b. Pages `/requests` ("My Requests", every role) + `/approvals` ("Team Approvals") + `make seed-requests` (demo requests through `engine.submit`, after `make seed`; no module form yet).
+  - [x] 6b. Pages `/requests` ("My Requests", every role) + `/approvals` ("Team Approvals") + `make seed-requests` (demo requests through `engine.submit`, after `make seed`; no module form yet) + `make send-request user=... type=LEAVE|EXPENSE|ADMIN_REQUEST title="..."` (one request from the terminal, prints the circuit and who gets the bell).
   - [x] 6c. DG account: not needed any more (the DG is an employee: account created with the fiche, role Manager).
 - [x] 7. Bell notifications (next validator, informed, result for the requester): same bell and table as the trial period (`employees.Notification` + kinds TO_VALIDATE / INFORMED / APPROVED / REJECTED + `request`), sent by the engine (`workflows/notify.py`); unread "à valider" removed once answered or cancelled; `link` opens the right page.
 - [x] 8. History of each request: page `/requests/<id>` (timeline), API `/api/workflows/history/<id>/` for the people concerned (requester, its validators, RH of the pôle, Admin RH, IT; others 404); bell links open it; "Maker-Checker Audit" placeholder removed.

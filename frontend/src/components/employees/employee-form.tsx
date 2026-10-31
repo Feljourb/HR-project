@@ -21,7 +21,7 @@ import {
 } from '@/lib/employees'
 import { AddValueDialog, type AddRequest } from './add-value-dialog'
 import { ChildrenEditor } from './children-editor'
-import { FormSection, SelectField, TextField } from './form-fields'
+import { FormSection, PhoneField, SelectField, TextField } from './form-fields'
 import { ManagerPicker } from './manager-picker'
 import { ResetPasswordButton } from './reset-password-button'
 import { useList } from './use-list'
@@ -365,17 +365,18 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
       <TextField id="first_name" label="First name" required value={values.first_name} onChange={(v) => set('first_name', v)} error={error('first_name')} />
       <TextField id="birth_date" label="Birth date" type="date" required value={values.birth_date} onChange={(v) => set('birth_date', v)} error={error('birth_date')} />
       <TextField id="cin" label="CIN" required value={values.cin} onChange={(v) => set('cin', v)} error={error('cin')} placeholder="AB123456" hint={isEdit ? undefined : 'Also the temporary password.'} />
-      <TextField id="phone" label="Phone" type="tel" required value={values.phone} onChange={(v) => set('phone', v)} error={error('phone')} placeholder="0600000000" />
+      <PhoneField id="phone" label="Phone" required value={values.phone} onChange={(v) => set('phone', v)} error={error('phone')} />
       <TextField id="professional_email" label="Professional email" type="email" required value={values.professional_email} onChange={(v) => set('professional_email', v)} error={error('professional_email')} placeholder="firstname.lastname@sbd.ma" />
       <TextField id="address" label="Address" required value={values.address} onChange={(v) => set('address', v)} error={error('address')} />
       <TextField id="city" label="City" required value={values.city} onChange={(v) => set('city', v)} error={error('city')} />
       <TextField id="country" label="Country" required value={values.country} onChange={(v) => set('country', v)} error={error('country')} />
     </FormSection>
 
-    {/* Les 3 blocs de la fiche validée par les RH : tout est optionnel (rempli avec les papiers). */}
+    {/* Les 3 blocs de la fiche validée par les RH. La situation familiale est obligatoire,
+        le reste est optionnel (rempli avec les papiers). */}
     <FormSection title="Family situation" description={hasFamily ? 'The number of children is the length of this list.' : undefined}>
       {/* Passer à Célibataire avec des enfants dans la liste : on prévient avant qu'ils soient retirés. */}
-      <SelectField id="marital_status" label="Marital status" value={values.marital_status} onChange={(v) => set('marital_status', v)} options={MARITAL_OPTIONS} placeholder="None" error={error('marital_status')}
+      <SelectField id="marital_status" label="Marital status" required value={values.marital_status} onChange={(v) => set('marital_status', v)} options={MARITAL_OPTIONS} error={error('marital_status')}
         hint={!hasFamily && children.length > 0 ? `The ${children.length === 1 ? 'child' : `${children.length} children`} will be removed when you save.` : undefined} />
       {hasFamily && <ChildrenEditor items={children} onChange={setChildren} errorOf={childError} />}
     </FormSection>
@@ -391,7 +392,7 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
     <FormSection title="Emergency contact" description="The employee can also update it from their profile.">
       <TextField id="emergency_contact_name" label="Full name" value={values.emergency_contact_name} onChange={(v) => set('emergency_contact_name', v)} error={error('emergency_contact_name')} />
       <SelectField id="emergency_contact_relationship" label="Relationship" value={values.emergency_contact_relationship} onChange={(v) => set('emergency_contact_relationship', v)} options={RELATIONSHIP_OPTIONS} placeholder="None" error={error('emergency_contact_relationship')} />
-      <TextField id="emergency_contact_phone" label="Phone" type="tel" value={values.emergency_contact_phone} onChange={(v) => set('emergency_contact_phone', v)} error={error('emergency_contact_phone')} placeholder="0600000000" />
+      <PhoneField id="emergency_contact_phone" label="Phone" value={values.emergency_contact_phone} onChange={(v) => set('emergency_contact_phone', v)} error={error('emergency_contact_phone')} />
     </FormSection>
 
     <FormSection title="Organisation" description="Choose the entity, then the direction, the department and the position.">

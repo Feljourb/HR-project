@@ -51,6 +51,33 @@ export function TextField({ value, onChange, type = 'text', placeholder, ...fiel
   </Field>
 }
 
+type PhoneFieldProps = Omit<FieldProps, 'children'> & {
+  value: string            // "+212612345678", ou '' si vide
+  onChange: (value: string) => void
+}
+
+/** Un numéro marocain : "+212" est écrit d'avance, on tape seulement les 9 chiffres.
+ *  Le 0 du début (0612...) et un indicatif collé (+212 / 00212) sont enlevés tout seuls.
+ *  Django vérifie aussi le format (moroccan_phone) : son message s'affiche sous le champ. */
+export function PhoneField({ value, onChange, ...field }: PhoneFieldProps) {
+  function change(typed: string) {
+    const digits = typed.replace(/\D/g, '').replace(/^(00212|212|0+)/, '').slice(0, 9)
+    onChange(digits ? `+212${digits}` : '')
+  }
+  return <Field {...field}>
+    <div className="mt-1.5 flex">
+      <span className="flex h-10 items-center rounded-l-lg border border-r-0 border-slate-200 bg-slate-100 px-3 text-sm text-slate-500">+212</span>
+      <input
+        id={field.id} type="tel" inputMode="numeric" value={value.replace(/^\+212/, '')} placeholder="612345678"
+        required={field.required} onChange={(e) => change(e.target.value)}
+        aria-invalid={field.error ? true : undefined}
+        aria-describedby={field.error ? `${field.id}-error` : undefined}
+        className={cn(controlClass, 'mt-0 rounded-l-none')}
+      />
+    </div>
+  </Field>
+}
+
 // La valeur de l'option "+ Ajouter…" (ce n'est pas un vrai id).
 const ADD_OPTION = '__add__'
 

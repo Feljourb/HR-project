@@ -24,8 +24,27 @@ class AdministrativeFileModelTests(EmployeeTestCase):
             self.check(**fields)
         return error.exception.message_dict
 
-    def test_everything_is_optional(self):
-        self.check(marital_status="")  # même la situation familiale (fiche RH)
+    def test_administrative_file_is_optional(self):
+        self.check(cnss_number="", cimr_number="", rib="", bank=None)
+
+    def test_marital_status_is_required(self):
+        self.assertIn("marital_status", self.errors_of(marital_status=""))
+
+    def test_phone_is_stored_in_the_international_format(self):
+        for typed in ("0612345678", "06 12 34 56 78", "+212 612345678", "00212612345678", "612345678", "0522123456"):
+            with self.subTest(typed=typed):
+                fiche = self.fiche("AB111111", phone=typed)
+                fiche.full_clean(exclude=["user"])
+                self.assertRegex(fiche.phone, r"^\+212[5-8]\d{8}$")
+        self.assertEqual(self.make_employee("a.alami", "AB111111", phone="0612345678").phone, "+212612345678")
+
+    def test_phone_must_be_moroccan(self):
+        # Trop court, trop long (11 chiffres avec le 0), mauvais premier chiffre, numéro français.
+        for typed in ("061234567", "06123456789", "0312345678", "+33612345678"):
+            with self.subTest(typed=typed):
+                self.assertIn("phone", self.errors_of(phone=typed))
+        errors = self.errors_of(emergency_contact_name="Fatima Alami", emergency_contact_phone="12345")
+        self.assertIn("emergency_contact_phone", errors)
 
     def test_rib_is_24_digits_and_goes_with_a_bank(self):
         bank = Bank.objects.get(name="CIH Bank")

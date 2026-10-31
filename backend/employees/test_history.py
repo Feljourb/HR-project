@@ -42,7 +42,7 @@ class HistoryRecordsTests(HistoryTestCase):
         payload = {
             "title": "MME", "last_name": "Bennani", "first_name": "Sara", "birth_date": "1995-03-10",
             "cin": "CD987654", "city": "Casablanca", "address": "1 rue", "phone": "0600000000",
-            "professional_email": "sara@sbd.ma", "department": self.sales.pk, "position": self.salesman.pk,
+            "marital_status": "SINGLE", "professional_email": "sara@sbd.ma", "department": self.sales.pk, "position": self.salesman.pk,
             "assignment": self.karim.assignment.pk, "category": self.karim.category.pk,
             "contract_type": self.karim.contract_type.pk, "region": self.karim.region.pk,
             "work_location": "Casablanca", "hire_date": "2026-01-05",
@@ -59,7 +59,7 @@ class HistoryRecordsTests(HistoryTestCase):
         entry = self.last(self.karim)
         self.assertEqual(entry.action, Action.UPDATED)
         self.assertEqual(entry.actor, hr.user)
-        self.assertIn({"field": "Téléphone", "old": "0600000000", "new": "0611111111"}, entry.changes)
+        self.assertIn({"field": "Téléphone", "old": "+212600000000", "new": "+212611111111"}, entry.changes)
         self.assertIn({"field": "Statut", "old": "Actif", "new": "Période d'essai"}, entry.changes)  # libellés lisibles
 
     def test_nothing_changed_writes_nothing(self):

@@ -184,6 +184,21 @@ def digits_only(value):
     return (value or "").replace(" ", "")
 
 
+def moroccan_phone(value):
+    """Un numéro marocain au format international : "+212" + 9 chiffres (le 0 du début disparaît).
+    "06 12 34 56 78", "+212 612345678" et "00212612345678" -> "+212612345678".
+    Le premier chiffre : 5 ou 8 (fixe), 6 ou 7 (mobile). Retourne None si ce n'est pas un numéro marocain."""
+    digits = "".join(char for char in (value or "") if char.isdigit())
+    # On enlève l'indicatif (00212 ou 212) OU le 0 du début : il reste les 9 chiffres.
+    for prefix in ("00212", "212", "0"):
+        if digits.startswith(prefix):
+            digits = digits[len(prefix):]
+            break
+    if len(digits) == 9 and digits[0] in "5678":
+        return f"+212{digits}"
+    return None
+
+
 def not_in_future(day):
     """Refuse une date après aujourd'hui (ex. date de naissance d'un enfant)."""
     if day > date.today():
@@ -247,12 +262,13 @@ class Employee(models.Model):
     city = models.CharField("Ville", max_length=100)
     address = models.CharField("Adresse", max_length=255)
     country = models.CharField("Pays", max_length=100, default="Maroc")
+    # Toujours stocké "+212612345678" (voir moroccan_phone et clean()).
     phone = models.CharField("Téléphone", max_length=20)
     professional_email = models.EmailField("Email professionnel")
 
-    # Situation familiale (optionnelle, comme sur la fiche validée par les RH).
+    # Situation familiale : obligatoire (allocations familiales CNSS, impôt sur le revenu).
     # Les enfants sont dans le modèle Child (plus bas) ; leur nombre est calculé.
-    marital_status = models.CharField("Situation familiale", max_length=10, choices=MaritalStatus.choices, blank=True)
+    marital_status = models.CharField("Situation familiale", max_length=10, choices=MaritalStatus.choices)
 
     # Dossier administratif (optionnel : rempli quand le collaborateur apporte ses papiers).
     # Les numéros sont stockés sans espaces ; CNSS et CIMR sont uniques quand ils sont remplis
@@ -412,6 +428,17 @@ class Employee(models.Model):
         if self.departure_date and self.hire_date and self.departure_date < self.hire_date:
             errors["departure_date"] = "La date de sortie est avant la date d'embauche."
 
+        # Règle 9 : les téléphones sont marocains, et stockés au même format ("+212" + 9 chiffres).
+        # Un seul format : le même numéro n'est jamais écrit de deux façons, et le lien tel: marche partout.
+        for field in ("phone", "emergency_contact_phone"):
+            value = getattr(self, field)
+            if value.strip():
+                number = moroccan_phone(value)
+                if number is None:
+                    errors[field] = "Numéro marocain : +212 suivi de 9 chiffres (ex. +212 612345678)."
+                else:
+                    setattr(self, field, number)
+
         if errors:
             raise ValidationError(errors)
 
@@ -424,6 +451,9 @@ class Employee(models.Model):
         # Numéros sans espaces (voir clean()).
         self.rib = digits_only(self.rib)
         self.cnss_number = digits_only(self.cnss_number)
+        # Téléphones au format +212 (un numéro non marocain reste tel quel : clean() l'a déjà signalé).
+        self.phone = moroccan_phone(self.phone) or self.phone
+        self.emergency_contact_phone = moroccan_phone(self.emergency_contact_phone) or self.emergency_contact_phone
 
         # atomic : toutes les écritures passent ensemble, ou aucune (jamais de dossier sans matricule,
         # jamais un "Sorti" avec un compte encore ouvert).

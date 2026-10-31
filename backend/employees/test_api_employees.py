@@ -117,7 +117,7 @@ class EmployeesApiTests(EmployeeTestCase):
         empty = dict.fromkeys(["temp_agency", "grade", "division", "cost_center", "manager", "bank",
                                "trial_end_date", "onboarding_end_date", "departure_date"])
         # Les textes optionnels vides arrivent en "" (pas null), et les enfants en liste.
-        empty.update(dict.fromkeys(["marital_status", "cnss_number", "cimr_number", "rib", "emergency_contact_name",
+        empty.update(dict.fromkeys(["cnss_number", "cimr_number", "rib", "emergency_contact_name",
                                     "emergency_contact_relationship", "emergency_contact_phone"], ""), children=[])
         payload = self.payload("CD987654", country="Maroc", status="ACTIVE", initial_leave_balance="0",
                                role="COLLABORATOR", department=str(self.sales.pk), position=str(self.salesman.pk), **empty)
@@ -197,8 +197,23 @@ class EmployeesApiTests(EmployeeTestCase):
 
         self.assertEqual(response.status_code, 200)
         self.sbd_employee.refresh_from_db()
-        self.assertEqual(self.sbd_employee.phone, "0622222222")  # champ personnel : changé
+        self.assertEqual(self.sbd_employee.phone, "+212622222222")  # champ personnel : changé (format +212)
         self.assertEqual(self.sbd_employee.last_name, "ALAMI")  # champ RH : ignoré (NOM stocké en majuscules)
+
+    def test_old_fiche_without_marital_status_can_still_update_the_profile(self):
+        """Un ancien dossier sans situation familiale : le collaborateur ne peut pas la choisir (champ RH),
+        donc elle ne bloque pas la mise à jour de SON téléphone."""
+        Employee.objects.filter(pk=self.sbd_employee.pk).update(marital_status="")
+        self.client.force_authenticate(self.sbd_employee.user)
+        response = self.client.patch(ME_URL, {"phone": "0622222222"}, format="json")
+        self.assertEqual(response.status_code, 200, response.json())
+
+    def test_hr_must_choose_the_marital_status(self):
+        Employee.objects.filter(pk=self.sbd_employee.pk).update(marital_status="")
+        self.login_hr_sbd()
+        response = self.client.patch(detail_url(self.sbd_employee), {"phone": "0622222222"}, format="json")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("marital_status", response.json())
 
     def test_me_without_fiche_is_404(self):
         self.login_as(User.Role.COLLABORATOR)
