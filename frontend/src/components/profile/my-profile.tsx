@@ -16,6 +16,7 @@ import {
   type MyFiche, type PersonalField,
 } from '@/lib/employees'
 import { FormSection, PhoneField, SelectField, TextField } from '@/components/employees/form-fields'
+import { useList } from '@/components/employees/use-list'
 
 type Values = Record<PersonalField, string>
 type Errors = Record<string, string[]>  // les erreurs de Django : {"champ": ["message"]}
@@ -47,6 +48,7 @@ export function MyProfile() {
   const [errors, setErrors] = useState<Errors>({})
   const [saving, setSaving] = useState(false)
   const [savedMessage, setSavedMessage] = useState('')
+  const cities = useList('cities')  // les villes actives, proposées pendant la frappe
 
   useEffect(() => {
     // AbortController : si on quitte la page avant la réponse, on annule la requête.
@@ -137,7 +139,9 @@ export function MyProfile() {
     <FormSection title="Contact details" description="You can update these yourself.">
       <PhoneField id="phone" label="Phone" required value={values.phone} onChange={(v) => set('phone', v)} error={error('phone')} />
       <TextField id="address" label="Address" required value={values.address} onChange={(v) => set('address', v)} error={error('address')} />
-      <TextField id="city" label="City" required value={values.city} onChange={(v) => set('city', v)} error={error('city')} />
+      {/* La ville : par son nom, choisie dans la liste (Django refuse un nom qui n'y est pas). */}
+      <TextField id="city" label="City" required value={values.city} onChange={(v) => set('city', v)} error={error('city')}
+        placeholder="Type to search..." suggestions={cities.items.map((city) => city.name)} />
       <TextField id="country" label="Country" required value={values.country} onChange={(v) => set('country', v)} error={error('country')} />
     </FormSection>
 

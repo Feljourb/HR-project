@@ -4,7 +4,7 @@ from django.urls import reverse
 from rest_framework.test import APIClient
 
 from . import services
-from .models import Department, Employee
+from .models import Department, Employee, Pole
 from .tests import EmployeeTestCase
 
 User = get_user_model()
@@ -50,8 +50,8 @@ class EmployeesApiTests(EmployeeTestCase):
         fiche = self.fiche(cin)
         data = {
             "title": fiche.title, "last_name": "Bennani", "first_name": "Sara", "birth_date": "1995-03-10",
-            "cin": cin, "city": fiche.city, "address": fiche.address, "phone": fiche.phone,
-            "professional_email": "sara.bennani@sbd.ma", "marital_status": fiche.marital_status,
+            "cin": cin, "city": fiche.city.pk, "address": fiche.address, "phone": fiche.phone,
+            "marital_status": fiche.marital_status,  # pas d'email : Django le crée
             "department": self.sales.pk, "position": self.salesman.pk,
             "assignment": fiche.assignment.pk, "category": fiche.category.pk,
             "contract_type": fiche.contract_type.pk, "region": fiche.region.pk,
@@ -123,6 +123,76 @@ class EmployeesApiTests(EmployeeTestCase):
                                role="COLLABORATOR", department=str(self.sales.pk), position=str(self.salesman.pk), **empty)
         response = self.client.post(LIST_URL, payload, format="json")
         self.assertEqual(response.status_code, 201, response.json())
+
+    # --- Email professionnel automatique (K2) ------------------------------------------
+
+    def test_email_is_created_from_the_name_and_the_pole(self):
+        self.login_as(User.Role.HR_ADMIN)
+        # Pas d'email envoyé (le RH a gardé la proposition) : Django le crée.
+        first = self.client.post(LIST_URL, self.payload("CD987654"), format="json")
+        self.assertEqual(first.status_code, 201, first.json())
+        self.assertEqual(first.json()["professional_email"], "s.bennani@silent-believers.com")
+        self.assertEqual(User.objects.get(username="sara.bennani").email, "s.bennani@silent-believers.com")
+
+        # Même initiale + même nom : un numéro, comme pour le nom de connexion.
+        second = self.client.post(LIST_URL, self.payload("CD111111", first_name="Samir"), format="json")
+        self.assertEqual(second.json()["professional_email"], "s.bennani2@silent-believers.com")
+
+        # Pôle Riaya : son propre domaine.
+        riaya = self.client.post(LIST_URL, self.payload(
+            "CD222222", first_name="Hajar", last_name="El Idrissi",
+            department=self.production.pk, position=self.operator.pk), format="json")
+        self.assertEqual(riaya.json()["professional_email"], "h.el-idrissi@riaya-industries.com")
+
+    def test_hr_can_change_the_proposed_email(self):
+        self.login_hr_sbd()
+        response = self.client.post(LIST_URL, self.payload("CD987654", professional_email="sara.bennani@silent-believers.com"), format="json")
+        self.assertEqual(response.status_code, 201, response.json())
+        self.assertEqual(response.json()["professional_email"], "sara.bennani@silent-believers.com")
+
+    def test_email_of_a_colleague_is_refused(self):
+        self.login_hr_sbd()
+        taken = self.sbd_employee.professional_email
+        response = self.client.post(LIST_URL, self.payload("CD987654", professional_email=taken.upper()), format="json")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["professional_email"], ["Cet email est déjà utilisé par un autre collaborateur."])
+        # Son propre email : toujours permis (modifier une fiche sans toucher à l'email).
+        response = self.client.patch(detail_url(self.sbd_employee), {"professional_email": taken}, format="json")
+        self.assertEqual(response.status_code, 200)
+
+    def test_pole_without_email_domain_gives_a_clear_error(self):
+        Pole.objects.filter(name="SBD").update(email_domain="")
+        self.login_hr_sbd()
+        response = self.client.post(LIST_URL, self.payload("CD987654"), format="json")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("domaine email", response.json()["professional_email"][0])
+
+    def test_hr_can_correct_the_email_of_an_existing_employee(self):
+        """Les anciens collaborateurs gardent leur vraie boîte mail : le RH peut la corriger."""
+        self.login_hr_sbd()
+        response = self.client.patch(detail_url(self.sbd_employee), {"professional_email": "a.alami@sbd.ma"}, format="json")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["professional_email"], "a.alami@sbd.ma")
+        self.sbd_employee.user.refresh_from_db()
+        self.assertEqual(self.sbd_employee.user.email, "a.alami@sbd.ma")  # le compte suit le dossier
+
+    # --- Ville choisie dans la liste (K3) -------------------------------------------------
+
+    def test_city_comes_from_the_list(self):
+        self.login_hr_sbd()
+        response = self.client.post(LIST_URL, self.payload("CD987654", city="Casablanca"), format="json")  # un texte
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("city", response.json())
+
+    def test_collaborator_chooses_their_city_by_name(self):
+        self.client.force_authenticate(self.sbd_employee.user)
+        response = self.client.patch(ME_URL, {"city": "Fès"}, format="json")
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual(response.json()["city"], "Fès")
+
+        response = self.client.patch(ME_URL, {"city": "Atlantis"}, format="json")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["city"], ["Choisissez une ville de la liste."])
 
     def test_hr_cannot_create_in_the_other_pole(self):
         self.login_hr_sbd()

@@ -6,7 +6,7 @@ from django.utils.html import format_html
 
 from . import history, services
 from .models import (
-    Assignment, Bank, Category, Child, ContractType, CostCenter, Department, Direction, Division,
+    Assignment, Bank, Category, Child, City, ContractType, CostCenter, Department, Direction, Division,
     Employee, EmployeeHistory, Entity, Grade, Pole, Position, Region, TempAgency,
 )
 
@@ -21,13 +21,13 @@ class ReferenceAdmin(admin.ModelAdmin):
         return False
 
 
-for model in (Division, Assignment,Category, ContractType, TempAgency, Grade, Region, Bank):
+for model in (Division, Assignment, Category, ContractType, TempAgency, Grade, Region, Bank, City):
     admin.site.register(model, ReferenceAdmin)
 
 
 @admin.register(Pole)
 class PoleAdmin(ReferenceAdmin):
-    list_display = ("name", "director", "is_active")
+    list_display = ("name", "director", "email_domain", "is_active")
     # Le DG est un collaborateur : une case de recherche (nom, matricule...) au lieu d'une longue liste.
     autocomplete_fields = ("director",)
 
@@ -102,7 +102,7 @@ class EmployeeAdmin(admin.ModelAdmin):
     search_fields = ("last_name", "first_name", "cin", "u_number")
     list_filter = ("status", "department__direction__entity", "contract_type")
     # Le manager se cherche en tapant son nom, au lieu d'une liste déroulante énorme.
-    autocomplete_fields = ("manager",)
+    autocomplete_fields = ("manager", "city")  # une case de recherche au lieu d'une longue liste
     # Affichés mais pas modifiables : le matricule et les valeurs calculées (propriétés du modèle).
     readonly_fields = ("u_number", "account_role", "direction", "entity", "pole", "n_plus_2", "n_plus_3")
     # Le formulaire, découpé en blocs.

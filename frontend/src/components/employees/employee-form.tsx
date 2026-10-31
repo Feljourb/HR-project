@@ -21,7 +21,7 @@ import {
 } from '@/lib/employees'
 import { AddValueDialog, type AddRequest } from './add-value-dialog'
 import { ChildrenEditor } from './children-editor'
-import { FormSection, PhoneField, SelectField, TextField } from './form-fields'
+import { FormSection, PhoneField, SearchSelectField, SelectField, TextField } from './form-fields'
 import { ManagerPicker } from './manager-picker'
 import { ResetPasswordButton } from './reset-password-button'
 import { useList } from './use-list'
@@ -39,15 +39,25 @@ const EMPTY: Values = {
   initial_leave_balance: '18',  // le congé annuel légal au Maroc
 }
 
-/** "Hajar El Idrissi" -> "hajar.el-idrissi" : l'aperçu du nom de connexion
- *  (comme make_username dans Django : sans accents, en minuscules, tirets entre les mots). */
+/** "El Idrissi" -> "el-idrissi" (comme clean_name dans Django : sans accents, en minuscules, tirets entre les mots).
+ *  NFKD sépare "é" en "e" + accent ; on enlève les accents, puis tout ce qui n'est pas a-z / 0-9 devient "-". */
+function cleanName(text: string) {
+  return text.normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+}
+
+/** "Hajar El Idrissi" -> "hajar.el-idrissi" : l'aperçu du nom de connexion (comme make_username dans Django). */
 function usernamePreview(firstName: string, lastName: string) {
-  // NFKD sépare "é" en "e" + accent ; on enlève les accents, puis tout ce qui n'est pas a-z / 0-9 devient "-".
-  const clean = (text: string) => text.normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
-  const first = clean(firstName)
-  const last = clean(lastName)
+  const first = cleanName(firstName)
+  const last = cleanName(lastName)
   return first && last ? `${first}.${last}` : 'firstname.lastname'
+}
+
+/** "Hajar El Idrissi" + SBD -> "h.el-idrissi@silent-believers.com" : l'email proposé (comme make_email).
+ *  '' tant qu'il manque le prénom, le nom ou l'entité (donc le domaine du pôle). */
+function emailPreview(firstName: string, lastName: string, domain: string) {
+  const first = cleanName(firstName)
+  const last = cleanName(lastName)
+  return first && last && domain ? `${first[0]}.${last}@${domain}` : ''
 }
 
 // Les choix fixes, au format des listes déroulantes.
@@ -87,6 +97,8 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
   const [managerLabel, setManagerLabel] = useState('')
   const [role, setRole] = useState('COLLABORATOR')
   const [children, setChildren] = useState<Child[]>([])  // envoyée en entier : elle remplace l'ancienne
+  // Création : false = l'email suit le prénom, le nom et l'entité ; true = le RH l'a changé à la main.
+  const [emailEdited, setEmailEdited] = useState(false)
 
   const [errors, setErrors] = useState<Errors>({})
   const [saving, setSaving] = useState(false)
@@ -112,6 +124,7 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
   const assignments = useList('assignments', { include: kept('assignment') })
   const regions = useList('regions', { include: kept('region') })
   const banks = useList('banks', { include: kept('bank') })
+  const cities = useList('cities', { include: kept('city') })
   const costCenters = useList('cost-centers', { include: kept('cost_center') })
 
   // L'agence d'intérim n'apparaît que pour un contrat "Intérimaire" (règle du modèle).
@@ -123,6 +136,22 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
   const isTrial = values.status === 'TRIAL'
   // Les enfants : seulement pour Marié(e), Divorcé(e) ou Veuf(ve) (pas pour Célibataire, ni sans réponse).
   const hasFamily = ['MARRIED', 'DIVORCED', 'WIDOWED'].includes(values.marital_status)
+  // Le domaine email du pôle (l'API des listes envoie "pole" et "email_domain") :
+  // - un RH ne voit que SON pôle (une seule ligne) : son domaine tout de suite, sans choisir l'entité ;
+  // - Admin RH / IT voient les deux pôles : celui de l'entité choisie.
+  const entityPole = (entities.items.find((item) => String(item.id) === entity) as (ReferenceItem & { pole?: number }) | undefined)?.pole
+  const pole = entityPole !== undefined ? poles.items.find((item) => item.id === entityPole)
+    : poles.items.length === 1 ? poles.items[0] : undefined
+  const emailDomain = (pole as (ReferenceItem & { email_domain?: string }) | undefined)?.email_domain ?? ''
+  // L'email affiché : modification -> celui du dossier ; création -> celui du RH s'il l'a changé, sinon la proposition.
+  const autoEmail = !isEdit && !emailEdited
+  const email = autoEmail ? emailPreview(values.first_name, values.last_name, emailDomain) : values.professional_email
+
+  // Le RH tape dans la case email. Vidée à la création : on revient à l'email automatique.
+  function changeEmail(value: string) {
+    set('professional_email', value)
+    if (!isEdit) setEmailEdited(value !== '')
+  }
 
   // --- "+ Ajouter…" : seulement Admin RH et IT (Django refuse les autres de toute façon) ---
   const [addRequest, setAddRequest] = useState<AddRequest | null>(null)
@@ -187,6 +216,7 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
     setLoadError('')
     setAddRequest(null)
     setChildren([])
+    setEmailEdited(false)
   }
 
   // Change un champ, et efface son ancienne erreur.
@@ -232,6 +262,8 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
     if (!isEdit || (fiche && role !== fiche.account_role)) body.role = role
     // Sans la liste (ex. Célibataire), on envoie une liste vide : Django retire les enfants enregistrés.
     body.children = hasFamily ? children.map(({ first_name, birth_date }) => ({ first_name, birth_date })) : []
+    // Email automatique : on ne l'envoie pas, Django le crée (et ajoute un numéro s'il est déjà pris).
+    if (autoEmail) delete body.professional_email
 
     try {
       const response = await apiFetch(isEdit ? `/api/employees/${employeeId}/` : '/api/employees/', {
@@ -298,6 +330,7 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
       <dl className="mt-4 space-y-2 rounded-lg bg-slate-50 p-4 text-left text-sm ring-1 ring-slate-200">
         <div className="flex justify-between gap-4"><dt className="text-slate-500">ID</dt><dd className="font-mono font-semibold">{created.u_number}</dd></div>
         <div className="flex justify-between gap-4"><dt className="text-slate-500">Username</dt><dd className="font-mono font-semibold">{created.username}</dd></div>
+        <div className="flex justify-between gap-4"><dt className="text-slate-500">Professional email</dt><dd className="break-all font-mono font-semibold">{String(created.professional_email)}</dd></div>
         <div className="flex justify-between gap-4"><dt className="text-slate-500">Temporary password</dt><dd className="font-semibold">their CIN ({String(created.cin)})</dd></div>
       </dl>
       <p className="mt-3 text-xs text-slate-500">They will be asked to choose a new password at their first sign-in.</p>
@@ -366,9 +399,14 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
       <TextField id="birth_date" label="Birth date" type="date" required value={values.birth_date} onChange={(v) => set('birth_date', v)} error={error('birth_date')} />
       <TextField id="cin" label="CIN" required value={values.cin} onChange={(v) => set('cin', v)} error={error('cin')} placeholder="AB123456" hint={isEdit ? undefined : 'Also the temporary password.'} />
       <PhoneField id="phone" label="Phone" required value={values.phone} onChange={(v) => set('phone', v)} error={error('phone')} />
-      <TextField id="professional_email" label="Professional email" type="email" required value={values.professional_email} onChange={(v) => set('professional_email', v)} error={error('professional_email')} placeholder="firstname.lastname@sbd.ma" />
+      {/* Rempli automatiquement à la création (initiale.nom@domaine du pôle), et modifiable par le RH. */}
+      <TextField id="professional_email" label="Professional email" type="email" required={!autoEmail} value={email} onChange={changeEmail} error={error('professional_email')}
+        placeholder={poles.items.length === 1 ? 'Filled from the name' : 'Filled from the name and the entity'}
+        hint={autoEmail ? 'Created automatically; you can change it. A number is added if it is already taken.'
+          : isEdit ? undefined : 'Changed by hand. Clear it to go back to the automatic email.'} />
       <TextField id="address" label="Address" required value={values.address} onChange={(v) => set('address', v)} error={error('address')} />
-      <TextField id="city" label="City" required value={values.city} onChange={(v) => set('city', v)} error={error('city')} />
+      <SearchSelectField id="city" label="City" required value={values.city} onChange={(v) => set('city', v)} options={cities.items} error={error('city')}
+        onAdd={adder(cities, (v) => set('city', v), { list: 'cities', title: 'Ville' })} />
       <TextField id="country" label="Country" required value={values.country} onChange={(v) => set('country', v)} error={error('country')} />
     </FormSection>
 

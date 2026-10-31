@@ -12,7 +12,7 @@ from rest_framework import serializers
 from accounts.services import can_change_role, can_give_role_to_new_account, can_reset_password
 
 from . import history, notifications, services
-from .models import Child, Employee, EmployeeHistory, Notification
+from .models import Child, City, Employee, EmployeeHistory, Notification
 
 User = get_user_model()
 
@@ -128,6 +128,8 @@ class EmployeeSerializer(serializers.ModelSerializer):
         model = Employee
         exclude = ["user"]  # le compte est créé automatiquement, jamais choisi
         # u_number n'est pas modifiable (editable=False) : DRF le met en lecture seule tout seul.
+        # L'email peut manquer à la création : validate le crée (voir étape 0).
+        extra_kwargs = {"professional_email": {"required": False}}
 
     def get_can_reset_password(self, employee):
         request = self.context.get("request")
@@ -147,6 +149,13 @@ class EmployeeSerializer(serializers.ModelSerializer):
         return role
 
     def validate(self, attrs):
+        # 0. Création sans email : il est créé automatiquement (comme le nom de connexion), à partir du
+        #    prénom, du nom et du pôle du service. Le formulaire le propose, et le RH peut le changer :
+        #    dans ce cas il arrive rempli et on le garde (vérifié en 1 et 2, comme en modification).
+        if self.instance is None and not attrs.get("professional_email"):
+            attrs["professional_email"] = services.make_email(
+                attrs.get("first_name", ""), attrs.get("last_name", ""), attrs.get("department"))
+
         # 1. Les règles du modèle (poste du bon service, CIN unique, agence d'intérim, RIB...).
         #    "role" et "children" ne sont pas des champs du modèle : on les saute.
         #    "user" n'existe pas encore à la création.
@@ -154,6 +163,11 @@ class EmployeeSerializer(serializers.ModelSerializer):
         #    peut pas les corriger (ex. un ancien dossier sans situation familiale : c'est au RH de la remplir).
         instance = preview(self, attrs, skip=["role", "children"])
         check_model_rules(instance, exclude=["user", *getattr(self.Meta, "read_only_fields", [])])
+
+        # 1b. Une adresse = une personne (un email tapé par le RH ne doit pas être celui d'un collègue).
+        email = attrs.get("professional_email")
+        if email and services.email_taken(email, self.instance):
+            raise serializers.ValidationError({"professional_email": "Cet email est déjà utilisé par un autre collaborateur."})
 
         # 2. Un RH ne crée / ne déplace un collaborateur que dans SON pôle.
         user = self.context["request"].user
@@ -191,6 +205,10 @@ class EmployeeSerializer(serializers.ModelSerializer):
         employee = super().update(instance, validated_data)
         if children is not None:
             self.save_children(employee, children)
+        # Le compte garde le même email que le dossier (il a été copié à la création).
+        if employee.user.email != employee.professional_email:
+            employee.user.email = employee.professional_email
+            employee.user.save(update_fields=["email"])
         history.record_changes(employee, actor, before)  # une ligne seulement si quelque chose a changé
 
         # Le rôle est dans le compte, pas dans le dossier (validate a déjà vérifié le droit de le changer).
@@ -287,6 +305,13 @@ class MyFicheSerializer(EmployeeSerializer):
     pole = serializers.StringRelatedField()
     n_plus_2 = serializers.StringRelatedField()
     n_plus_3 = serializers.StringRelatedField()
+
+    # La ville : le collaborateur la change lui-même (champ personnel). Lue ET écrite par son NOM
+    # ("Casablanca"), comme le reste de cette page qui affiche des textes.
+    city = serializers.SlugRelatedField(
+        slug_field="name", queryset=City.objects.all(),
+        error_messages={"does_not_exist": "Choisissez une ville de la liste.", "invalid": "Choisissez une ville de la liste."},
+    )
 
     role = None  # "role = None" retire ce champ hérité : on ne change pas son propre rôle
     assignable_roles = None

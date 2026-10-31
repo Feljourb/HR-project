@@ -45,6 +45,9 @@ class Pole(ReferenceItem):
         "Employee", on_delete=models.PROTECT, null=True, blank=True,
         related_name="directed_poles", verbose_name="DG",
     )
+    # Le domaine des emails professionnels du pôle (ex. "silent-believers.com") : l'email d'un
+    # nouveau collaborateur est créé avec (voir services.make_email). Changeable sans toucher au code.
+    email_domain = models.CharField("Domaine email", max_length=100, blank=True, help_text="ex. silent-believers.com")
 
     class Meta(ReferenceItem.Meta):
         verbose_name = "Pôle"
@@ -173,6 +176,14 @@ class Bank(ReferenceItem):
         verbose_name = "Banque"
 
 
+class City(ReferenceItem):
+    """Les villes du Maroc (la ville de résidence du collaborateur) : choisie dans la liste, jamais tapée,
+    donc "casa", "Casablanca" et "CASABLANCA" ne font plus trois villes. Admin RH ajoute celles qui manquent."""
+
+    class Meta(ReferenceItem.Meta):
+        verbose_name = "Ville"
+
+
 # --- Employee ------------------------------------------------------------------
 
 # Le seul type de contrat qui exige une agence d'intérim (comparé sans majuscules).
@@ -259,7 +270,7 @@ class Employee(models.Model):
     # Unique : deux dossiers ne peuvent pas avoir le même CIN. Toujours stocké en
     # majuscules (voir clean() et save()), donc "ab123456" = "AB123456".
     cin = models.CharField("CIN", max_length=20, unique=True, error_messages={"unique": "Ce CIN existe déjà."})
-    city = models.CharField("Ville", max_length=100)
+    city = models.ForeignKey(City, on_delete=models.PROTECT, related_name="employees", verbose_name="Ville")
     address = models.CharField("Adresse", max_length=255)
     country = models.CharField("Pays", max_length=100, default="Maroc")
     # Toujours stocké "+212612345678" (voir moroccan_phone et clean()).

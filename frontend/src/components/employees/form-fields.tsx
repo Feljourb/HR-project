@@ -4,7 +4,7 @@
  * Les petits morceaux du formulaire : un champ = un libellé + le contrôle + son erreur.
  * Même style que les pages de connexion (gris clair, bleu SBD au focus).
  */
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 import type { ReferenceItem } from '@/lib/employees'
 
@@ -37,17 +37,22 @@ type TextFieldProps = Omit<FieldProps, 'children'> & {
   onChange: (value: string) => void
   type?: string
   placeholder?: string
+  suggestions?: string[]  // des propositions pendant la frappe (ex. les villes), avec un <datalist>
 }
 
-export function TextField({ value, onChange, type = 'text', placeholder, ...field }: TextFieldProps) {
+export function TextField({ value, onChange, type = 'text', placeholder, suggestions, ...field }: TextFieldProps) {
   return <Field {...field}>
     <input
       id={field.id} type={type} value={value} placeholder={placeholder} required={field.required}
+      list={suggestions ? `${field.id}-options` : undefined} autoComplete={suggestions ? 'off' : undefined}
       onChange={(e) => onChange(e.target.value)}
       aria-invalid={field.error ? true : undefined}
       aria-describedby={field.error ? `${field.id}-error` : undefined}
       className={controlClass}
     />
+    {suggestions && <datalist id={`${field.id}-options`}>
+      {suggestions.map((name) => <option key={name} value={name} />)}
+    </datalist>}
   </Field>
 }
 
@@ -108,6 +113,41 @@ export function SelectField({ value, onChange, options, placeholder = 'Choose...
       </option>)}
       {onAdd && <option value={ADD_OPTION}>+ Ajouter…</option>}
     </select>
+  </Field>
+}
+
+type SearchSelectFieldProps = Omit<SelectFieldProps, 'disabled'>
+
+/**
+ * Une LONGUE liste (ex. 100 villes) : on tape "cas", le navigateur propose "Casablanca" (<datalist>).
+ * Comme SelectField, la valeur est l'id : un texte qui n'est pas dans la liste donne '' (Django refuse).
+ */
+export function SearchSelectField({ value, onChange, options, placeholder = 'Type to search...', onAdd, ...field }: SearchSelectFieldProps) {
+  // Ce que l'utilisateur est en train de taper ; null : on affiche le nom de la valeur choisie.
+  const [typed, setTyped] = useState<string | null>(null)
+  const shown = typed ?? options.find((option) => String(option.id) === value)?.name ?? ''
+
+  function change(text: string) {
+    const match = options.find((option) => option.name.toLowerCase() === text.trim().toLowerCase())
+    setTyped(text)
+    onChange(match ? String(match.id) : '')
+  }
+
+  return <Field {...field}>
+    <input
+      id={field.id} list={`${field.id}-options`} value={shown} placeholder={placeholder} required={field.required}
+      autoComplete="off" onChange={(e) => change(e.target.value)}
+      // En quittant le champ : si une valeur est choisie, on affiche son nom exact ("casablanca" -> "Casablanca").
+      onBlur={() => { if (value) setTyped(null) }}
+      aria-invalid={field.error ? true : undefined}
+      aria-describedby={field.error ? `${field.id}-error` : undefined}
+      className={controlClass}
+    />
+    <datalist id={`${field.id}-options`}>
+      {options.map((option) => <option key={option.id} value={option.name} />)}
+    </datalist>
+    {onAdd && <button type="button" onClick={() => { setTyped(null); onAdd() }}
+      className="mt-1 text-[11px] font-semibold text-[#23355d] hover:underline">+ Ajouter…</button>}
   </Field>
 }
 

@@ -1,4 +1,4 @@
-// Les 14 listes de référence gérées par l'Admin RH (voir LIST_VIEWSETS dans backend/employees/views.py).
+// Les 15 listes de référence gérées par l'Admin RH (voir LIST_VIEWSETS dans backend/employees/views.py).
 import type { ReferenceItem } from '@/lib/employees'
 
 // Une valeur telle que l'API l'envoie (+ "code" pour les centres de coût).
@@ -32,6 +32,7 @@ export const OTHER_LISTS: ListConfig[] = [
   { name: 'regions', title: 'Régions', singular: 'Région' },
   { name: 'cost-centers', title: 'Centres de coût', singular: 'Centre de coût', withCode: true },
   { name: 'banks', title: 'Banques', singular: 'Banque' },
+  { name: 'cities', title: 'Villes', singular: 'Ville' },
 ]
 
 /**

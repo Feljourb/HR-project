@@ -36,7 +36,7 @@ from accounts.services import can_reset_password, reset_password as reset_accoun
 
 from . import history, notifications
 from .models import (
-    Assignment, Bank, Category, ContractType, CostCenter, Department, Direction, Division,
+    Assignment, Bank, Category, City, ContractType, CostCenter, Department, Direction, Division,
     Employee, EmployeeHistory, Entity, Grade, Notification, Pole, Position, Region, TempAgency,
 )
 from .serializers import (
@@ -141,6 +141,7 @@ LIST_VIEWSETS = {
     "regions": make_viewset(Region),
     "cost-centers": make_viewset(CostCenter),
     "banks": make_viewset(Bank),
+    "cities": make_viewset(City),
 }
 
 

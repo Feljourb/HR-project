@@ -41,8 +41,8 @@ class HistoryRecordsTests(HistoryTestCase):
         hr = self.login(self.ready("HR000001", role=User.Role.HR, first_name="Rh"))
         payload = {
             "title": "MME", "last_name": "Bennani", "first_name": "Sara", "birth_date": "1995-03-10",
-            "cin": "CD987654", "city": "Casablanca", "address": "1 rue", "phone": "0600000000",
-            "marital_status": "SINGLE", "professional_email": "sara@sbd.ma", "department": self.sales.pk, "position": self.salesman.pk,
+            "cin": "CD987654", "city": self.karim.city.pk, "address": "1 rue", "phone": "0600000000",
+            "marital_status": "SINGLE", "department": self.sales.pk, "position": self.salesman.pk,
             "assignment": self.karim.assignment.pk, "category": self.karim.category.pk,
             "contract_type": self.karim.contract_type.pk, "region": self.karim.region.pk,
             "work_location": "Casablanca", "hire_date": "2026-01-05",

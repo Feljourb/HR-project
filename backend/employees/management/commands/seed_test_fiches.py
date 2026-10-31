@@ -13,7 +13,7 @@ from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
-from employees.models import Assignment, Category, ContractType, Employee, Position, Region
+from employees.models import Assignment, Category, City, ContractType, Employee, Position, Region
 
 # Mot de passe du seul compte créé ici (riaya.test), le même que les autres comptes de test.
 TEST_PASSWORD = "Sbd-Test-2026!"
@@ -56,7 +56,7 @@ class Command(BaseCommand):
                 name=poste, department__name=service, department__direction__entity__name=entity)
             employee = Employee(
                 user=user, title=Employee.Title.MR, last_name=last, first_name=first,
-                birth_date=datetime.date(1990, 1, 1), cin=cin, city="Casablanca", address="Adresse de test",
+                birth_date=datetime.date(1990, 1, 1), cin=cin, city=City.objects.get(name="Casablanca"), address="Adresse de test",
                 phone="0600000000", professional_email=f"{username}@sbd.ma",
                 marital_status=Employee.MaritalStatus.SINGLE,
                 department=position.department, position=position,

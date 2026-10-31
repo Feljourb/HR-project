@@ -13,7 +13,7 @@ from openpyxl import load_workbook
 
 from . import services
 from .models import (
-    Assignment, Bank, Category, ContractType, Department, Direction, Employee, Entity, Pole, Position, Region,
+    Assignment, Bank, Category, City, ContractType, Department, Direction, Employee, Entity, Pole, Position, Region,
     TempAgency,
 )
 
@@ -37,6 +37,11 @@ class InitialValuesTests(TestCase):
         self.assertEqual(TempAgency.objects.count(), 3)
         self.assertEqual(Region.objects.count(), 12)
         self.assertTrue(Bank.objects.filter(name="Umnia Bank").exists())
+        self.assertTrue(City.objects.filter(name="Fès").exists())  # les villes du Maroc (migration 0018)
+
+    def test_email_domain_of_each_pole(self):
+        self.assertEqual(Pole.objects.get(name="SBD").email_domain, "silent-believers.com")
+        self.assertEqual(Pole.objects.get(name="Riaya").email_domain, "riaya-industries.com")
 
     def test_only_three_categories(self):
         self.assertEqual(
@@ -89,7 +94,7 @@ class ExportListsTests(TestCase):
             call_command("export_lists", output=str(path), stdout=io.StringIO())
             workbook = load_workbook(path)
 
-        self.assertEqual(len(workbook.sheetnames), 14)
+        self.assertEqual(len(workbook.sheetnames), 15)  # 14 listes + les villes
         positions = workbook["Postes"]
         self.assertEqual([cell.value for cell in positions[1]], ["Entité", "Direction", "Service", "Nom", "Actif"])
         self.assertEqual(positions.max_row - 1, Position.objects.count())
@@ -105,8 +110,9 @@ class EmployeeTestCase(TestCase):
         """A valid fiche, not saved and without account; `fields` replaces any value."""
         values = {
             "title": Employee.Title.MR, "last_name": "Alami", "first_name": "Ahmed",
-            "birth_date": datetime.date(1990, 5, 1), "cin": cin, "city": "Casablanca",
-            "address": "12 rue Atlas", "phone": "0600000000", "professional_email": "ahmed.alami@sbd.ma",
+            "birth_date": datetime.date(1990, 5, 1), "cin": cin, "city": City.objects.get(name="Casablanca"),
+            # Un email différent pour chaque fiche (une adresse = une personne), ex. "ab111111@sbd.ma".
+            "address": "12 rue Atlas", "phone": "0600000000", "professional_email": f"{cin.lower()}@sbd.ma",
             "marital_status": Employee.MaritalStatus.SINGLE,
             "department": self.sales, "position": self.salesman,
             "assignment": Assignment.objects.get(name="Field"), "category": Category.objects.get(name="Employé"),
@@ -215,7 +221,7 @@ class AccountCreationTests(EmployeeTestCase):
         self.assertTrue(user.check_password("AB123456"))  # the CIN, stored in capitals
         self.assertTrue(user.must_change_password)
         self.assertEqual(user.role, get_user_model().Role.COLLABORATOR)
-        self.assertEqual(user.email, "ahmed.alami@sbd.ma")
+        self.assertEqual(user.email, "ab123456@sbd.ma")  # l'email du dossier
         self.assertEqual(employee.u_number, f"U{employee.pk:06d}")
 
     def test_wrong_fiche_creates_no_account(self):
@@ -240,7 +246,7 @@ class AccountCreationTests(EmployeeTestCase):
             "role": role, "status": fiche.status, "title": fiche.title, "last_name": "Bennani", "first_name": "Sara",
             "birth_date": "1995-03-10", "cin": "cd987654", "marital_status": fiche.marital_status,
             "phone": fiche.phone, "professional_email": "sara.bennani@sbd.ma", "address": fiche.address,
-            "city": fiche.city, "country": fiche.country, "department": self.sales.pk, "position": self.salesman.pk,
+            "city": fiche.city.pk, "country": fiche.country, "department": self.sales.pk, "position": self.salesman.pk,
             "contract_type": fiche.contract_type.pk, "category": fiche.category.pk,
             "assignment": fiche.assignment.pk, "region": fiche.region.pk, "work_location": fiche.work_location,
             "hire_date": "2026-01-05", "initial_leave_balance": "0",

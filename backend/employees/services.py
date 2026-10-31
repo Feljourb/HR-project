@@ -2,8 +2,10 @@ import re
 import unicodedata
 
 from django.contrib.auth import get_user_model
-from django.core.exceptions import ObjectDoesNotExist
+from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.db import transaction
+
+from .models import Employee
 
 
 def sees_both_poles(user):
@@ -41,6 +43,36 @@ def make_username(first_name, last_name):
         number += 1
         username = f"{base}{number}"
     return username
+
+
+def make_email(first_name, last_name, department):
+    """L'email professionnel d'un NOUVEAU collaborateur : 1re lettre du prénom + "." + nom + domaine du pôle.
+    "Fatima", "El Alami", un service de SBD -> "f.el-alami@silent-believers.com" (déjà pris -> "f.el-alami2@...").
+    Renvoie "" s'il manque le prénom, le nom ou le service : leurs propres erreurs s'affichent."""
+    first, last = clean_name(first_name), clean_name(last_name)
+    if not (first and last and department):
+        return ""
+    pole = department.direction.entity.pole
+    if not pole.email_domain:
+        raise ValidationError({"professional_email": f"Le pôle {pole} n'a pas de domaine email (à remplir dans l'admin)."})
+
+    base =f"{first[0]}.{last}"
+    email, number = f"{base}@{pole.email_domain}", 1
+    while email_taken(email):  # déjà pris : on ajoute un numéro
+        number += 1
+        email = f"{base}{number}@{pole.email_domain}"
+    return email
+
+
+def email_taken(email, employee=None):
+    """L'adresse est-elle déjà utilisée par un AUTRE dossier ou un AUTRE compte (ex. un Admin RH sans dossier) ?
+    `employee` : le dossier qu'on modifie, qui a le droit de garder sa propre adresse."""
+    employees = Employee.objects.filter(professional_email__iexact=email)
+    users = get_user_model().objects.filter(email__iexact=email)
+    if employee is not None and employee.pk:
+        employees = employees.exclude(pk=employee.pk)
+        users = users.exclude(pk=employee.user_id)
+    return employees.exists() or users.exists()
 
 
 @transaction.atomic

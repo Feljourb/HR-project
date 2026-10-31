@@ -5,7 +5,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font
 
 from employees.models import (
-    Assignment, Bank, Category, ContractType, CostCenter, Department, Direction, Division,
+    Assignment, Bank, Category, City, ContractType, CostCenter, Department, Direction, Division,
     Entity, Grade, Pole, Position, Region, TempAgency,
 )
 
@@ -22,7 +22,7 @@ SHEETS = [
     ]),
     (CostCenter, [("Code", "code")]),
     (Division, []), (Assignment, []), (Category, []), (ContractType, []),
-    (TempAgency, []), (Grade, []), (Region, []), (Bank, []),
+    (TempAgency, []), (Grade, []), (Region, []), (Bank, []), (City, []),
 ]
 
 
