@@ -65,8 +65,24 @@ class Entity(ReferenceItem):
         verbose_name = "Entité"
 
 
+def check_head(head, works_there, message):
+    """Règles communes au responsable d'une direction et d'un service (voir leurs clean())."""
+    if head is None:
+        return
+    if head.status == Employee.Status.LEFT:
+        raise ValidationError({"head": "Un collaborateur sorti ne peut pas être responsable."})
+    if not works_there:
+        raise ValidationError({"head": message})
+
+
 class Direction(ReferenceItem):
     entity = models.ForeignKey(Entity, on_delete=models.PROTECT, related_name="directions", verbose_name="Entité")
+    # Le responsable (ex. le DSI) : le N+1 des responsables de ses services, et de ceux qui n'ont
+    # pas de responsable de service (voir Employee.org_manager). Choisi par Admin RH.
+    head = models.ForeignKey(
+        "Employee", on_delete=models.PROTECT, null=True, blank=True,
+        related_name="headed_directions", verbose_name="Responsable",
+    )
 
     class Meta(ReferenceItem.Meta):
         verbose_name = "Direction"
@@ -79,9 +95,19 @@ class Direction(ReferenceItem):
             ),
         ]
 
+    def clean(self):
+        # Le responsable travaille DANS cette direction (dans un de ses services, ex. "Direction").
+        check_head(self.head, self.head and self.head.department.direction_id == self.pk,
+                   "Le responsable doit travailler dans cette direction.")
+
 
 class Department(ReferenceItem):
     direction = models.ForeignKey(Direction, on_delete=models.PROTECT, related_name="departments", verbose_name="Direction")
+    # Le responsable du service = le chef de l'équipe (ex. équipe Dev) : le N+1 de ses membres.
+    head = models.ForeignKey(
+        "Employee", on_delete=models.PROTECT, null=True, blank=True,
+        related_name="headed_departments", verbose_name="Responsable",
+    )
 
     class Meta(ReferenceItem.Meta):
         verbose_name = "Service / Département"
@@ -93,6 +119,11 @@ class Department(ReferenceItem):
                 violation_error_message="Ce service existe déjà dans cette direction.",
             ),
         ]
+
+    def clean(self):
+        # Le chef d'équipe fait partie de l'équipe.
+        check_head(self.head, self.head and self.head.department_id == self.pk,
+                   "Le responsable doit faire partie de ce service.")
 
 
 class Position(ReferenceItem):
@@ -309,8 +340,7 @@ class Employee(models.Model):
     region = models.ForeignKey(Region, on_delete=models.PROTECT, related_name="employees", verbose_name="Région")
     cost_center = models.ForeignKey(CostCenter, on_delete=models.PROTECT, null=True, blank=True, related_name="employees", verbose_name="Centre de coût")
     work_location = models.CharField("Lieu de travail", max_length=150)
-    # Le N+1 est lui-même un Employee ("self"). Depuis un manager : manager.team.all().
-    manager = models.ForeignKey("self", on_delete=models.PROTECT, null=True, blank=True, related_name="team", verbose_name="Manager (N+1)")
+    # Pas de champ "manager" : le N+1 vient TOUJOURS de l'organigramme (voir n_plus_1 plus bas).
 
     # Dates & situation
     hire_date = models.DateField("Date d'embauche")
@@ -362,14 +392,58 @@ class Employee(models.Model):
         # Sert à savoir quel RH peut voir ce dossier (RH SBD ou RH Riaya).
         return self.department.direction.entity.pole
 
+    # --- La hiérarchie : N+1, N+2... jusqu'au DG -------------------------------
+    # Rien n'est stocké : on la lit dans l'organigramme. Quand Admin RH change le responsable
+    # d'un service, toute l'équipe a son nouveau N+1 tout de suite.
+
+    @property
+    def n_plus_1(self):
+        """Mon N+1, lu dans l'organigramme : le premier responsable AU-DESSUS de moi.
+        - un membre d'un service    -> le responsable du service, sinon celui de la direction, sinon le DG ;
+        - le responsable du service -> le responsable de la direction, sinon le DG ;
+        - le responsable direction  -> le DG ;
+        - le DG                     -> personne (tout en haut).
+        Un responsable "Sorti" est sauté (comme un poste vide)."""
+        if not self.department_id:
+            return None
+        department, direction, dg = self.department, self.department.direction, self.pole.director
+        # "is not None" : un dossier pas encore enregistré n'a pas d'id. Sans ce test, "None == None"
+        # le prendrait pour le responsable d'une direction qui n'en a pas encore.
+        me = self.pk
+        if me is not None and dg is not None and dg.pk == me:
+            return None
+        if me is not None and direction.head_id == me:
+            above = [dg]
+        elif me is not None and department.head_id == me:
+            above = [direction.head, dg]
+        else:
+            above = [department.head, direction.head, dg]
+        for head in above:
+            if head is not None and head.pk != me and head.status != Employee.Status.LEFT:
+                return head
+        return None
+
+    def hierarchy(self):
+        """Toute ma chaîne, du N+1 jusqu'en haut (le DG) : [N+1, N+2, N+3...].
+        `seen` : par sécurité, on s'arrête si on retombe sur quelqu'un (ex. le DG d'un pôle
+        qui travaille dans l'autre pôle) : jamais de boucle sans fin."""
+        chain, seen = [], {self.pk}
+        boss = self.n_plus_1
+        while boss is not None and boss.pk not in seen:
+            chain.append(boss)
+            seen.add(boss.pk)
+            boss = boss.n_plus_1
+        return chain
+
     @property
     def n_plus_2(self):
-        # Le manager de mon manager (None si je n'ai pas de manager).
-        return self.manager.manager if self.manager else None
+        chain = self.hierarchy()
+        return chain[1] if len(chain) > 1 else None
 
     @property
     def n_plus_3(self):
-        return self.n_plus_2.manager if self.n_plus_2 else None
+        chain = self.hierarchy()
+        return chain[2] if len(chain) > 2 else None
 
     @property
     def number_of_children(self):
@@ -399,16 +473,8 @@ class Employee(models.Model):
             elif not is_interim and self.temp_agency_id:
                 errors["temp_agency"] = "Seulement pour un contrat Intérimaire."
 
-        # Règle 3 : pas de boucle dans la hiérarchie (ex. A manager de B et B manager de A).
-        # On remonte les managers un par un : si on retombe sur ce collaborateur, c'est une boucle.
-        # `seen` évite de tourner à l'infini si une ancienne donnée contient déjà une boucle.
-        manager, seen = self.manager, set()
-        while manager is not None and manager.pk not in seen:
-            if manager.pk == self.pk:
-                errors["manager"] = "Un collaborateur ne peut pas être son propre manager (direct ou indirect)."
-                break
-            seen.add(manager.pk)
-            manager = manager.manager
+        # (Règle 3, "pas de boucle de managers", n'existe plus : il n'y a plus de manager choisi
+        #  à la main, le N+1 vient de l'organigramme qui monte toujours vers le DG.)
 
         # Règle 4 : le RIB marocain fait 24 chiffres (banque 3 + ville 3 + compte 16 + clé 2),
         # et il va avec sa banque. Les espaces sont acceptés à la saisie et enlevés.
@@ -449,6 +515,16 @@ class Employee(models.Model):
                     errors[field] = "Numéro marocain : +212 suivi de 9 chiffres (ex. +212 612345678)."
                 else:
                     setattr(self, field, number)
+
+        # Règle 10 : un responsable reste dans l'équipe qu'il dirige. Pour le changer de service,
+        # Admin RH choisit d'abord un autre responsable (page Listes) : l'équipe n'a jamais un chef parti ailleurs.
+        if self.pk and self.department_id:
+            headed = self.headed_departments.exclude(pk=self.department_id).first()
+            if headed is None and self.department.direction_id:
+                headed = self.headed_directions.exclude(pk=self.department.direction_id).first()
+            if headed is not None:
+                errors["department"] = (f"Ce collaborateur est responsable de « {headed} » : "
+                                        "choisissez d'abord un autre responsable (page Listes).")
 
         if errors:
             raise ValidationError(errors)
@@ -519,6 +595,7 @@ class EmployeeHistory(models.Model):
         UPDATED = "UPDATED", "Modification"
         ROLE = "ROLE", "Changement de rôle"
         PASSWORD_RESET = "PASSWORD_RESET", "Réinitialisation du mot de passe"
+        HEAD = "HEAD", "Responsable d'équipe"  # devient / n'est plus responsable d'un service ou d'une direction
 
     employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name="history", verbose_name="Collaborateur")
     # Qui : le compte (SET_NULL : l'historique reste même si le compte disparaît un jour),

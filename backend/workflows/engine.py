@@ -51,8 +51,9 @@ def hr_validators(requester):
 def find_validator(approver, requester):
     """QUI valide cette étape pour ce demandeur.
     Renvoie les champs à mettre dans l'étape (ex. {"assignee": youssef}), ou None s'il n'y a personne."""
+    # N+1 / N+2 : lus dans l'organigramme (responsables), ou l'exception choisie dans la fiche.
     if approver == Approver.MANAGER:
-        manager = still_here(requester.manager)
+        manager = still_here(requester.n_plus_1)
         return {"assignee": manager} if manager else None
     if approver == Approver.MANAGER_2:
         n_plus_2 = still_here(requester.n_plus_2)

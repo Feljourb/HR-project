@@ -34,6 +34,13 @@ def check_model_rules(instance, exclude=None):
         raise serializers.ValidationError(errors)
 
 
+def hierarchy_data(employee):
+    """La chaîne d'un dossier, prête pour le JSON (fiche, et aperçu pendant la saisie) :
+    [{"level": "N+1", "id": 7, "label": "U000007 - ALAMI Youssef"}, {"level": "N+2", ...}, ...]."""
+    return [{"level": f"N+{number}", "id": boss.pk, "label": str(boss)}
+            for number, boss in enumerate(employee.hierarchy(), start=1)]
+
+
 def preview(serializer, attrs, skip=()):
     """L'objet tel qu'il serait après l'enregistrement, SANS l'enregistrer.
     copy() : si la validation échoue, l'objet original n'est pas touché."""
@@ -105,11 +112,9 @@ class EmployeeSerializer(serializers.ModelSerializer):
     direction = serializers.PrimaryKeyRelatedField(read_only=True)
     entity = serializers.PrimaryKeyRelatedField(read_only=True)
     pole = serializers.PrimaryKeyRelatedField(read_only=True)
-    n_plus_2 = serializers.PrimaryKeyRelatedField(read_only=True)
-    n_plus_3 = serializers.PrimaryKeyRelatedField(read_only=True)
-    # Le texte du manager ("U000002 - TEST Manager") pour l'afficher dans le formulaire,
-    # même si le RH ne peut pas ouvrir son dossier (manager d'un autre pôle).
-    manager_label = serializers.StringRelatedField(source="manager", read_only=True)
+    # La chaîne calculée N+1, N+2... jusqu'au DG (voir Employee.hierarchy), avec les noms :
+    # affichée même si le RH ne peut pas ouvrir ces dossiers (ex. un DG d'un autre pôle).
+    hierarchy = serializers.SerializerMethodField()
     # Le frontend affiche le bouton "Réinitialiser le mot de passe" seulement si c'est vrai.
     # Même règle que l'API (accounts.services.can_reset_password) : jamais deux règles différentes.
     can_reset_password = serializers.SerializerMethodField()
@@ -130,6 +135,9 @@ class EmployeeSerializer(serializers.ModelSerializer):
         # u_number n'est pas modifiable (editable=False) : DRF le met en lecture seule tout seul.
         # L'email peut manquer à la création : validate le crée (voir étape 0).
         extra_kwargs = {"professional_email": {"required": False}}
+
+    def get_hierarchy(self, employee):
+        return hierarchy_data(employee)
 
     def get_can_reset_password(self, employee):
         request = self.context.get("request")
@@ -303,8 +311,6 @@ class MyFicheSerializer(EmployeeSerializer):
     direction = serializers.StringRelatedField()
     entity = serializers.StringRelatedField()
     pole = serializers.StringRelatedField()
-    n_plus_2 = serializers.StringRelatedField()
-    n_plus_3 = serializers.StringRelatedField()
 
     # La ville : le collaborateur la change lui-même (champ personnel). Lue ET écrite par son NOM
     # ("Casablanca"), comme le reste de cette page qui affiche des textes.

@@ -18,15 +18,18 @@ type ManagerPickerProps = {
   onChange: (id: string, label: string) => void
   excludeId?: number            // on ne peut pas être son propre manager
   error?: string
-  // Pour réutiliser la recherche ailleurs (ex. choisir le DG d'un pôle) :
+  // Pour réutiliser la recherche ailleurs (ex. choisir le DG d'un pôle, le responsable d'un service) :
   id?: string
   fieldLabel?: string
   placeholder?: string
   disabled?: boolean
+  hint?: string
+  filters?: Record<string, string>  // ex. { department: '4' } : seulement les gens de ce service
 }
 
 export function ManagerPicker({ value, label, onChange, excludeId, error, id = 'manager', fieldLabel = 'Manager (N+1)',
-  placeholder = 'Search a manager...', disabled }: ManagerPickerProps) {
+  placeholder = 'Search a manager...', disabled, hint, filters }: ManagerPickerProps) {
+  const filterKey = new URLSearchParams(filters).toString()  // un texte : l'effet ne repart que s'il change
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<{ query: string; rows: EmployeeRow[] } | null>(null)
   const search = query.trim()
@@ -36,7 +39,9 @@ export function ManagerPicker({ value, label, onChange, excludeId, error, id = '
     if (search.length < 2) return  // au moins 2 lettres
     const controller = new AbortController()
     const timer = setTimeout(() => {
-      const params = new URLSearchParams({ search, page_size: '8' })
+      const params = new URLSearchParams(filterKey)
+      params.set('search', search)
+      params.set('page_size', '8')
       apiFetch(`/api/employees/?${params}`, { signal: controller.signal })
         .then((response) => (response.ok ? response.json() : { results: [] }))
         .then((page: Page<EmployeeRow>) => setResults({ query: search, rows: page.results }))
@@ -46,7 +51,7 @@ export function ManagerPicker({ value, label, onChange, excludeId, error, id = '
       clearTimeout(timer)
       controller.abort()
     }
-  }, [search])
+  }, [search, filterKey])
 
   const rows = results?.query === search ? results.rows.filter((row) => row.id !== excludeId) : []
 
@@ -60,7 +65,7 @@ export function ManagerPicker({ value, label, onChange, excludeId, error, id = '
     </Field>
   }
 
-  return <Field id={id} label={fieldLabel} error={error} hint="Type at least 2 letters of a name, a CIN or an ID.">
+  return <Field id={id} label={fieldLabel} error={error} hint={hint ?? 'Type at least 2 letters of a name, a CIN or an ID.'}>
     <div className="relative">
       <Search className="pointer-events-none absolute left-3 top-[calc(50%+3px)] size-4 -translate-y-1/2 text-slate-400" />
       <input id={id} value={query} disabled={disabled} onChange={(e) => setQuery(e.target.value)} placeholder={placeholder} autoComplete="off" className={cn(controlClass, 'pl-9')} />

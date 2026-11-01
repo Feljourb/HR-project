@@ -4,7 +4,7 @@ import datetime
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied, ValidationError
 
-from employees.models import Department, Employee, Pole
+from employees.models import Department, Direction, Employee, Pole
 from employees.tests import EmployeeTestCase
 
 from . import engine
@@ -21,15 +21,29 @@ class EngineTestCase(EmployeeTestCase):
 
     def setUp(self):
         super().setUp()
-        # Une petite équipe à SBD : Karim (N+2) > Youssef (N+1) > Sara. Nadia et Hind sont RH.
-        self.karim = self.make_employee("karim.n2", "AA100001")
-        self.youssef = self.make_employee("youssef.n1", "AA100002", manager=self.karim)
-        self.sara = self.make_employee("sara.collab", "AA100003", manager=self.youssef)
+        # Une petite équipe à SBD, dans l'organigramme de la Direction Commerciale :
+        # Karim (responsable de la direction, N+2) > Youssef (responsable de Ventes, N+1) > Sara (Ventes).
+        commercial = self.sales.direction
+        office = commercial.departments.get(name="Direction")
+        # Un service d'une autre direction, sans responsable (et pas de DG dans les tests) : personne au-dessus.
+        self.elsewhere = Department.objects.filter(direction__entity=commercial.entity).exclude(direction=commercial).first()
+        karim = self.make_employee("karim.n2", "AA100001", department=office, position=office.positions.get(name="Directeur Commercial"))
+        youssef = self.make_employee("youssef.n1", "AA100002")
+        sara = self.make_employee("sara.collab", "AA100003")
+        Direction.objects.filter(pk=commercial.pk).update(head=karim)
+        Department.objects.filter(pk=self.sales.pk).update(head=youssef)
+        # Relus : les objets d'avant gardent en mémoire un organigramme sans responsables.
+        self.karim, self.youssef, self.sara = (Employee.objects.get(pk=e.pk) for e in (karim, youssef, sara))
+        # Nadia et Hind sont RH (pas de N+1).
         self.nadia = self.make_hr("nadia.rh", "AA100004")
         self.hind = self.make_hr("hind.rh", "AA100005")
 
+    def make_alone(self, username, cin, **fields):
+        """Un collaborateur sans personne au-dessus de lui (service sans responsable, pas de DG)."""
+        return self.make_employee(username, cin, department=self.elsewhere, position=self.elsewhere.positions.first(), **fields)
+
     def make_hr(self, username, cin, **fields):
-        employee = self.make_employee(username, cin, **fields)
+        employee = self.make_alone(username, cin, **fields) if "department" not in fields else self.make_employee(username, cin, **fields)
         employee.user.role = User.Role.HR
         employee.user.save()
         return employee
@@ -82,16 +96,23 @@ class SubmitTests(EngineTestCase):
         ])
         self.assertIsNotNone(request.steps.first().decided_at)  # on garde la trace : sautée, et quand
 
-    def test_a_manager_who_left_is_skipped(self):
+    def test_a_manager_who_left_is_replaced_by_the_level_above(self):
+        # Youssef (responsable de Ventes) est sorti : le N+1 de Sara devient Karim (responsable de la direction).
         self.youssef.status, self.youssef.departure_date = Employee.Status.LEFT, datetime.date(2026, 6, 1)
         self.youssef.save()
-        request = engine.submit("EXPENSE", self.sara, "Note de frais")
+        sara = Employee.objects.get(pk=self.sara.pk)
+        request = engine.submit("EXPENSE", sara, "Note de frais")
+        self.assertEqual(request.steps.first().assignee, self.karim)
+
+    def test_nobody_above_is_skipped(self):
+        alone = self.make_alone("ali.seul", "AA100006")
+        request = engine.submit("EXPENSE", alone, "Note de frais")
         self.assertEqual(request.steps.first().status, Status.SKIPPED)
 
     # --- Toutes les étapes "Valider" sautées -> la RH valide ------------------------------
 
     def test_without_validator_the_hr_of_the_pole_validates(self):
-        alone = self.make_employee("ali.seul", "AA100006")  # pas de N+1
+        alone = self.make_alone("ali.seul", "AA100006")  # pas de N+1
         request = engine.submit("EXPENSE", alone, "Note de frais")
         self.assertEqual(self.steps(request), [
             (Approver.MANAGER, Mode.VALIDATE, Status.SKIPPED),
@@ -99,7 +120,7 @@ class SubmitTests(EngineTestCase):
         ])
 
     def test_leave_without_manager_informs_then_waits_for_hr(self):
-        alone = self.make_employee("ali.seul", "AA100006")
+        alone = self.make_alone("ali.seul", "AA100006")
         request = engine.submit("LEAVE", alone, "Congé")
         self.assertEqual(self.steps(request), [
             (Approver.MANAGER, Mode.VALIDATE, Status.SKIPPED),
@@ -132,6 +153,7 @@ class SubmitTests(EngineTestCase):
         # Le DG est un collaborateur (dossier + compte), tout en haut : le N+1 de Karim.
         soufiane = self.make_employee("soufiane.dg", "AA100011", first_name="Soufiane", last_name="Badaa")
         Pole.objects.filter(name="SBD").update(director=soufiane)
+        self.sara.refresh_from_db()  # relue : son pôle (gardé en mémoire avant le choix du DG) a maintenant un DG
         self.set_circuit("EXPENSE", ("DG", "VALIDATE"))
         request = engine.submit("EXPENSE", self.sara, "Note de frais")
         self.assertEqual(request.steps.get().assignee, soufiane)

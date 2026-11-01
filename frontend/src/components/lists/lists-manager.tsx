@@ -5,6 +5,7 @@
  *
  * - À gauche : les 14 listes. À droite : les valeurs de la liste choisie, actives ET désactivées (?all=1).
  * - Pour chaque valeur : Renommer, Désactiver / Réactiver (voir ValueRow).
+ *   Directions et services : aussi le responsable, d'où vient le N+1 de l'équipe.
  * - Jamais Supprimer (décision de l'encadrant) : une valeur désactivée reste sur les anciens
  *   dossiers, mais n'est plus proposée dans les formulaires.
  * - Organisation (Directions, Services, Postes) : on choisit d'abord les niveaux au-dessus
@@ -158,18 +159,19 @@ export function ListsManager() {
               : shown.length === 0
                 ? <p className="px-4 py-10 text-center text-sm text-slate-500">{search ? 'No value matches this search.' : 'No value yet.'}</p>
                 : <div className="overflow-x-auto">
-                    <table className="w-full min-w-[520px]">
+                    <table className={cn('w-full', current.headFilter ? 'min-w-[720px]' : 'min-w-[520px]')}>
                       <thead>
                         <tr className="text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                           <th className="px-4 py-2">Name</th>
                           {current.withCode && <th className="px-4 py-2">Code</th>}
+                          {current.headFilter && <th className="px-4 py-2">Head (N+1 of the team)</th>}
                           <th className="px-4 py-2">Status</th>
                           <th className="px-4 py-2 text-right"><span className="sr-only">Actions</span></th>
                         </tr>
                       </thead>
                       <tbody>
                         {/* key avec le nom de la liste : une ligne en cours de modification ne passe jamais à une autre liste. */}
-                        {shown.map((item) => <ValueRow key={`${current.name}-${item.id}`} list={current.name} item={item} withCode={current.withCode}
+                        {shown.map((item) => <ValueRow key={`${current.name}-${item.id}`} list={current.name} item={item} withCode={current.withCode} headFilter={current.headFilter}
                           onChanged={(changed) => update((list) => list.map((value) => (value.id === changed.id ? changed : value)).sort(byName))} />)}
                       </tbody>
                     </table>

@@ -176,25 +176,7 @@ class EmployeeTests(EmployeeTestCase):
         self.assertEqual(employee.direction.name, "Direction Commerciale")
         self.assertEqual(employee.entity.name, "Challenge")
         self.assertEqual(employee.pole.name, "SBD")
-
-    def test_n_plus_2_and_n_plus_3(self):
-        director = self.make_employee("d.director", "AB000003")
-        chief = self.make_employee("c.chief", "AB000002", manager=director)
-        boss = self.make_employee("b.boss", "AB000001", manager=chief)
-        employee = self.make_employee("a.alami", "AB111111", manager=boss)
-
-        self.assertEqual(employee.manager, boss)
-        self.assertEqual(employee.n_plus_2, chief)
-        self.assertEqual(employee.n_plus_3, director)
-        self.assertIsNone(director.n_plus_2)
-
-    def test_manager_loop_is_refused(self):
-        boss = self.make_employee("b.boss", "AB000001")
-        employee = self.make_employee("a.alami", "AB111111", manager=boss)
-        boss.manager = employee  # A -> B -> A
-        with self.assertRaises(ValidationError) as error:
-            boss.full_clean()
-        self.assertIn("manager", error.exception.message_dict)
+    # La hiérarchie (N+1, N+2...) : voir test_hierarchy.py.
 
 
 class AccountCreationTests(EmployeeTestCase):

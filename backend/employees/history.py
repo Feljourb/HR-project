@@ -73,3 +73,17 @@ def record_changes(employee, actor, before):
 def record_role(employee, actor, old_role_label, new_role_label):
     record(employee, actor, EmployeeHistory.Action.ROLE,
            [{"field": "Rôle du compte", "old": old_role_label, "new": new_role_label}])
+
+
+def record_head(unit, actor, old_head, new_head):
+    """Admin RH change le responsable d'un service ou d'une direction (`unit`) : c'est le N+1 de toute
+    l'équipe, donc on le note. Une ligne dans le dossier de CHAQUE personne concernée : le nouveau
+    responsable et l'ancien (on retrouve l'info depuis la fiche de l'un ou de l'autre, et dans l'Audit log)."""
+    if old_head == new_head:
+        return
+    of_unit = "du service" if unit._meta.model_name == "department" else "de la direction"
+    changes = [{"field": f"Responsable {of_unit} « {unit} »",
+                "old": str(old_head) if old_head else "", "new": str(new_head) if new_head else ""}]
+    for person in (new_head, old_head):
+        if person is not None:
+            record(person, actor, EmployeeHistory.Action.HEAD, changes)

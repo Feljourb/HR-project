@@ -21,10 +21,11 @@ COLLABORATEURS : /api/employees/
   GET   /api/employees/me/     -> tout le monde : MON dossier
   PATCH /api/employees/me/     -> tout le monde : modifier MES infos personnelles
 """
+from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 from django.utils.dateparse import parse_date
-from rest_framework import viewsets
+from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.pagination import PageNumberPagination
@@ -41,7 +42,7 @@ from .models import (
 )
 from .serializers import (
     AuditLogSerializer, DirectorySerializer, EmployeeListSerializer, EmployeeSerializer, HistorySerializer,
-    MyFicheSerializer, NotificationSerializer, ReferenceSerializer,
+    MyFicheSerializer, NotificationSerializer, ReferenceSerializer, hierarchy_data,
 )
 from .services import limited_to_own_pole, sees_both_poles, user_pole
 
@@ -73,6 +74,22 @@ class ReferenceViewSet(viewsets.ModelViewSet):
             return super().get_permissions()
         # Ajouter / modifier : Admin RH seulement (et l'IT, qui a toujours accès).
         return [IsHRAdmin()]
+
+    # Directions et services : changer le responsable change le N+1 de toute l'équipe,
+    # donc on le note dans l'historique (Audit log). Les autres listes n'ont pas de responsable.
+    # atomic : le changement et sa ligne d'historique sont enregistrés ensemble, ou pas du tout.
+    @transaction.atomic
+    def perform_create(self, serializer):
+        unit = serializer.save()
+        if hasattr(unit, "head"):
+            history.record_head(unit, self.request.user, None, unit.head)
+
+    @transaction.atomic
+    def perform_update(self, serializer):
+        old_head = getattr(serializer.instance, "head", None)  # AVANT l'enregistrement
+        unit = serializer.save()
+        if hasattr(unit, "head"):
+            history.record_head(unit, self.request.user, old_head, unit.head)
 
     def get_queryset(self):
         """Les valeurs que cet utilisateur a le droit de voir."""
@@ -113,7 +130,11 @@ def make_viewset(model, parent_field=None, pole_path=None, exclude=()):
     # Le serializer de cette liste : tous les champs du modèle (id, name, is_active,
     # + le parent ex. "department", + "code" pour les centres de coût), sauf `exclude`.
     meta = type("Meta", (), {"model": model, "exclude": exclude} if exclude else {"model": model, "fields": "__all__"})
-    serializer = type(f"{model.__name__}Serializer", (ReferenceSerializer,), {"Meta": meta})
+    attributes = {"Meta": meta}
+    # Directions et services : le responsable ("head" = un id) + son nom, pour l'afficher dans la page Listes.
+    if any(field.name == "head" for field in model._meta.fields):
+        attributes["head_label"] = serializers.StringRelatedField(source="head", read_only=True)
+    serializer = type(f"{model.__name__}Serializer", (ReferenceSerializer,), attributes)
     return type(f"{model.__name__}ViewSet", (ReferenceViewSet,), {
         "queryset": model.objects.all(),
         "serializer_class": serializer,
@@ -200,7 +221,29 @@ class EmployeeViewSet(viewsets.ModelViewSet):
                 queryset = queryset.filter(status=status)
             if entity := id_param(params, "entity"):
                 queryset = queryset.filter(department__direction__entity=entity)
+            # Choisir le responsable d'un service / d'une direction : seulement les gens qui y travaillent.
+            if department := id_param(params, "department"):
+                queryset = queryset.filter(department=department)
+            if direction := id_param(params, "direction"):
+                queryset = queryset.filter(department__direction=direction)
         return queryset
+
+    @action(detail=False, methods=["get"], url_path="hierarchy-preview", url_name="hierarchy-preview")
+    def hierarchy_preview(self, request):
+        """La chaîne N+1 -> DG PENDANT la saisie du formulaire, avant d'enregistrer :
+        /api/employees/hierarchy-preview/?department=4[&employee=12]
+        - department : le service choisi ;
+        - employee : en modification, le dossier lui-même (pour savoir s'il est responsable ou DG).
+        On construit un dossier "brouillon" (jamais enregistré) et on lui demande sa hiérarchie :
+        la même règle que la fiche enregistrée (Employee.n_plus_1), jamais une deuxième règle."""
+        params = request.query_params
+        department = Department.objects.filter(pk=id_param(params, "department")).first()
+        if department is None:
+            return Response([])  # pas encore de service : rien à calculer
+        draft = Employee(department=department)
+        # Seulement un dossier que ce RH a le droit de voir (sinon : un nouveau dossier, sans id).
+        draft.pk = self.get_queryset().filter(pk=id_param(params, "employee")).values_list("pk", flat=True).first()
+        return Response(hierarchy_data(draft))
 
     # detail=True : adresse avec id (/api/employees/7/reset-password/).
     @action(detail=True, methods=["post"], url_path="reset-password")
@@ -222,13 +265,20 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         response["Cache-Control"] = "no-store"
         return response
 
+    def visible_history(self, entries):
+        """Ce que l'IT fait (support technique) n'apparaît pas dans l'historique des RH (décision du
+        2026-11-01) : les lignes restent en base, visibles dans /admin et par l'IT lui-même."""
+        if self.request.user.is_superuser:
+            return entries
+        return entries.exclude(actor__is_superuser=True)
+
     # Méthode "file_history" (pas "history" : c'est déjà le nom du module employees/history.py).
     @action(detail=True, methods=["get"], url_path="history", url_name="history")
     def file_history(self, request, pk=None):
         """L'historique du dossier, le plus récent d'abord, par pages de 25.
         get_object() : un RH ne voit que l'historique des dossiers de son pôle (sinon 404)."""
         employee = self.get_object()
-        page = self.paginate_queryset(employee.history.all())
+        page = self.paginate_queryset(self.visible_history(employee.history.all()))
         return self.get_paginated_response(HistorySerializer(page, many=True).data)
 
     @action(detail=False, methods=["get"], url_path="history", url_name="audit-log")
@@ -240,7 +290,7 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         Un RH ne voit que les dossiers de son pôle : on part de get_queryset() (le même filtre que le tableau).
         """
         params = request.query_params
-        entries = EmployeeHistory.objects.filter(employee__in=self.get_queryset()).select_related("employee")
+        entries = self.visible_history(EmployeeHistory.objects.filter(employee__in=self.get_queryset())).select_related("employee")
 
         if search := params.get("search", "").strip():
             entries = entries.filter(

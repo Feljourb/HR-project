@@ -157,7 +157,10 @@ export function MyProfile() {
       <Info label="Direction">{fiche.direction}</Info>
       <Info label="Department">{fiche.department}</Info>
       <Info label="Position">{fiche.position}</Info>
-      <Info label="Manager (N+1)">{fiche.manager}</Info>
+      {/* Ma hiérarchie, jusqu'au DG (calculée depuis l'organigramme). Personne au-dessus : "—". */}
+      {fiche.hierarchy.length > 0
+        ? fiche.hierarchy.map((boss) => <Info key={boss.id} label={`Manager (${boss.level})`}>{boss.label}</Info>)
+        : <Info label="Manager (N+1)">{null}</Info>}
       <Info label="Work location">{fiche.work_location}</Info>
       <Info label="Contract type">{fiche.contract_type}</Info>
       <Info label="Category">{fiche.category}</Info>

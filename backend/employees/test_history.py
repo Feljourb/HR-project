@@ -113,6 +113,27 @@ class HistoryAccessTests(HistoryTestCase):
         self.login(self.karim)
         self.assertEqual(self.client.get(self.url(self.karim, "history")).status_code, 403)
 
+    def test_what_it_does_is_hidden_from_hr(self):
+        """L'IT corrige une fiche (support) : la ligne existe, mais l'historique et l'Audit log des RH
+        ne la montrent pas. Un AUTRE IT, lui, la voit (savoir ce qu'un collègue IT a changé), et /admin aussi."""
+        it = User.objects.create_superuser("it.admin", password="Strong-Pass-2026!", must_change_password=False)
+        self.client.force_authenticate(it)
+        self.client.patch(self.url(self.karim), {"phone": "0611111111"}, format="json")
+        self.assertEqual(self.karim.history.filter(actor=it).count(), 1)  # bien enregistrée
+
+        other_it = User.objects.create_superuser("it.other", password="Strong-Pass-2026!", must_change_password=False)
+        self.client.force_authenticate(other_it)
+        self.assertEqual([row["actor_name"] for row in self.client.get(self.url(self.karim, "history")).json()["results"]], ["it.admin"])
+        audit = self.client.get(reverse("employees:employee-audit-log")).json()["results"]
+        self.assertIn("it.admin", [row["actor_name"] for row in audit])
+
+        for role, cin in ((User.Role.HR_ADMIN, "HR000001"), (User.Role.HR, "HR000002")):
+            with self.subTest(role=role):
+                self.login(self.ready(cin, role=role, first_name="Rh"))
+                self.assertEqual(self.client.get(self.url(self.karim, "history")).json()["results"], [])
+                audit = self.client.get(reverse("employees:employee-audit-log")).json()["results"]
+                self.assertNotIn("it.admin", [row["actor_name"] for row in audit])
+
     def test_it_reads_it_in_admin_but_cannot_change_it(self):
         it = User.objects.create_superuser("it.admin", password="Strong-Pass-2026!")
         self.client.force_login(it)

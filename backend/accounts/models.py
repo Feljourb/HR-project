@@ -69,8 +69,10 @@ class SecuritySettings(models.Model):
     def mfa_required_for(self, user):
         if not self.mfa_enabled:
             return False
-        if user.is_superuser and self.mfa_required_superuser:
-            return True
+        # Un compte IT suit SEULEMENT la case "IT", comme password_required_for. Sans ce "return",
+        # un IT décoché passait à la ligne suivante : son rôle (Collaborateur par défaut) décidait à sa place.
+        if user.is_superuser:
+            return self.mfa_required_superuser
         return {
             User.Role.HR_ADMIN: self.mfa_required_hr_admin,
             User.Role.HR: self.mfa_required_hr,

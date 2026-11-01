@@ -38,15 +38,26 @@ class EntityAdmin(ReferenceAdmin):
     list_filter = ("pole", "is_active")
 
 
+class HeadAdmin(ReferenceAdmin):
+    """Directions et services : le responsable se cherche en tapant son nom, et le changer
+    est noté dans l'historique (comme depuis la page Listes)."""
+    autocomplete_fields = ("head",)
+
+    def save_model(self, request, obj, form, change):
+        old_head = type(obj).objects.get(pk=obj.pk).head if change else None
+        super().save_model(request, obj, form, change)
+        history.record_head(obj, request.user, old_head, obj.head)
+
+
 @admin.register(Direction)
-class DirectionAdmin(ReferenceAdmin):
-    list_display = ("name", "entity", "is_active")
+class DirectionAdmin(HeadAdmin):
+    list_display = ("name", "entity", "head", "is_active")
     list_filter = ("entity__pole", "entity", "is_active")
 
 
 @admin.register(Department)
-class DepartmentAdmin(ReferenceAdmin):
-    list_display = ("name", "direction", "is_active")
+class DepartmentAdmin(HeadAdmin):
+    list_display = ("name", "direction", "head", "is_active")
     list_filter = ("direction__entity", "direction", "is_active")
 
 
@@ -101,10 +112,9 @@ class EmployeeAdmin(admin.ModelAdmin):
     # Barre de recherche et filtres à droite.
     search_fields = ("last_name", "first_name", "cin", "u_number")
     list_filter = ("status", "department__direction__entity", "contract_type")
-    # Le manager se cherche en tapant son nom, au lieu d'une liste déroulante énorme.
-    autocomplete_fields = ("manager", "city")  # une case de recherche au lieu d'une longue liste
+    autocomplete_fields = ("city",)  # une case de recherche au lieu d'une longue liste
     # Affichés mais pas modifiables : le matricule et les valeurs calculées (propriétés du modèle).
-    readonly_fields = ("u_number", "account_role", "direction", "entity", "pole", "n_plus_2", "n_plus_3")
+    readonly_fields = ("u_number", "account_role", "direction", "entity", "pole", "n_plus_1", "n_plus_2", "n_plus_3")
     # Le formulaire, découpé en blocs.
     fieldsets = (
         (None, {"fields": ("user", "account_role", "u_number", "status")}),
@@ -122,7 +132,8 @@ class EmployeeAdmin(admin.ModelAdmin):
             "contract_type", "temp_agency", "category", "grade", "division",
             "assignment", "region", "work_location", "cost_center",
         )}),
-        ("Hiérarchie", {"fields": ("manager", "n_plus_2", "n_plus_3")}),
+        # N+1, N+2, N+3 : calculés depuis l'organigramme (responsables des services et directions).
+        ("Hiérarchie", {"fields": ("n_plus_1", "n_plus_2", "n_plus_3")}),
         ("Dates", {"fields": (
             "hire_date", "trial_end_date", "onboarding_end_date", "departure_date", "initial_leave_balance",
         )}),

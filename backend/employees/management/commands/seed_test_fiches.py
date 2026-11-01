@@ -18,18 +18,18 @@ from employees.models import Assignment, Category, City, ContractType, Employee,
 # Mot de passe du seul compte créé ici (riaya.test), le même que les autres comptes de test.
 TEST_PASSWORD = "Sbd-Test-2026!"
 
-# username -> (rôle, nom, prénom, CIN, entité, service, poste, username du manager)
-# L'ordre compte : un manager doit avoir son dossier avant son équipe.
+# username -> (rôle, nom, prénom, CIN, entité, service, poste, responsable du service ?)
+# manager.test est le responsable de "Ventes" : il devient le N+1 de collab.test (organigramme).
 FICHES = {
     "hr.test": ("HR", "Test", "RH", "TS000001", "Silent Believers Distribution",
-                "Développement RH", "Chargé(e) de recrutement", None),
+                "Développement RH", "Chargé(e) de recrutement", False),
     "manager.test": ("MANAGER", "Test", "Manager", "TS000002", "Silent Believers Distribution",
-                     "Ventes", "Chef des ventes", None),
+                     "Ventes", "Chef des ventes", True),
     "collab.test": ("COLLABORATOR", "Test", "Collab", "TS000003", "Silent Believers Distribution",
-                    "Ventes", "Commercial terrain", "manager.test"),
+                    "Ventes", "Commercial terrain", False),
     # Un collaborateur du pôle Riaya : le RH de SBD ne doit PAS le voir.
     "riaya.test": ("COLLABORATOR", "Test", "Riaya", "TS000004", "Eureka",
-                   "Production", "Opérateur de production", None),
+                   "Production", "Opérateur de production", False),
 }
 
 
@@ -42,7 +42,7 @@ class Command(BaseCommand):
             raise CommandError("Réservé au développement (DEBUG=True).")
 
         User = get_user_model()
-        for username, (role, last, first, cin, entity, service, poste, manager) in FICHES.items():
+        for username, (role, last, first, cin, entity, service, poste, is_head) in FICHES.items():
             # Le compte : on le crée seulement s'il n'existe pas (cas de riaya.test).
             user = User.objects.filter(username=username).first()
             if user is None:
@@ -63,8 +63,13 @@ class Command(BaseCommand):
                 assignment=Assignment.objects.get(name="HQ"), category=Category.objects.get(name="Employé"),
                 contract_type=ContractType.objects.get(name="CDI"), region=Region.objects.get(name="Casablanca-Settat"),
                 work_location="Casablanca", hire_date=datetime.date(2025, 1, 6),
-                manager=Employee.objects.get(user__username=manager) if manager else None,
             )
             employee.full_clean()  # les mêmes règles que partout ailleurs
             employee.save()
             self.stdout.write(self.style.SUCCESS(f"+ {username} : {employee.u_number}, {entity} › {service} › {poste}"))
+            # Le responsable du service, comme Admin RH le choisit dans la page Listes.
+            if is_head and employee.department.head_id is None:
+                employee.department.head = employee
+                employee.department.full_clean()
+                employee.department.save()
+                self.stdout.write(f"  responsable du service {service}")

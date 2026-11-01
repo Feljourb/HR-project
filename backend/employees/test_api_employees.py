@@ -114,7 +114,7 @@ class EmployeesApiTests(EmployeeTestCase):
     def test_create_like_the_frontend_form(self):
         """Le formulaire envoie tous les champs : les vides en null, les ids en texte."""
         self.login_hr_sbd()
-        empty = dict.fromkeys(["temp_agency", "grade", "division", "cost_center", "manager", "bank",
+        empty = dict.fromkeys(["temp_agency", "grade", "division", "cost_center", "bank",
                                "trial_end_date", "onboarding_end_date", "departure_date"])
         # Les textes optionnels vides arrivent en "" (pas null), et les enfants en liste.
         empty.update(dict.fromkeys(["cnss_number", "cimr_number", "rib", "emergency_contact_name",
@@ -230,13 +230,12 @@ class EmployeesApiTests(EmployeeTestCase):
         self.sbd_employee.refresh_from_db()
         self.assertEqual(self.sbd_employee.department, self.sales)
 
-    def test_fiche_shows_the_manager_name(self):
+    def test_fiche_shows_the_name_of_the_n_plus_1(self):
+        """Le RH de SBD voit le nom du N+1 même s'il ne peut pas ouvrir son dossier (DG qui travaille à Riaya)."""
         self.login_hr_sbd()
-        self.sbd_employee.manager = self.riaya_employee  # manager d'un autre pôle
-        self.sbd_employee.save()
+        Pole.objects.filter(name="SBD").update(director=self.riaya_employee)  # pas de responsable : le DG
         data = self.client.get(detail_url(self.sbd_employee)).json()
-        self.assertEqual(data["manager"], self.riaya_employee.pk)
-        self.assertEqual(data["manager_label"], str(self.riaya_employee))
+        self.assertEqual(data["hierarchy"], [{"level": "N+1", "id": self.riaya_employee.pk, "label": str(self.riaya_employee)}])
 
     def test_no_delete(self):
         self.login_as(User.Role.HR_ADMIN)
@@ -252,14 +251,13 @@ class EmployeesApiTests(EmployeeTestCase):
 
     def test_my_fiche_shows_names_not_ids(self):
         """La page "Mon profil" affiche le texte reçu : pas de numéros à traduire."""
-        self.sbd_employee.manager = self.riaya_employee
-        self.sbd_employee.save()
+        Pole.objects.filter(name="SBD").update(director=self.riaya_employee)
         self.client.force_authenticate(self.sbd_employee.user)
         data = self.client.get(ME_URL).json()
         self.assertEqual(data["position"], "Commercial terrain")
         self.assertEqual(data["direction"], "Direction Commerciale")
         self.assertEqual(data["entity"], "Challenge")
-        self.assertEqual(data["manager"], str(self.riaya_employee))
+        self.assertEqual(data["hierarchy"][0]["label"], str(self.riaya_employee))  # mon N+1, en texte
 
     def test_collaborator_only_changes_personal_fields(self):
         self.client.force_authenticate(self.sbd_employee.user)

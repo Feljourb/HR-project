@@ -374,6 +374,17 @@ class MfaPolicyTests(MfaTestCase):
         User.objects.create_superuser("it.admin", password=PASSWORD)
         self.assertTrue(self.login("it.admin").data["mfa_setup_required"])
 
+    def test_it_unticked_is_not_required_whatever_its_role(self):
+        """Le bug du 2026-10-30 : IT décoché, Collaborateur coché. Un compte IT a le rôle Collaborateur
+        par défaut : il ne doit PAS suivre la case Collaborateur, seulement la case IT."""
+        SecuritySettings.objects.update(mfa_required_superuser=False, mfa_required_collaborator=True)
+        it = User.objects.create_superuser("it.admin", password=PASSWORD)
+        self.assertEqual(it.role, User.Role.COLLABORATOR)
+        self.assertFalse(self.login("it.admin").data["mfa_setup_required"])
+        # Et un vrai collaborateur, lui, suit bien sa case.
+        self.create_user("collab.test", role=User.Role.COLLABORATOR)
+        self.assertTrue(self.login("collab.test").data["mfa_setup_required"])
+
     def test_required_user_is_blocked_until_activation(self):
         self.assertTrue(self.login().data["mfa_setup_required"])
         response = self.client.get("/test/default/")

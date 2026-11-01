@@ -44,15 +44,22 @@ export type Page<T> = {
 
 export const PAGE_SIZE = 25;
 
+// Un niveau de la hiérarchie calculée par Django (Employee.hierarchy) : N+1, N+2... jusqu'au DG.
+export type HierarchyLevel = {
+  level: string;   // "N+1"
+  id: number;
+  label: string;   // "U000004 - ALAMI Youssef"
+};
+
 // Le dossier complet (EmployeeSerializer) : les listes sont des numéros (id).
 export type EmployeeFiche = {
+  hierarchy: HierarchyLevel[];  // calculée depuis l'organigramme (lecture seule)
   id: number;
   u_number: string;
   username: string;
   direction: number;      // calculés par Django à partir du service (lecture seule)
   entity: number;
   pole: number;
-  manager_label: string | null;
   can_reset_password: boolean;  // Django dit si ce RH peut réinitialiser le mot de passe de ce compte
   account_role: string;         // le rôle actuel du compte, ex. "COLLABORATOR"
   assignable_roles: string[];   // les rôles que CE RH peut lui donner (vide : il ne peut pas le changer)
@@ -65,7 +72,7 @@ export type HistoryEntry = {
   id: number;
   created_at: string;     // ex. "2026-10-27T14:05:12.345+01:00"
   actor_name: string;     // le username de la personne qui a agi
-  action: "CREATED" | "UPDATED" | "ROLE" | "PASSWORD_RESET";
+  action: "CREATED" | "UPDATED" | "ROLE" | "PASSWORD_RESET" | "HEAD";
   action_label: string;   // ex. "Modification"
   // Les champs changés. hidden : un secret (RIB, CNSS, CIMR), sans les numéros.
   changes: { field: string; old?: string; new?: string; hidden?: boolean }[];
@@ -116,7 +123,7 @@ export type MyFiche = {
   grade: string | null;
   region: string;
   work_location: string;
-  manager: string | null;
+  hierarchy: HierarchyLevel[];
   hire_date: string;
   status: Status;
   children: Child[];
@@ -130,7 +137,7 @@ export const FORM_FIELDS = [
   "emergency_contact_name", "emergency_contact_relationship", "emergency_contact_phone",
   "department", "position",
   "contract_type", "temp_agency", "category", "grade", "division",
-  "assignment", "region", "work_location", "cost_center", "manager",
+  "assignment", "region", "work_location", "cost_center",
   "hire_date", "trial_end_date", "onboarding_end_date", "departure_date",
   "status", "initial_leave_balance",
 ] as const;

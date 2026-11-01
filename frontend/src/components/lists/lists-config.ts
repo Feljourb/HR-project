@@ -1,8 +1,9 @@
 // Les 15 listes de référence gérées par l'Admin RH (voir LIST_VIEWSETS dans backend/employees/views.py).
 import type { ReferenceItem } from '@/lib/employees'
 
-// Une valeur telle que l'API l'envoie (+ "code" pour les centres de coût).
-export type ListValue = ReferenceItem & { code?: string }
+// Une valeur telle que l'API l'envoie (+ "code" pour les centres de coût,
+// + le responsable pour les directions et les services).
+export type ListValue = ReferenceItem & { code?: string; head?: number | null; head_label?: string | null }
 
 export type ListConfig = {
   name: string          // l'adresse dans l'API : /api/employees/lists/<name>/
@@ -10,14 +11,17 @@ export type ListConfig = {
   singular: string      // pour le cadre "Ajouter : Service"
   parentField?: string  // organisation : le champ du parent, ex. "direction" pour un service
   withCode?: boolean    // centres de coût : un code en plus du nom
+  // Directions et services : un responsable (le N+1 de l'équipe), cherché parmi les gens qui y travaillent
+  // (headFilter = le filtre de la recherche des collaborateurs, ex. ?department=4).
+  headFilter?: 'direction' | 'department'
 }
 
 // L'organisation, du haut vers le bas : chaque niveau dépend de celui au-dessus.
 export const ORGANISATION: ListConfig[] = [
   { name: 'poles', title: 'Pôles', singular: 'Pôle' },
   { name: 'entities', title: 'Entités', singular: 'Entité', parentField: 'pole' },
-  { name: 'directions', title: 'Directions', singular: 'Direction', parentField: 'entity' },
-  { name: 'departments', title: 'Services', singular: 'Service', parentField: 'direction' },
+  { name: 'directions', title: 'Directions', singular: 'Direction', parentField: 'entity', headFilter: 'direction' },
+  { name: 'departments', title: 'Services', singular: 'Service', parentField: 'direction', headFilter: 'department' },
   { name: 'positions', title: 'Postes', singular: 'Poste', parentField: 'department' },
 ]
 

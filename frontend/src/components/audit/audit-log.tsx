@@ -22,6 +22,7 @@ const ACTION_OPTIONS = [
   { id: 'UPDATED', name: 'Modification' },
   { id: 'ROLE', name: 'Changement de rôle' },
   { id: 'PASSWORD_RESET', name: 'Réinitialisation du mot de passe' },
+  { id: 'HEAD', name: "Responsable d'équipe" },
 ]
 
 export function AuditLog() {

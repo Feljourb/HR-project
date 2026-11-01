@@ -17,12 +17,12 @@ import { ArrowLeft, CheckCircle2, Info, Loader2 } from 'lucide-react'
 import { apiFetch, roleLabel, seesBothPoles, type Me } from '@/lib/api'
 import {
   FORM_FIELDS, MARITAL_LABELS, RELATIONSHIP_LABELS, STATUS_LABELS, TITLE_LABELS,
-  type Child, type EmployeeFiche, type FormField, type ReferenceItem,
+  type Child, type EmployeeFiche, type FormField, type HierarchyLevel, type ReferenceItem,
 } from '@/lib/employees'
 import { AddValueDialog, type AddRequest } from './add-value-dialog'
 import { ChildrenEditor } from './children-editor'
-import { FormSection, PhoneField, SearchSelectField, SelectField, TextField } from './form-fields'
-import { ManagerPicker } from './manager-picker'
+import { cn } from '@/lib/utils'
+import { FormSection, PhoneField, SearchSelectField, SelectField, TextField, controlClass } from './form-fields'
 import { ResetPasswordButton } from './reset-password-button'
 import { useList } from './use-list'
 
@@ -94,7 +94,6 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
   // Entité et direction : seulement pour filtrer les listes (jamais envoyées à l'API).
   const [entity, setEntity] = useState('')
   const [direction, setDirection] = useState('')
-  const [managerLabel, setManagerLabel] = useState('')
   const [role, setRole] = useState('COLLABORATOR')
   const [children, setChildren] = useState<Child[]>([])  // envoyée en entier : elle remplace l'ancienne
   // Création : false = l'email suit le prénom, le nom et l'entité ; true = le RH l'a changé à la main.
@@ -125,6 +124,27 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
   const regions = useList('regions', { include: kept('region') })
   const banks = useList('banks', { include: kept('bank') })
   const cities = useList('cities', { include: kept('city') })
+
+  // --- La hiérarchie (N+1, N+2...), recalculée par Django dès que le service change ---
+  // La "clé" de la requête, ex. "department=4&employee=12" ; null tant qu'il n'y a pas de service.
+  const previewParams: Record<string, string> = { department: values.department }
+  if (employeeId !== undefined) previewParams.employee = String(employeeId)  // "suis-je responsable / DG ?"
+  const previewKey = values.department ? new URLSearchParams(previewParams).toString() : null
+  const [chain, setChain] = useState<{ key: string; levels: HierarchyLevel[] } | null>(null)
+
+  useEffect(() => {
+    if (previewKey === null) return
+    // Si le service change avant la réponse, on annule l'ancienne requête (comme useList).
+    const controller = new AbortController()
+    apiFetch(`/api/employees/hierarchy-preview/?${previewKey}`, { signal: controller.signal })
+      .then((response) => (response.ok ? response.json() : []))
+      .then((levels: HierarchyLevel[]) => setChain({ key: previewKey, levels }))
+      .catch(() => {})  // requête annulée : rien à faire
+    return () => controller.abort()
+  }, [previewKey])
+
+  // Seulement la réponse du service affiché (jamais celle d'un ancien choix).
+  const hierarchy = previewKey !== null && chain?.key === previewKey ? chain.levels : null
   const costCenters = useList('cost-centers', { include: kept('cost_center') })
 
   // L'agence d'intérim n'apparaît que pour un contrat "Intérimaire" (règle du modèle).
@@ -192,7 +212,6 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
         setValues(valuesOf(data))
         setEntity(String(data.entity))       // pour que la cascade affiche les bonnes listes
         setDirection(String(data.direction))
-        setManagerLabel(data.manager_label ?? '')
         setChildren(data.children)
         setRole(data.account_role)
       })
@@ -206,7 +225,6 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
     setValues(EMPTY)
     setEntity('')
     setDirection('')
-    setManagerLabel('')
     setRole('COLLABORATOR')
     setErrors({})
     setSaving(false)
@@ -445,6 +463,19 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
         onAdd={adder(positions, (v) => set('position', v), { list: 'positions', title: 'Poste', parent: { field: 'department', value: values.department, label: nameOf(departments, values.department) } })} />
     </FormSection>
 
+    {/* La hiérarchie : un bloc à part, juste sous l'organisation dont elle vient. Une case par niveau
+        (N+1, N+2, N+3...), remplie par Django dès que le service est choisi, depuis les responsables
+        (page Listes) et le DG du pôle. Lecture seule, jamais tapée. Personne au-dessus (le DG) : une case N+1 vide. */}
+    <FormSection title="Hierarchy" description="Filled automatically from the org chart: the heads chosen by Admin RH (Lists page), up to the DG.">
+      {(hierarchy && hierarchy.length > 0 ? hierarchy : [{ level: 'N+1', id: 0, label: '' }]).map((boss) =>
+        <div key={boss.level}>
+          <p className="text-xs font-semibold text-slate-700">{boss.level}</p>
+          <p className={cn(controlClass, 'flex items-center truncate bg-slate-100', boss.label ? 'text-slate-700' : 'text-slate-400')}>
+            {boss.label || (!values.department ? 'Choose the department first' : hierarchy === null ? 'Loading...' : 'Nobody above (top of the org chart)')}
+          </p>
+        </div>)}
+    </FormSection>
+
     <FormSection title="Contract">
       <SelectField id="contract_type" label="Contract type" required value={values.contract_type} onChange={(v) => set('contract_type', v)} options={contractTypes.items} error={error('contract_type')}
         onAdd={adder(contractTypes, (v) => set('contract_type', v), { list: 'contract-types', title: 'Type de contrat' })} />
@@ -465,9 +496,7 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
         onAdd={adder(costCenters, (v) => set('cost_center', v), { list: 'cost-centers', title: 'Centre de coût', withCode: true })} />
     </FormSection>
 
-    <FormSection title="Hierarchy & dates">
-      <ManagerPicker value={values.manager} label={managerLabel} excludeId={employeeId} error={error('manager')}
-        onChange={(id, label) => { set('manager', id); setManagerLabel(label) }} />
+    <FormSection title="Status & dates">
       {/* "Sorti" : Django bloque le compte à l'enregistrement (et le débloque si on revient en arrière). */}
       <SelectField id="status" label="Status" required value={values.status} onChange={(v) => set('status', v)} options={STATUS_OPTIONS} error={error('status')}
         hint={isLeft ? 'Their account will be blocked when you save.' : undefined} />
