@@ -15,11 +15,15 @@ import { Loader2, X } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 import type { ReferenceItem } from '@/lib/employees'
 import { cn } from '@/lib/utils'
+import { ExtraInput } from '@/components/lists/extra-input'
+import { LISTS_API, extraToJson, extraValue, type ExtraField } from '@/components/lists/lists-config'
 import { controlClass } from './form-fields'
 
 // Ce que le formulaire demande d'ajouter.
 export type AddRequest = {
   list: string                 // la liste dans l'API, ex. "directions"
+  api?: string                 // l'adresse des listes (par défaut celle de l'app employees)
+  extra?: ExtraField[]         // listes du module Congés : des champs en plus (date, maximum...)
   title: string                // le nom affiché, ex. "Direction"
   // Cascade : le parent déjà choisi dans le formulaire (ex. l'entité "Challenge").
   parent?: { field: string; value: string; label: string }
@@ -56,6 +60,8 @@ function AddValueForm({ request, onClose }: { request: AddRequest; onClose: () =
   const [name, setName] = useState('')
   const [code, setCode] = useState('')
   const [parentValue, setParentValue] = useState('')
+  const extra = request.extra ?? []
+  const [extras, setExtras] = useState(() => Object.fromEntries(extra.map((field) => [field.name, extraValue(null, field)])))
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -65,13 +71,14 @@ function AddValueForm({ request, onClose }: { request: AddRequest; onClose: () =
     setError('')
 
     // Le JSON envoyé, ex. {"name": "Achats", "direction": "12"}.
-    const body: Record<string, string> = { name: name.trim() }
+    const body: Record<string, unknown> = { name: name.trim() }
     if (request.withCode) body.code = code.trim()
     if (request.parent) body[request.parent.field] = request.parent.value
     if (request.parentChoice) body[request.parentChoice.field] = parentValue
+    for (const field of extra) body[field.name] = extraToJson(field, extras[field.name])
 
     try {
-      const response = await apiFetch(`/api/employees/lists/${request.list}/`, { method: 'POST', body: JSON.stringify(body) })
+      const response = await apiFetch(`${request.api ?? LISTS_API}/${request.list}/`, { method: 'POST', body: JSON.stringify(body) })
       const data = await response.json().catch(() => ({}))
       if (response.ok) {
         request.onCreated(data)  // le formulaire l'ajoute à la liste et la choisit
@@ -80,7 +87,7 @@ function AddValueForm({ request, onClose }: { request: AddRequest; onClose: () =
       }
       if (response.status === 400) {
         // Le premier message de Django : doublon ("Cette valeur existe déjà."), nom vide...
-        const messages = data.non_field_errors ?? data.name ?? data.code ?? Object.values(data)[0]
+        const messages = data.non_field_errors ?? data.name ?? data.code ?? Object.values(data)[0]  // ex. "Il y a déjà un jour férié à cette date."
         setError(Array.isArray(messages) ? String(messages[0]) : 'Valeur invalide.')
       } else if (response.status === 403) {
         setError("Seul l'Admin RH peut ajouter une valeur.")
@@ -122,6 +129,11 @@ function AddValueForm({ request, onClose }: { request: AddRequest; onClose: () =
           aria-invalid={error ? true : undefined} aria-describedby={error ? 'add-error' : undefined} className={controlClass} />
         {error && <p id="add-error" role="alert" className="mt-1 text-[11px] font-medium text-red-600">{error}</p>}
       </div>
+
+      {extra.map((field) => <div key={field.name}>
+        <ExtraInput id={`add-${field.name}`} field={field} value={extras[field.name]}
+          onChange={(value) => setExtras((old) => ({ ...old, [field.name]: value }))} />
+      </div>)}
     </div>
 
     <footer className="flex justify-end gap-2 border-t border-slate-100 px-5 py-3">

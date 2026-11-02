@@ -2,7 +2,7 @@ from django.contrib import admin
 
 from employees.admin import ReferenceAdmin
 
-from .models import LeaveType, PublicHoliday
+from .models import LeaveRequest, LeaveSettings, LeaveType, PublicHoliday
 
 
 @admin.register(LeaveType)
@@ -16,3 +16,44 @@ class PublicHolidayAdmin(ReferenceAdmin):
     list_display = ("date", "name", "is_active")
     list_filter = ("is_active",)
     date_hierarchy = "date"  # naviguer par année / mois en haut de la liste
+
+
+@admin.register(LeaveSettings)
+class LeaveSettingsAdmin(admin.ModelAdmin):
+    fieldsets = (
+        ("Calcul du solde", {
+            "description": "Le solde part de 0 à cette date (ou à l'embauche, si elle est après), puis gagne "
+                           "chaque mois complet : (droit annuel de la fiche + ancienneté) / 12.",
+            "fields": ("counting_start",),
+        }),
+        ("Ancienneté et maximum", {"fields": ("seniority_years", "seniority_bonus", "max_days_per_year")}),
+    )
+
+    # Une seule ligne : on la modifie, on ne l'ajoute pas deux fois et on ne la supprime jamais.
+    def has_add_permission(self, request):
+        return not LeaveSettings.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(LeaveRequest)
+class LeaveRequestAdmin(admin.ModelAdmin):
+    # En lecture seule, comme les demandes du moteur : un congé change seulement par son circuit.
+    list_display = ("employee", "leave_type", "start_date", "end_date", "days", "status")
+    list_filter = ("leave_type", "request__status")
+    search_fields = ("employee__last_name", "employee__first_name")
+    readonly_fields = ("request", "employee", "leave_type", "start_date", "end_date",
+                       "starts_afternoon", "ends_noon", "days", "reason")
+    date_hierarchy = "start_date"
+    list_select_related = ("request", "employee", "leave_type")  # une seule requête SQL pour toute la liste
+
+    @admin.display(description="Statut")
+    def status(self, leave):
+        return leave.request.get_status_display()  # le statut vient du moteur
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False

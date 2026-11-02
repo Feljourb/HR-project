@@ -119,7 +119,7 @@ class EmployeesApiTests(EmployeeTestCase):
         # Les textes optionnels vides arrivent en "" (pas null), et les enfants en liste.
         empty.update(dict.fromkeys(["cnss_number", "cimr_number", "rib", "emergency_contact_name",
                                     "emergency_contact_relationship", "emergency_contact_phone"], ""), children=[])
-        payload = self.payload("CD987654", country="Maroc", status="ACTIVE", initial_leave_balance="0",
+        payload = self.payload("CD987654", country="Maroc", status="ACTIVE", annual_leave_days="0",
                                role="COLLABORATOR", department=str(self.sales.pk), position=str(self.salesman.pk), **empty)
         response = self.client.post(LIST_URL, payload, format="json")
         self.assertEqual(response.status_code, 201, response.json())

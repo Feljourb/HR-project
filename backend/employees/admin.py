@@ -135,7 +135,7 @@ class EmployeeAdmin(admin.ModelAdmin):
         # N+1, N+2, N+3 : calculés depuis l'organigramme (responsables des services et directions).
         ("Hiérarchie", {"fields": ("n_plus_1", "n_plus_2", "n_plus_3")}),
         ("Dates", {"fields": (
-            "hire_date", "trial_end_date", "onboarding_end_date", "departure_date", "initial_leave_balance",
+            "hire_date", "trial_end_date", "onboarding_end_date", "departure_date", "annual_leave_days",
         )}),
     )
 

@@ -36,7 +36,7 @@ const EMPTY: Values = {
   ...(Object.fromEntries(FORM_FIELDS.map((name) => [name, ''])) as Values),
   country: 'Maroc',
   status: 'ACTIVE',
-  initial_leave_balance: '18',  // le congé annuel légal au Maroc
+  annual_leave_days: '18',  // le congé annuel légal au Maroc
 }
 
 /** "El Idrissi" -> "el-idrissi" (comme clean_name dans Django : sans accents, en minuscules, tirets entre les mots).
@@ -506,7 +506,8 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
         hint="HR is notified 10 days before (1 month for a Cadre)." onChange={(v) => set('trial_end_date', v)} error={error('trial_end_date')} />}
       {isLeft && <TextField id="departure_date" label="Departure date" type="date" required value={values.departure_date} onChange={(v) => set('departure_date', v)} error={error('departure_date')} />}
       <TextField id="onboarding_end_date" label="End of onboarding" type="date" value={values.onboarding_end_date} onChange={(v) => set('onboarding_end_date', v)} error={error('onboarding_end_date')} />
-      <TextField id="initial_leave_balance" label="Initial leave balance (days)" type="number" required value={values.initial_leave_balance} onChange={(v) => set('initial_leave_balance', v)} error={error('initial_leave_balance')} />
+      <TextField id="annual_leave_days" label="Annual leave entitlement (days)" type="number" required
+        hint="Per year (18 = legal minimum). The balance starts at 0 and earns this / 12 every month." value={values.annual_leave_days} onChange={(v) => set('annual_leave_days', v)} error={error('annual_leave_days')} />
     </FormSection>
 
     {/* Barre d'actions, toujours visible en bas de l'écran. */}

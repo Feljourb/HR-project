@@ -348,10 +348,11 @@ class Employee(models.Model):
     onboarding_end_date = models.DateField("Fin d'onboarding", null=True, blank=True)
     departure_date = models.DateField("Date de sortie", null=True, blank=True)
     status = models.CharField("Statut", max_length=6, choices=Status.choices, default=Status.ACTIVE)
-    # En jours, avec des demi-journées possibles (ex. 12.5). Jamais négatif.
-    # 18 par défaut : le congé annuel légal au Maroc (1,5 jour par mois travaillé).
-    initial_leave_balance = models.DecimalField(
-        "Solde de congés initial (jours)", max_digits=5, decimal_places=2, default=18,
+    # Le DROIT à congé par an (pas un solde) : 18 par défaut (le minimum légal au Maroc), plus pour
+    # certains (ex. un manager à 30). Le solde part de 0 et gagne droit / 12 chaque mois (18 -> 1,5 par mois),
+    # + le bonus d'ancienneté (voir leaves/balance.py).
+    annual_leave_days = models.DecimalField(
+        "Droit annuel de congé (jours)", max_digits=5, decimal_places=2, default=18,
         validators=[MinValueValidator(Decimal("0"))],
     )
 

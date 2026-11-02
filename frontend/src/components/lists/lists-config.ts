@@ -1,12 +1,28 @@
-// Les 15 listes de référence gérées par l'Admin RH (voir LIST_VIEWSETS dans backend/employees/views.py).
+// Les 17 listes de référence gérées par l'Admin RH (voir LIST_VIEWSETS dans backend/employees/views.py,
+// et les listes du module Congés dans backend/leaves/urls.py).
 import type { ReferenceItem } from '@/lib/employees'
 
 // Une valeur telle que l'API l'envoie (+ "code" pour les centres de coût,
-// + le responsable pour les directions et les services).
-export type ListValue = ReferenceItem & { code?: string; head?: number | null; head_label?: string | null }
+// + le responsable pour les directions et les services, + les champs des listes du module Congés).
+export type ListValue = ReferenceItem & {
+  code?: string; head?: number | null; head_label?: string | null
+  deducts_balance?: boolean; max_days?: string | null; date?: string
+}
+
+// Un champ en plus du nom (listes du module Congés) : affiché en colonne, modifiable avec le nom.
+export type ExtraField = {
+  name: 'deducts_balance' | 'max_days' | 'date'
+  label: string
+  type: 'checkbox' | 'number' | 'date'
+  required?: boolean
+}
+
+// L'adresse des listes de l'app employees. Les listes d'un autre module ont la leur (`api`).
+export const LISTS_API = '/api/employees/lists'
 
 export type ListConfig = {
-  name: string          // l'adresse dans l'API : /api/employees/lists/<name>/
+  name: string          // l'adresse dans l'API : <api>/<name>/
+  api?: string          // par défaut LISTS_API
   title: string         // le nom de la liste, ex. "Services"
   singular: string      // pour le cadre "Ajouter : Service"
   parentField?: string  // organisation : le champ du parent, ex. "direction" pour un service
@@ -14,6 +30,33 @@ export type ListConfig = {
   // Directions et services : un responsable (le N+1 de l'équipe), cherché parmi les gens qui y travaillent
   // (headFilter = le filtre de la recherche des collaborateurs, ex. ?department=4).
   headFilter?: 'direction' | 'department'
+  extra?: ExtraField[]  // des champs en plus du nom
+  byDate?: boolean      // trier par date (jours fériés), pas par nom
+}
+
+// Les listes du module Congés (adresse /api/leaves/lists/...).
+export const LEAVE_LISTS: ListConfig[] = [
+  { name: 'leave-types', api: '/api/leaves/lists', title: 'Types de congé', singular: 'Type de congé', extra: [
+    { name: 'deducts_balance', label: 'Taken from the balance', type: 'checkbox' },
+    { name: 'max_days', label: 'Legal maximum (days)', type: 'number' },
+  ] },
+  { name: 'public-holidays', api: '/api/leaves/lists', title: 'Jours fériés', singular: 'Jour férié', byDate: true, extra: [
+    { name: 'date', label: 'Date', type: 'date', required: true },
+  ] },
+]
+
+/** La valeur d'un champ en plus, en texte pour un <input> ("true" / "false" pour une case). */
+export function extraValue(item: ListValue | null, field: ExtraField): string {
+  const value = item?.[field.name]
+  if (field.type === 'checkbox') return value ? 'true' : 'false'
+  return value === null || value === undefined ? '' : String(value)
+}
+
+/** Le texte d'un <input> -> ce que Django attend (une case : true / false ; un nombre vide : null). */
+export function extraToJson(field: ExtraField, text: string): boolean | string | null {
+  if (field.type === 'checkbox') return text === 'true'
+  if (field.type === 'number') return text.trim() === '' ? null : text.trim()
+  return text
 }
 
 // L'organisation, du haut vers le bas : chaque niveau dépend de celui au-dessus.

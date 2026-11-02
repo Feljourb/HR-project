@@ -139,7 +139,7 @@ export const FORM_FIELDS = [
   "contract_type", "temp_agency", "category", "grade", "division",
   "assignment", "region", "work_location", "cost_center",
   "hire_date", "trial_end_date", "onboarding_end_date", "departure_date",
-  "status", "initial_leave_balance",
+  "status", "annual_leave_days",
 ] as const;
 
 export type FormField = (typeof FORM_FIELDS)[number];

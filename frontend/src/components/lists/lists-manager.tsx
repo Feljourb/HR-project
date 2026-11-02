@@ -18,13 +18,15 @@ import { cn } from '@/lib/utils'
 import { AddValueDialog, type AddRequest } from '@/components/employees/add-value-dialog'
 import { SelectField } from '@/components/employees/form-fields'
 import { useList } from '@/components/employees/use-list'
-import { ORGANISATION, OTHER_LISTS, filtersOf, type ListConfig, type ListValue } from './lists-config'
+import { LEAVE_LISTS, LISTS_API, ORGANISATION, OTHER_LISTS, filtersOf, type ListConfig, type ListValue } from './lists-config'
 import { ValueRow } from './value-row'
 
 // Le choix fait dans un filtre : l'id (pour l'API) et le nom (pour "Dans : Challenge").
 type Choice = { id: string; label: string }
 
 const byName = (a: ListValue, b: ListValue) => a.name.localeCompare(b.name, 'fr')
+// Les jours fériés : par date ("2026-11-06" se trie comme du texte).
+const byDate = (a: ListValue, b: ListValue) => (a.date ?? '').localeCompare(b.date ?? '')
 
 export function ListsManager() {
   const [current, setCurrent] = useState<ListConfig>(ORGANISATION[0])
@@ -41,7 +43,9 @@ export function ListsManager() {
 
   // --- Les valeurs de la liste (actives et désactivées) ---
   // La "clé" de la requête, ex. "departments/?all=1&direction=4" ; null tant que le parent manque.
-  const key = ready ? `${current.name}/?all=1${current.parentField ? `&${current.parentField}=${parent?.id}` : ''}` : null
+  const api = current.api ?? LISTS_API
+  const key = ready ? `${api}/${current.name}/?all=1${current.parentField ? `&${current.parentField}=${parent?.id}` : ''}` : null
+  const sortItems = current.byDate ? byDate : byName
   const [loaded, setLoaded] = useState<{ key: string; items: ListValue[] } | null>(null)
   const [failedKey, setFailedKey] = useState<string | null>(null)
 
@@ -49,7 +53,7 @@ export function ListsManager() {
     if (key === null) return
     // Si on change de liste avant la réponse, on annule l'ancienne requête.
     const controller = new AbortController()
-    apiFetch(`/api/employees/lists/${key}`, { signal: controller.signal })
+    apiFetch(key, { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error(String(response.status))
         setLoaded({ key, items: await response.json() })
@@ -87,10 +91,12 @@ export function ListsManager() {
   function openAdd() {
     setAddRequest({
       list: current.name,
+      api: current.api,
+      extra: current.extra,
       title: current.singular,
       parent: current.parentField && parent ? { field: current.parentField, value: parent.id, label: parent.label } : undefined,
       withCode: current.withCode,
-      onCreated: (item) => update((list) => [...list, item].sort(byName)),
+      onCreated: (item) => update((list) => [...list, item].sort(sortItems)),
     })
   }
 
@@ -105,7 +111,7 @@ export function ListsManager() {
     <div className="grid items-start gap-4 lg:grid-cols-[230px_1fr]">
       {/* Les 14 listes. */}
       <nav aria-label="Lists" className="rounded-xl border border-slate-200/80 bg-white p-2 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-        {[{ label: 'Organisation', lists: ORGANISATION }, { label: 'Other lists', lists: OTHER_LISTS }].map((group) => (
+        {[{ label: 'Organisation', lists: ORGANISATION }, { label: 'Other lists', lists: OTHER_LISTS }, { label: 'Leaves', lists: LEAVE_LISTS }].map((group) => (
           <div key={group.label} className="mb-2 last:mb-0">
             <p className="px-2.5 pb-1 pt-2 text-[10px] font-bold uppercase tracking-[0.1em] text-slate-400">{group.label}</p>
             {group.lists.map((list) => (
@@ -164,6 +170,7 @@ export function ListsManager() {
                         <tr className="text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                           <th className="px-4 py-2">Name</th>
                           {current.withCode && <th className="px-4 py-2">Code</th>}
+                          {current.extra?.map((field) => <th key={field.name} className="px-4 py-2">{field.label}</th>)}
                           {current.headFilter && <th className="px-4 py-2">Head (N+1 of the team)</th>}
                           <th className="px-4 py-2">Status</th>
                           <th className="px-4 py-2 text-right"><span className="sr-only">Actions</span></th>
@@ -171,8 +178,9 @@ export function ListsManager() {
                       </thead>
                       <tbody>
                         {/* key avec le nom de la liste : une ligne en cours de modification ne passe jamais à une autre liste. */}
-                        {shown.map((item) => <ValueRow key={`${current.name}-${item.id}`} list={current.name} item={item} withCode={current.withCode} headFilter={current.headFilter}
-                          onChanged={(changed) => update((list) => list.map((value) => (value.id === changed.id ? changed : value)).sort(byName))} />)}
+                        {shown.map((item) => <ValueRow key={`${current.name}-${item.id}`} list={current.name} api={current.api} item={item}
+                          withCode={current.withCode} headFilter={current.headFilter} extra={current.extra}
+                          onChanged={(changed) => update((list) => list.map((value) => (value.id === changed.id ? changed : value)).sort(sortItems))} />)}
                       </tbody>
                     </table>
                   </div>}

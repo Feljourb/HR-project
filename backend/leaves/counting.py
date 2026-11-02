@@ -10,11 +10,11 @@ from decimal import Decimal
 
 from .models import PublicHoliday
 
-# Le prix de chaque jour de la semaine (weekday() : lundi = 0 ... dimanche = 6).
-# Samedi : personne ne travaille, mais un congé le compte pour une demi-journée (décision RH, 2026-11-02).
-DAY_VALUES = {0: Decimal("1"), 1: Decimal("1"), 2: Decimal("1"), 3: Decimal("1"), 4: Decimal("1"),
-              5: Decimal("0.5"), 6: Decimal("0")}
-HALF = Decimal("0.5")
+# Chaque jour = (matin, après-midi), selon le jour de la semaine (weekday() : lundi = 0 ... dimanche = 6).
+# Samedi : seul le MATIN compte (0,5), l'après-midi vaut 0 (décision RH, 2026-11-02).
+ZERO, HALF = Decimal("0"), Decimal("0.5")
+HALVES = {0: (HALF, HALF), 1: (HALF, HALF), 2: (HALF, HALF), 3: (HALF, HALF), 4: (HALF, HALF),
+          5: (HALF, ZERO), 6: (ZERO, ZERO)}
 
 
 def holiday_dates(start, end):
@@ -25,9 +25,9 @@ def holiday_dates(start, end):
 def day_values(start, end, starts_afternoon=False, ends_noon=False):
     """Le détail, jour par jour : [(date, prix), ...]. Sert au total, et à l'écran pour expliquer le total.
 
-    starts_afternoon : le congé commence l'après-midi (le premier jour compte une demi-journée) ;
-    ends_noon        : il finit à midi (le dernier jour compte une demi-journée).
-    Une demi-journée ne change qu'un jour de semaine : samedi, dimanche et fériés gardent leur prix."""
+    starts_afternoon : le congé commence l'après-midi (le MATIN du premier jour n'est pas pris) ;
+    ends_noon        : il finit à midi (l'APRÈS-MIDI du dernier jour n'est pas pris).
+    Ex. samedi après-midi : le samedi vaut 0 (son 0,5, c'est le matin)."""
     if end < start:
         raise ValueError("La date de fin est avant la date de début.")
     holidays = holiday_dates(start, end)  # une seule requête SQL pour toute la période
@@ -35,17 +35,21 @@ def day_values(start, end, starts_afternoon=False, ends_noon=False):
     values = []
     day = start
     while day <= end:
-        value = Decimal("0") if day in holidays else DAY_VALUES[day.weekday()]
-        if value == 1:  # un vrai jour de travail : la demi-journée enlève 0,5
-            if day == start and starts_afternoon:
-                value -= HALF
-            if day == end and ends_noon:
-                value -= HALF
-        values.append((day, value))
+        morning, afternoon = (ZERO, ZERO) if day in holidays else HALVES[day.weekday()]
+        if day == start and starts_afternoon:
+            morning = ZERO
+        if day == end and ends_noon:
+            afternoon = ZERO
+        values.append((day, morning + afternoon))
         day += datetime.timedelta(days=1)
     return values
 
 
 def count_days(start, end, starts_afternoon=False, ends_noon=False):
     """Le nombre de jours du congé (ex. Decimal("2.5"))."""
-    return sum((value for _, value in day_values(start, end, starts_afternoon, ends_noon)), Decimal("0"))
+    return sum((value for _, value in day_values(start, end, starts_afternoon, ends_noon)), ZERO)
+
+
+def days_label(value):
+    """Un nombre de jours lisible, à la française : Decimal("4.0") -> "4", Decimal("2.5") -> "2,5"."""
+    return f"{value.normalize():f}".replace(".", ",")

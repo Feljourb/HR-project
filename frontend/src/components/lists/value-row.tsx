@@ -13,15 +13,22 @@ import { apiFetch } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { controlClass } from '@/components/employees/form-fields'
 import { ManagerPicker } from '@/components/employees/manager-picker'
-import type { ListConfig, ListValue } from './lists-config'
+import { ExtraInput, extraText } from './extra-input'
+import { LISTS_API, extraToJson, extraValue, type ExtraField, type ListConfig, type ListValue } from './lists-config'
 
 type ValueRowProps = {
   list: string                 // la liste dans l'API, ex. "positions"
+  api?: string                 // l'adresse des listes (par défaut celle de l'app employees)
   item: ListValue
   withCode?: boolean
   headFilter?: ListConfig['headFilter']  // directions et services : la colonne "responsable"
+  extra?: ExtraField[]                   // listes du module Congés : des colonnes en plus (modifiables avec le nom)
   onChanged: (item: ListValue) => void   // renommée, désactivée ou réactivée : la nouvelle version
 }
+
+// Les valeurs des champs en plus, en texte, ex. { max_days: "4", deducts_balance: "false" }.
+const extrasOf = (item: ListValue, extra: ExtraField[]) =>
+  Object.fromEntries(extra.map((field) => [field.name, extraValue(item, field)]))
 
 const actionClass = 'rounded-md px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-100 hover:text-[#23355d] disabled:opacity-50'
 
@@ -31,11 +38,12 @@ function firstMessage(data: Record<string, unknown>) {
   return Array.isArray(messages) ? String(messages[0]) : 'Something went wrong. Please try again.'
 }
 
-export function ValueRow({ list, item, withCode, headFilter, onChanged }: ValueRowProps) {
+export function ValueRow({ list, api = LISTS_API, item, withCode, headFilter, extra = [], onChanged }: ValueRowProps) {
   const [editing, setEditing] = useState(false)
   const [choosingHead, setChoosingHead] = useState(false)  // la recherche du responsable est ouverte
   const [name, setName] = useState(item.name)
   const [code, setCode] = useState(item.code ?? '')
+  const [extras, setExtras] = useState(() => extrasOf(item, extra))
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -44,7 +52,7 @@ export function ValueRow({ list, item, withCode, headFilter, onChanged }: ValueR
     setBusy(true)
     setError('')
     try {
-      const response = await apiFetch(`/api/employees/lists/${list}/${item.id}/`, {
+      const response = await apiFetch(`${api}/${list}/${item.id}/`, {
         method: 'PATCH',
         body: JSON.stringify(body),
       })
@@ -66,24 +74,30 @@ export function ValueRow({ list, item, withCode, headFilter, onChanged }: ValueR
 
   function rename(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    send(withCode ? { name: name.trim(), code: code.trim() } : { name: name.trim() })
+    const body: Record<string, unknown> = withCode ? { name: name.trim(), code: code.trim() } : { name: name.trim() }
+    for (const field of extra) body[field.name] = extraToJson(field, extras[field.name])
+    send(body)
   }
 
   function cancel() {
     setEditing(false)
     setName(item.name)
     setCode(item.code ?? '')
+    setExtras(extrasOf(item, extra))
     setError('')
   }
 
   return <tr className="border-t border-slate-100 align-top">
-    <td className="px-4 py-3" colSpan={editing && withCode ? 2 : 1}>
+    <td className="px-4 py-3" colSpan={editing ? 1 + (withCode ? 1 : 0) + extra.length : 1}>
       {editing
         ? <form onSubmit={rename} className="flex flex-wrap items-center gap-2">
             {withCode && <>
               <label htmlFor={`code-${item.id}`} className="sr-only">Code</label>
               <input id={`code-${item.id}`} required value={code} onChange={(e) => setCode(e.target.value)} className={cn(controlClass, 'mt-0 h-8 w-28')} />
             </>}
+            {/* Les champs en plus (date, maximum, décompté du solde) se modifient avec le nom. */}
+            {extra.map((field) => <ExtraInput key={field.name} id={`${field.name}-${item.id}`} field={field} compact
+              value={extras[field.name]} onChange={(value) => setExtras((old) => ({ ...old, [field.name]: value }))} />)}
             <label htmlFor={`name-${item.id}`} className="sr-only">Name</label>
             <input id={`name-${item.id}`} required autoFocus value={name} onChange={(e) => { setName(e.target.value); setError('') }}
               aria-invalid={error ? true : undefined} className={cn(controlClass, 'mt-0 h-8 min-w-48 flex-1')} />
@@ -97,6 +111,7 @@ export function ValueRow({ list, item, withCode, headFilter, onChanged }: ValueR
     </td>
 
     {withCode && !editing && <td className="px-4 py-3 font-mono text-xs text-slate-600">{item.code}</td>}
+    {!editing && extra.map((field) => <td key={field.name} className="px-4 py-3 text-xs text-slate-600">{extraText(item, field)}</td>)}
 
     {/* Le responsable : le N+1 de toute l'équipe. Le changer change le N+1 de chacun, sans toucher aux fiches.
         La recherche ne propose que les gens qui travaillent dans ce service / cette direction. */}
@@ -127,7 +142,7 @@ export function ValueRow({ list, item, withCode, headFilter, onChanged }: ValueR
 
     <td className="px-4 py-2.5 text-right">
       {!editing && <div className="flex justify-end gap-1">
-        <button type="button" disabled={busy} onClick={() => setEditing(true)} className={actionClass}>Rename</button>
+        <button type="button" disabled={busy} onClick={() => setEditing(true)} className={actionClass}>{extra.length ? 'Edit' : 'Rename'}</button>
         {/* Désactiver : la valeur reste sur les anciens dossiers, mais n'est plus proposée dans les formulaires. */}
         <button type="button" disabled={busy} onClick={() => send({ is_active: !item.is_active })} className={actionClass}>
           {item.is_active ? 'Deactivate' : 'Reactivate'}

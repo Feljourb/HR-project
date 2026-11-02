@@ -143,11 +143,11 @@ class EmployeeTests(EmployeeTestCase):
         first.refresh_from_db()
         self.assertEqual(first.u_number, f"U{first.pk:06d}")
 
-    def test_leave_balance_is_18_days_by_default(self):
+    def test_annual_leave_right_is_18_days_by_default(self):
         # Le congé annuel légal au Maroc, quand le RH ne change rien.
         employee = self.make_employee("a.alami", "AB111111")
         employee.refresh_from_db()
-        self.assertEqual(employee.initial_leave_balance, 18)
+        self.assertEqual(employee.annual_leave_days, 18)
 
     def test_cin_is_unique_whatever_the_case(self):
         self.make_employee("a.alami", "AB111111")
@@ -231,7 +231,7 @@ class AccountCreationTests(EmployeeTestCase):
             "city": fiche.city.pk, "country": fiche.country, "department": self.sales.pk, "position": self.salesman.pk,
             "contract_type": fiche.contract_type.pk, "category": fiche.category.pk,
             "assignment": fiche.assignment.pk, "region": fiche.region.pk, "work_location": fiche.work_location,
-            "hire_date": "2026-01-05", "initial_leave_balance": "0",
+            "hire_date": "2026-01-05", "annual_leave_days": "0",
             # Le petit tableau des enfants (inline) : l'admin veut savoir combien de lignes il y a.
             "children-TOTAL_FORMS": "0", "children-INITIAL_FORMS": "0",
         }

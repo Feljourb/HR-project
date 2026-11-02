@@ -42,7 +42,7 @@ const navGroups: NavGroup[] = [
     { label: 'Dashboard', icon: LayoutDashboard, href: '/' },
     { label: 'My Profile', icon: UserRound, href: '/profile' },
     { label: 'My Requests', icon: Inbox, href: '/requests' },
-    { label: 'Leave Requests', icon: CalendarDays },
+    { label: 'Leave Requests', icon: CalendarDays, href: '/leaves' },
     { label: 'Expense Claims', icon: ReceiptText },
     { label: 'Administrative Documents', icon: FolderOpen },
   ] },
@@ -61,6 +61,7 @@ const navGroups: NavGroup[] = [
   { label: 'Management & HR', icon: ShieldCheck, restricted: true, items: [
     { label: 'Team Approvals', icon: Check, href: '/approvals' },
     { label: 'Employees', icon: UserRoundCog, href: '/employees', hrOnly: true },
+    { label: 'Absences', icon: CalendarDays, href: '/absences', hrOnly: true },
     { label: 'Audit log', icon: ScrollText, href: '/audit', hrOnly: true },
     { label: 'Reference lists', icon: ListChecks, href: '/lists', adminOnly: true },
     { label: 'Workflows', icon: Workflow, href: '/workflows', adminOnly: true },
