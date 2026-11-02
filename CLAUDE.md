@@ -70,6 +70,23 @@ Done: reference lists, Employee, account created from the fiche, lists + employe
   - [x] K5. What IT (superuser, technical support) does is hidden from the history and the Audit log of HR and Admin RH (decision of the user, 2026-11-01): the lines are still recorded, visible in /admin and to every IT account (an IT sees what another IT changed). `EmployeeViewSet.visible_history`.
   - [x] K4b. Frontend: choose the head of each direction / service on the Lists page (Admin RH; the search only offers people of that service / direction: `?department=` / `?direction=` on /api/employees/; lists API sends `head_label`). In the employee form, read-only boxes N+1, N+2, N+3... filled live as soon as the department is chosen (`/api/employees/hierarchy-preview/?department=&employee=`); "Mon profil" shows the chain.
 
+## Module "Gestion des congés" (app `leaves`)
+Decisions (validated by the user 2026-11-02; standard + Moroccan Code du travail; values HR may still correct are settings, not code):
+- A leave is a workflow request (`engine.submit("LEAVE")`, circuit N+1 validate -> RH inform); the leave module only adds types, day counting, balance and pages. After the final validation, `@on_approved("LEAVE")` confirms the leave.
+- Counting: Monday–Friday = 1 day, Saturday = 0.5 day (nobody works on Saturday, but a leave counts it as half a day), Sunday = 0, public holidays = 0; half days possible (start in the afternoon / end at noon). E.g. Friday -> Monday = 1 + 0.5 + 0 + 1 = 2.5 days.
+- Balance: 1.5 days acquired per month worked (18 / year), + 1.5 days per full 5 years of seniority, at most 36 days per year (company rule; the law says 30). `Employee.initial_leave_balance` = the balance when the app starts. Available = acquired − taken − pending. No negative balance. The balance carries over to the next year (no expiry in v1).
+- Types (a list Admin RH manages): Congé annuel (taken from the balance), exceptional leaves with a legal maximum (mariage, naissance, décès... not taken from the balance), maladie and sans solde (not taken from the balance). Public holidays: a list Admin RH manages (fixed dates given; religious dates added each year when announced).
+- Later (v2): supporting document upload (certificat médical), cancelling an already approved leave.
+- [x] 1. Lists: `LeaveType` (deducted from the balance?, legal max days) + `PublicHoliday` (date, unique; the name repeats every year) with initial values (migration leaves 0002: 10 types, fixed holidays 2026–2027), in /admin.
+- [ ] 2. Day counting function (weekdays, Saturday half, holidays, half days) + tests.
+- [ ] 3. `LeaveRequest` + rules (dates, no overlap, enough balance, max days of the type) + submit through the engine.
+- [ ] 4. Balance (acquired with months + seniority, cap 36, taken, pending, available) + leave settings.
+- [ ] 5. `on_approved("LEAVE")` handler.
+- [ ] 6. API (types, holidays, my leaves, preview of the day count + balance, create).
+- [ ] 7. Collaborator pages: request form (live count + balance after) + "Mes congés".
+- [ ] 8. HR: absences of the pôle; Admin RH manages leave types and holidays (Lists page).
+- [ ] 9. Demo command + final tests.
+
 ## Module "Gestion des workflows" (app `workflows`)
 - One validation engine for every request type. Admin RH configures the steps from a screen (no code); request types come from the code (`Workflow.code`), Admin RH cannot add them. A circuit is never deleted, only deactivated.
 - A step = order + validator (a ROLE: N+1, N+2, RH du pôle, DG du pôle; never a person) + mode (VALIDATE waits for an answer, INFORM only notifies). "Admin RH" is not a separate choice in the circuits, but an Admin RH IS an RH of both pôles: "RH du pôle" steps are answered by the RH of the requester's pôle AND the Admin RH (decision 2026-10-30). One account per person (RBAC). No maker-checker.

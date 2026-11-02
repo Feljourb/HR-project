@@ -30,3 +30,33 @@ Username
 elj.fz
 Temporary password
 their CIN (AA123)
+
+-------------------------
+
+make send-request user=collab.test type=LEAVE title="Congé du 2 au 6 décembre"
+
+-----------------------------------
+
+ID
+U000010
+Username
+soufiane.badaa
+Temporary password
+their CIN (TST1234)
+
+ID
+U000011
+Username
+simo.wazani
+Temporary password
+their CIN (M1234)
+
+---------------------------------------
+
+U000012
+Username
+rh.riaya
+Professional email
+r.riaya@riaya-industries.com
+Temporary password
+their CIN (R123)
