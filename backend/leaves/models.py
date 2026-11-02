@@ -4,14 +4,14 @@ Step 1 : les deux listes de référence du module, gérées par Admin RH :
 - LeaveType : les types de congé (annuel, mariage, maladie...) et leurs règles ;
 - PublicHoliday : les jours fériés (ils ne comptent pas dans un congé, voir step 2).
 Step 3 : LeaveRequest, une demande de congé (les dates) attachée à une demande du moteur (le circuit).
-Step 4 : LeaveSettings, les règles du solde (ancienneté, maximum par an...).
+Step 4 : LeaveSettings, les règles du solde (ancienneté, maximum par an, jours perdus après 2 ans...).
 """
-import datetime
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models
+from django.utils import timezone
 
 from employees.models import Employee, ReferenceItem
 from workflows.models import Request
@@ -40,6 +40,13 @@ class PublicHoliday(ReferenceItem):
     Admin RH les ajoute quand la date officielle est annoncée."""
 
     date = models.DateField("Date")
+    # Rempli quand l'APPLICATION a créé ce jour férié (leaves/holidays.py), ex. "MARCHE_VERTE-2028",
+    # "FITR_1-1450H" : elle sait ainsi qu'il existe déjà (même renommé ou désactivé par Admin RH).
+    # Vide : ajouté à la main par Admin RH.
+    key = models.CharField("Clé (calcul automatique)", max_length=30, blank=True, editable=False)
+    # Fête religieuse calculée (calendrier hégirien) : la date officielle peut changer d'un jour
+    # (observation de la lune). Admin RH la corrige si besoin, puis décoche.
+    estimated = models.BooleanField("Date estimée (à confirmer)", default=False)
 
     # Pas le Meta de ReferenceItem : son nom n'est PAS unique ("Aïd Al Fitr" revient chaque année),
     # c'est la DATE qui est unique (un seul jour férié par jour).
@@ -52,6 +59,9 @@ class PublicHoliday(ReferenceItem):
                 fields=["date"], name="leaves_publicholiday_unique_date",
                 violation_error_message="Il y a déjà un jour férié à cette date.",
             ),
+            models.UniqueConstraint(
+                fields=["key"], condition=~models.Q(key=""), name="leaves_publicholiday_unique_key",
+            ),
         ]
 
     def __str__(self):
@@ -60,11 +70,15 @@ class PublicHoliday(ReferenceItem):
 
 class LeaveSettings(models.Model):
     """Step 4 : les règles du solde que les RH peuvent encore corriger. Une seule ligne, changée dans /admin
-    (sans toucher au code), comme les réglages de sécurité."""
+    (sans toucher au code), comme les réglages de sécurité. Le solde se compte depuis l'embauche."""
 
-    # Le solde de chacun part de 0 à cette date (ou à son embauche, si elle est après) :
-    # le jour où l'application commence à compter les congés.
-    counting_start = models.DateField("Début du calcul des soldes", default=datetime.date(2026, 11, 1))
+    # Les jours gagnés une année se prennent jusqu'à la fin de l'année + (N - 1), puis ils sont perdus.
+    # 2 (règle de l'entreprise, 2026-11-02) : les jours de 2026 se prennent jusqu'au 31/12/2027.
+    carry_over_years = models.PositiveSmallIntegerField("Les jours se prennent pendant (ans)", default=2,
+                                                        validators=[MinValueValidator(1)])
+    # Règlement de la société (art. 245-246 du Code du travail) : le congé annuel se demande après 6 mois
+    # de service continu. Les jours se gagnent quand même dès l'embauche (6 mois = 9 jours au départ).
+    months_before_first_leave = models.PositiveSmallIntegerField("Congé annuel possible après (mois de service)", default=6)
     # Ancienneté (standard, Code du travail art. 231) : + 1,5 jour par an pour chaque période complète de 5 ans.
     seniority_years = models.PositiveSmallIntegerField("Ancienneté : tous les (ans)", default=5)
     seniority_bonus = models.DecimalField("Ancienneté : jours en plus par an", max_digits=4, decimal_places=2,
@@ -138,7 +152,7 @@ class LeaveRequest(models.Model):
 
     def clean(self):
         # Importés ici : counting et balance importent ce fichier (sinon import en boucle).
-        from .balance import balance
+        from .balance import add_months, balance
         from .counting import count_days, days_label
 
         if self.start_date is None or self.end_date is None or self.leave_type_id is None:
@@ -166,7 +180,16 @@ class LeaveRequest(models.Model):
             raise ValidationError(
                 f"Vous avez déjà un congé sur ces dates (du {other.start_date:%d/%m/%Y} au {other.end_date:%d/%m/%Y})."
             )
-        # Règle 6 : le solde suffit (seulement les types "décomptés du solde", ex. congé annuel). Jamais de solde négatif.
+        # Règle 6 : le congé annuel après 6 mois de service continu (se DEMANDE après, et COMMENCE après).
+        # Mariage, décès, maladie... : possibles dès l'embauche.
+        if self.leave_type.deducts_balance and self.employee_id:
+            months = LeaveSettings.load().months_before_first_leave
+            allowed_from = add_months(self.employee.hire_date, months)
+            if timezone.localdate() < allowed_from or self.start_date < allowed_from:
+                raise ValidationError(
+                    f"Le congé annuel est possible après {months} mois de service : à partir du {allowed_from:%d/%m/%Y}."
+                )
+        # Règle 7 : le solde suffit (seulement les types "décomptés du solde", ex. congé annuel). Jamais de solde négatif.
         if self.leave_type.deducts_balance and self.employee_id:
             available = balance(self.employee, exclude=self.pk)["available"]
             if self.days > available:

@@ -1,14 +1,17 @@
-"""Tests de l'API des congés (step 6)."""
+"""Tests de l'API des congés (step 6), des pages RH (step 8) et de la commande de démo (step 9)."""
 import datetime
+from io import StringIO
 
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from rest_framework.test import APIClient
 
 from employees.models import Department
 from workflows.test_engine import EngineTestCase
 
-from .models import LeaveRequest, LeaveSettings, LeaveType, PublicHoliday
+from .models import LeaveRequest, LeaveType, PublicHoliday
 from .services import request_leave
 
 User = get_user_model()
@@ -27,7 +30,6 @@ def form(leave_type, start, end, **extra):
 class LeaveApiTests(EngineTestCase):
     def setUp(self):
         super().setUp()
-        LeaveSettings.objects.update_or_create(pk=1, defaults={"counting_start": datetime.date(2026, 1, 1)})
         self.annual = LeaveType.objects.get(name="Congé annuel")
         self.client = APIClient()
         self.login(self.sara)
@@ -47,7 +49,9 @@ class LeaveApiTests(EngineTestCase):
         self.assertIn("Congé annuel", names)
         self.assertNotIn("Congé sans solde", names)  # désactivé : plus proposé
         holidays = self.client.get(url("holiday-list"), {"year": 2027}).json()
-        self.assertEqual(len(holidays), 11)
+        # 11 fixes + 6 religieuses créées toutes seules : en 2027, le Mawlid (14/08) tombe le jour de
+        # l'Allégeance Oued Ed-Dahab, déjà férié (un seul jour férié par date).
+        self.assertEqual(len(holidays), 17)
         self.assertTrue(all(item["date"].startswith("2027") for item in holidays))
 
     def test_preview_explains_the_count_and_the_balance_after(self):
@@ -98,12 +102,31 @@ class LeaveApiTests(EngineTestCase):
         self.assertEqual(self.client.get(url("mine-list")).json(), [])
 
 
+@override_settings(DEBUG=True)
+class DemoCommandTests(TestCase):
+    def test_make_seed_leaves(self):
+        call_command("seed_test_fiches", stdout=StringIO())  # make seed : les comptes de test et leurs dossiers
+        out = StringIO()
+        call_command("seed_leaves", stdout=out)
+        statuses = sorted(LeaveRequest.objects.values_list("request__status", flat=True))
+        self.assertEqual(statuses, ["APPROVED", "APPROVED", "IN_PROGRESS", "IN_PROGRESS", "IN_PROGRESS", "REJECTED"], out.getvalue())
+        # Relancée : rien de nouveau.
+        again = StringIO()
+        call_command("seed_leaves", stdout=again)
+        self.assertEqual(LeaveRequest.objects.count(), 6)
+        self.assertIn("déjà envoyé, ignoré", again.getvalue())
+
+    @override_settings(DEBUG=False)
+    def test_never_in_production(self):
+        with self.assertRaisesMessage(Exception, "Réservé au développement"):
+            call_command("seed_leaves", stdout=StringIO())
+
+
 class HrLeaveApiTests(EngineTestCase):
     """Step 8 : les absences (RH) et les deux listes du module (Admin RH)."""
 
     def setUp(self):
         super().setUp()
-        LeaveSettings.objects.update_or_create(pk=1, defaults={"counting_start": datetime.date(2026, 1, 1)})
         self.annual = LeaveType.objects.get(name="Congé annuel")
         self.client = APIClient()
         # Salma travaille à Riaya (l'autre pôle) ; Sara à SBD.
@@ -134,6 +157,16 @@ class HrLeaveApiTests(EngineTestCase):
         self.as_role(self.nadia, User.Role.HR_ADMIN)
         self.assertEqual(len(self.absences().json()), 2)
         self.assertEqual(len(self.absences(date_from="2026-11-20").json()), 1)  # seulement Sara (23 -> 27)
+
+    def test_the_numbers_of_the_month(self):
+        # Youssef : du mercredi 28/10 au jeudi 05/11. En novembre, seulement lundi 2 -> jeudi 5 = 4 jours.
+        request_leave(self.youssef, self.annual, datetime.date(2026, 10, 28), datetime.date(2026, 11, 5))
+        self.as_role(self.nadia, User.Role.HR)  # RH de SBD : Sara et Youssef (pas Salma, de Riaya ; pas l'annulé)
+        response = self.client.get(url("absence-summary"), {"date_from": "2026-11-01", "date_to": "2026-11-30"})
+        self.assertEqual(response.json(), {"people": 2, "absent_today": 0, "approved_days": 0, "pending_days": 9})
+        # Un collaborateur : non.
+        self.as_role(self.sara, User.Role.COLLABORATOR)
+        self.assertEqual(self.client.get(url("absence-summary"), {"date_from": "2026-11-01", "date_to": "2026-11-30"}).status_code, 403)
 
     def test_absences_are_for_hr_only_with_a_valid_period(self):
         self.as_role(self.sara, User.Role.COLLABORATOR)

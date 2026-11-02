@@ -4,72 +4,91 @@
  * La page "Absences" (RH, Admin RH, IT) : qui est en congé, mois par mois.
  * Lu dans /api/leaves/absences/?date_from=&date_to= : Django renvoie les congés acceptés ET en cours
  * qui touchent ce mois. Un RH ne reçoit que son pôle ; Admin RH et IT, les deux pôles.
+ * En haut, les chiffres du mois (/api/leaves/absences/summary/), que les RH téléchargent en image
+ * pour leurs présentations ("Download image").
  */
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
-import { formatDate, formatDays, type Absence } from '@/lib/leaves'
+import { formatDate, formatDays, isoDate, type Absence, type AbsenceSummary } from '@/lib/leaves'
 import { cn } from '@/lib/utils'
+import { StatTiles } from './stat-tiles'
 
 const BADGE: Record<string, string> = {
   IN_PROGRESS: 'bg-amber-50 text-amber-700',
   APPROVED: 'bg-emerald-50 text-emerald-700',
 }
 
-/** Une date en "AAAA-MM-JJ" (l'heure locale, pas UTC : sinon le 1er du mois peut devenir le 31). */
-function iso(date: Date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
-}
+type Loaded = { key: string; rows: Absence[]; summary: AbsenceSummary }
 
 export function Absences() {
   // Le mois affiché : son premier jour. Au départ, le mois en cours.
   const [month, setMonth] = useState(() => { const now = new Date(); return new Date(now.getFullYear(), now.getMonth(), 1) })
-  const from = iso(month)
-  const to = iso(new Date(month.getFullYear(), month.getMonth() + 1, 0))  // le jour 0 du mois suivant = le dernier jour de ce mois
+  const from = isoDate(month)
+  const to = isoDate(new Date(month.getFullYear(), month.getMonth() + 1, 0))  // le jour 0 du mois suivant = le dernier jour de ce mois
   const key = `date_from=${from}&date_to=${to}`
-  const [loaded, setLoaded] = useState<{ key: string; rows: Absence[] } | null>(null)
+  const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [failedKey, setFailedKey] = useState('')
 
   useEffect(() => {
     const controller = new AbortController()
-    apiFetch(`/api/leaves/absences/?${key}`, { signal: controller.signal })
-      .then(async (response) => {
-        if (!response.ok) throw new Error(String(response.status))
-        setLoaded({ key, rows: await response.json() })
+    // Le tableau et ses chiffres, ensemble : ils parlent toujours du même mois.
+    Promise.all([
+      apiFetch(`/api/leaves/absences/?${key}`, { signal: controller.signal }),
+      apiFetch(`/api/leaves/absences/summary/?${key}`, { signal: controller.signal }),
+    ])
+      .then(async ([rows, summary]) => {
+        if (!rows.ok || !summary.ok) throw new Error()
+        setLoaded({ key, rows: await rows.json(), summary: await summary.json() })
       })
       .catch(() => { if (!controller.signal.aborted) setFailedKey(key) })
     return () => controller.abort()
   }, [key])
 
-  const rows = loaded?.key === key ? loaded.rows : null
-  const today = iso(new Date())
-  const absentToday = new Set((rows ?? []).filter((row) => row.status === 'APPROVED' && row.start_date <= today && today <= row.end_date)
-    .map((row) => row.employee_id)).size
+  const current = loaded?.key === key ? loaded : null
+  const rows = current?.rows ?? null
   const poles = new Set((rows ?? []).map((row) => row.pole))
+  const today = isoDate(new Date())
+  const monthName = month.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
+  const isThisMonth = from <= today && today <= to
 
   function move(months: number) {
     setMonth((old) => new Date(old.getFullYear(), old.getMonth() + months, 1))
   }
 
   return <div className="flex flex-col gap-4">
-    <div>
-      <h1 className="text-lg font-semibold text-[#192646]">Absences</h1>
-      <p className="text-xs text-slate-500">Approved leaves and leaves waiting for approval, month by month.</p>
+    <div className="flex flex-wrap items-end gap-3">
+      <div className="min-w-0 flex-1">
+        <h1 className="text-lg font-semibold text-[#192646]">Absences</h1>
+        <p className="text-xs text-slate-500">Approved leaves and leaves waiting for approval, month by month.</p>
+      </div>
+      {/* Le mois : il change les chiffres ET le tableau. */}
+      <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-1 py-0.5">
+        <button type="button" aria-label="Previous month" onClick={() => move(-1)} className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100"><ChevronLeft className="size-4" /></button>
+        <h2 className="min-w-36 text-center text-sm font-semibold capitalize text-[#192646]">{monthName}</h2>
+        <button type="button" aria-label="Next month" onClick={() => move(1)} className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100"><ChevronRight className="size-4" /></button>
+      </div>
     </div>
+
+    {current && <StatTiles
+      title={`Absences · ${monthName}`}
+      subtitle={`${poles.size ? `Pôle ${[...poles].join(' & ')}` : 'Your pôle'} · approved and pending leaves`}
+      fileName={`absences_${from.slice(0, 7)}.png`}
+      tiles={[
+        { label: 'People absent', value: String(current.summary.people), hint: 'At least one leave this month', strong: true },
+        { label: 'Days approved', value: formatDays(current.summary.approved_days), hint: 'Inside this month' },
+        { label: 'Days pending', value: formatDays(current.summary.pending_days), hint: 'Waiting for approval' },
+        // "Aujourd'hui" n'a de sens que pour le mois en cours ; sinon, le nombre de congés.
+        isThisMonth
+          ? { label: 'Absent today', value: String(current.summary.absent_today), hint: 'Approved leave today' }
+          : { label: 'Leave requests', value: String(current.rows.length), hint: 'Approved or pending' },
+      ]} />}
 
     <section className="rounded-xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
       <header className="flex flex-wrap items-center gap-3 border-b border-slate-100 px-4 py-3">
-        <div className="flex items-center gap-1">
-          <button type="button" aria-label="Previous month" onClick={() => move(-1)} className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100"><ChevronLeft className="size-4" /></button>
-          <h2 className="min-w-36 text-center text-sm font-semibold capitalize text-[#192646]">
-            {month.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}
-          </h2>
-          <button type="button" aria-label="Next month" onClick={() => move(1)} className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100"><ChevronRight className="size-4" /></button>
-        </div>
-        {rows && <p className="ml-auto text-[11px] text-slate-500">
-          {rows.length} leave{rows.length === 1 ? '' : 's'} · {absentToday} {absentToday === 1 ? 'person' : 'people'} absent today
-        </p>}
+        <h2 className="text-sm font-semibold text-[#192646]">Leaves of {monthName}</h2>
+        {rows && <p className="ml-auto text-[11px] text-slate-500">{rows.length} leave{rows.length === 1 ? '' : 's'}</p>}
       </header>
 
       {rows === null

@@ -5,11 +5,16 @@ from employees.views import make_viewset
 
 from .models import LeaveType, PublicHoliday
 from .serializers import HolidayListSerializer
-from .views import AbsenceViewSet, LeaveTypeViewSet, MyLeaveViewSet, PublicHolidayViewSet
+from .views import AbsenceViewSet, LeaveTypeViewSet, MyLeaveViewSet, PublicHolidayViewSet, ensure_coming_years
 
 
 class HolidayListViewSet(make_viewset(PublicHoliday)):
     serializer_class = HolidayListSerializer  # le message "date déjà prise" en français (voir le serializer)
+
+    def get_queryset(self):
+        # Admin RH voit déjà cette année et la suivante, créées tout seules (fêtes religieuses "estimées").
+        ensure_coming_years()
+        return super().get_queryset()
 
 app_name = "leaves"
 

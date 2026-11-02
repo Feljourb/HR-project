@@ -2,6 +2,7 @@
 Step 3 : envoyer une demande de congé (les règles, puis le circuit)."""
 import datetime
 from decimal import Decimal
+from unittest import mock
 
 from django.core.exceptions import ValidationError
 from django.test import TestCase
@@ -14,6 +15,7 @@ from workflows.test_engine import EngineTestCase
 
 from .balance import acquired, add_months, balance
 from .counting import count_days, day_values, days_label
+from .holidays import ensure_year
 from .models import LeaveRequest, LeaveSettings, LeaveType, PublicHoliday
 from .services import request_leave
 
@@ -53,6 +55,40 @@ class ListRulesTests(TestCase):
     def test_leave_type_names_are_unique_and_max_is_at_least_half_a_day(self):
         self.assertIn("__all__", self.errors_of(LeaveType(name="congé ANNUEL")))  # même nom, autres majuscules
         self.assertIn("max_days", self.errors_of(LeaveType(name="Congé test", max_days=0)))
+
+
+class AutomaticHolidaysTests(TestCase):
+    """Les jours fériés se créent tout seuls (leaves/holidays.py)."""
+
+    def test_a_new_year_gets_its_fixed_and_religious_holidays(self):
+        ensure_year(2028)
+        holidays = PublicHoliday.objects.filter(date__year=2028)
+        self.assertEqual(holidays.filter(estimated=False).count(), 11)  # Marche Verte, Fête du Trône...
+        religious = holidays.filter(estimated=True)  # calendrier hégirien : à confirmer par Admin RH
+        self.assertEqual(religious.count(), 7)
+        self.assertEqual(set(religious.values_list("name", flat=True)), {
+            "1er Moharram", "Aïd Al Mawlid", "Aïd Al Mawlid (2e jour)", "Aïd Al Fitr", "Aïd Al Fitr (2e jour)",
+            "Aïd Al Adha", "Aïd Al Adha (2e jour)"})
+        fitr = religious.get(name="Aïd Al Fitr")
+        self.assertEqual(religious.get(name="Aïd Al Fitr (2e jour)").date, fitr.date + datetime.timedelta(days=1))
+
+    def test_the_years_of_the_first_migration_only_get_the_religious_ones(self):
+        ensure_year(2026)  # les 11 fêtes fixes existent déjà (migration 0002) : pas de doublon
+        self.assertEqual(PublicHoliday.objects.filter(date__year=2026, estimated=False).count(), 11)
+        self.assertEqual(PublicHoliday.objects.filter(date__year=2026, estimated=True).count(), 7)
+
+    def test_admin_rh_changes_are_kept(self):
+        ensure_year(2028)
+        fitr = PublicHoliday.objects.get(date__year=2028, name="Aïd Al Fitr")
+        # Le Ministère annonce le lendemain : Admin RH déplace la date et confirme... (le 2e jour aussi, en vrai)
+        PublicHoliday.objects.filter(pk=fitr.pk).update(date=fitr.date - datetime.timedelta(days=5), estimated=False)
+        PublicHoliday.objects.filter(date=datetime.date(2028, 11, 6)).update(is_active=False, name="Marche Verte (test)")
+        ensure_year(2028)  # appelé encore (à chaque calcul) : rien n'est recréé
+        self.assertEqual(PublicHoliday.objects.filter(date__year=2028).count(), 18)
+        self.assertFalse(PublicHoliday.objects.get(date=datetime.date(2028, 11, 6)).is_active)
+
+    def test_counting_a_leave_creates_the_year_if_needed(self):
+        self.assertEqual(count_days(datetime.date(2029, 11, 5), datetime.date(2029, 11, 6)), 1)  # 06/11 = Marche Verte
 
 
 def nov(day):
@@ -102,13 +138,22 @@ class CountingTests(TestCase):
         self.assertEqual(days_label(Decimal("10")), "10")
 
 
+TODAY = datetime.date(2026, 11, 2)
+real_localdate = timezone.localdate
+
+
+def frozen_localdate(value=None, timezone=None):
+    """"Aujourd'hui" figé au 02/11/2026 dans ces tests : ils donnent le même résultat le jour de la soutenance."""
+    return TODAY if value is None else real_localdate(value, timezone)
+
+
+@mock.patch("django.utils.timezone.localdate", frozen_localdate)
 class RequestLeaveTests(EngineTestCase):
     """Sara (Ventes) demande un congé ; son N+1 est Youssef (voir EngineTestCase)."""
 
     def setUp(self):
         super().setUp()
-        # Le calcul commence avant l'embauche de l'équipe (05/01/2026) : Sara a déjà gagné ses jours de 2026.
-        LeaveSettings.objects.update_or_create(pk=1, defaults={"counting_start": datetime.date(2026, 1, 1)})
+        # L'équipe est embauchée le 05/01/2026 : Sara a déjà gagné ses jours de 2026.
         self.annual = LeaveType.objects.get(name="Congé annuel")
         self.sick = LeaveType.objects.get(name="Congé maladie")
         self.wedding = LeaveType.objects.get(name="Congé exceptionnel - Mariage du salarié")  # 4 jours max
@@ -184,26 +229,34 @@ class RequestLeaveTests(EngineTestCase):
         self.assertFalse(LeaveRequest.objects.exists())
         self.assertFalse(Request.objects.exists())  # pas de demande dans le circuit non plus
 
-    # --- Règle 6 : le solde (step 4) --------------------------------------------------
+    # --- Règle 6 : le congé annuel après 6 mois de service -----------------------------------
+
+    def test_annual_leave_only_after_6_months_of_service(self):
+        hire = add_months(TODAY, -2)  # embauchée il y a 2 mois
+        new = self.make_employee("nouvelle.recrue", "AA100009", hire_date=hire)
+        self.assertIn(f"possible après 6 mois de service : à partir du {add_months(hire, 6):%d/%m/%Y}", self.error_of(23, 25, employee=new))
+        # Mariage, maladie... : dès l'embauche.
+        self.ask(23, 24, employee=new, leave_type=self.sick)
+
+    # --- Règle 7 : le solde (step 4) --------------------------------------------------
 
     def test_the_balance_must_be_enough(self):
-        # Embauchée il y a 2 mois tout juste : 2 x 1,5 = 3 jours gagnés.
-        new = self.make_employee("nouvelle.recrue", "AA100009", hire_date=add_months(timezone.localdate(), -2))
-        self.ask(23, 25, employee=new)  # lundi -> mercredi : 3 jours, permis
-        # Les 3 jours sont "en attente" : il ne reste rien.
-        self.assertIn("Solde insuffisant : 0 jour(s) disponible(s), cette demande en compte 1", self.error_of(26, 26, employee=new))
+        # Embauchée il y a 7 mois tout juste : 7 x 1,5 = 10,5 jours gagnés.
+        new = self.make_employee("nouvelle.recrue", "AA100009", hire_date=add_months(TODAY, -7))
+        self.ask(9, 13, employee=new)   # 5 jours
+        self.ask(23, 27, employee=new)  # 5 jours : il reste 0,5 (les 10 jours sont "en attente")
+        self.assertIn("Solde insuffisant : 0,5 jour(s) disponible(s), cette demande en compte 1", self.error_of(30, 30, employee=new))
         # Un congé maladie ne touche pas au solde.
-        self.ask(26, 26, employee=new, leave_type=self.sick)
+        self.ask(30, 30, employee=new, leave_type=self.sick)
 
 
 class BalanceTests(EngineTestCase):
-    """Le solde : acquis (mois complets x droit / 12, + ancienneté, au maximum 36) - pris - en attente."""
+    """Le solde : depuis l'embauche, mois complets x droit / 12 (+ ancienneté, au maximum 36),
+    une tirelire par année, valable 2 ans ; - pris - en attente."""
 
     def setUp(self):
         super().setUp()
         self.settings = LeaveSettings.load()
-        self.settings.counting_start = datetime.date(2026, 1, 1)
-        self.settings.save()
         self.annual = LeaveType.objects.get(name="Congé annuel")
 
     def gained(self, today, **fields):
@@ -220,22 +273,24 @@ class BalanceTests(EngineTestCase):
         # Un manager à 30 jours par an : 2,5 par mois.
         self.assertEqual(self.gained(datetime.date(2026, 3, 5), annual_leave_days=30), 5)
 
-    def test_the_count_starts_at_the_setting_date_for_older_employees(self):
-        self.settings.counting_start = datetime.date(2026, 11, 1)
-        self.settings.save()
-        # Embauché en 2020 : on compte depuis le 01/11/2026 seulement (2 mois au 01/01/2027),
-        # et 6 ans d'ancienneté = 1 période de 5 ans : (18 + 1,5) / 12 = 1,625 par mois.
-        self.assertEqual(self.gained(datetime.date(2027, 1, 1), hire_date=datetime.date(2020, 3, 10)), Decimal("3.25"))
+    def test_the_count_starts_at_the_hire_date(self):
+        # Embauché le 10/03/2025 : au 10/05/2025, 2 mois complets = 3 jours.
+        self.assertEqual(self.gained(datetime.date(2025, 5, 10), hire_date=datetime.date(2025, 3, 10)), 3)
 
     def test_seniority_starts_the_month_of_the_5_years(self):
         hire = datetime.date(2021, 3, 1)  # 5 ans le 01/03/2026
-        self.assertEqual(self.gained(datetime.date(2026, 2, 1), hire_date=hire), Decimal("1.5"))     # janvier : 1,5
-        self.assertEqual(self.gained(datetime.date(2026, 3, 1), hire_date=hire), Decimal("3.13"))    # + février : 1,625
+
+        def month_ending(day):  # ce que rapporte le mois qui finit ce jour-là
+            return self.gained(day, hire_date=hire) - self.gained(add_months(day, -1), hire_date=hire)
+
+        self.assertEqual(month_ending(datetime.date(2026, 2, 1)), Decimal("1.5"))     # janvier : 18 / 12
+        self.assertEqual(month_ending(datetime.date(2026, 3, 1)), Decimal("1.63"))    # février : 19,5 / 12 = 1,625
 
     def test_at_most_36_days_a_year(self):
         # Droit 35 + 26 ans d'ancienneté (5 périodes = 7,5) = 42,5 -> plafonné à 36 : 3 par mois.
         old = {"hire_date": datetime.date(2000, 1, 1), "annual_leave_days": 35}
-        self.assertEqual(self.gained(datetime.date(2026, 2, 1), **old), 3)
+        # Le mois de janvier 2026 (gagné le 01/02) : la différence entre les deux dates.
+        self.assertEqual(self.gained(datetime.date(2026, 2, 1), **old) - self.gained(datetime.date(2026, 1, 1), **old), 3)
 
     def test_nothing_is_gained_after_the_departure(self):
         self.assertEqual(self.gained(datetime.date(2026, 11, 5), departure_date=datetime.date(2026, 3, 5)), 3)
@@ -248,14 +303,42 @@ class BalanceTests(EngineTestCase):
     def test_taken_pending_and_available(self):
         today = datetime.date(2026, 11, 5)  # Sara : 10 mois = 15 jours
         first = request_leave(self.sara, self.annual, nov(23), nov(27))     # 5 jours, en attente
-        self.assertEqual(balance(self.sara, today), {"acquired": 15, "taken": 0, "pending": 5, "available": 10})
+        self.assertEqual(balance(self.sara, today), {"acquired": 15, "taken": 0, "pending": 5, "expired": 0,
+                                                     "available": 10, "expiring": None})
         engine.approve(first.request.steps.get(status=RequestStep.Status.PENDING), self.youssef.user)  # N+1 valide
-        self.assertEqual(balance(self.sara, today), {"acquired": 15, "taken": 5, "pending": 0, "available": 10})
+        self.assertEqual(balance(self.sara, today)["taken"], 5)
+        self.assertEqual(balance(self.sara, today)["available"], 10)
         # Annulé : les jours reviennent ; un type non décompté (mariage) : rien ne bouge.
         other = request_leave(self.sara, self.annual, nov(9), nov(10))
         engine.cancel(other.request, self.sara.user)
         request_leave(self.sara, LeaveType.objects.get(name="Congé exceptionnel - Mariage du salarié"), nov(2), nov(3))
         self.assertEqual(balance(self.sara, today)["available"], 10)
+
+    # --- Les jours se prennent pendant 2 ans, puis ils sont perdus -----------------------------
+
+    def old_hand(self):
+        """Hind, embauchée le 01/01/2024. Un mois se gagne le jour où il est complet : le mois de décembre 2024
+        se gagne le 01/01/2025 (tirelire 2025). Donc 2024 = février -> décembre = 11 mois = 16,5 jours
+        (valable jusqu'au 31/12/2025), 2025 = 12 mois = 18 jours (jusqu'au 31/12/2026)."""
+        Employee.objects.filter(pk=self.hind.pk).update(hire_date=datetime.date(2024, 1, 1))
+        return Employee.objects.get(pk=self.hind.pk)
+
+    def test_days_of_two_years_ago_are_lost(self):
+        hind = self.old_hand()
+        # Le 01/02/2026 : 2024 = 16,5 (perdus) ; 2025 = 18 ; 2026 = 3 (gagnés le 01/01 et le 01/02).
+        result = balance(hind, datetime.date(2026, 2, 1))
+        self.assertEqual((result["acquired"], result["expired"], result["available"]), (Decimal("37.5"), Decimal("16.5"), 21))
+        # Les 18 jours de 2025 seront perdus le 31/12/2026 si elle ne les prend pas : on la prévient.
+        self.assertEqual(result["expiring"], {"days": 18, "on": datetime.date(2026, 12, 31)})
+
+    def test_a_leave_uses_the_oldest_days_first(self):
+        hind = self.old_hand()
+        request_leave(hind, self.annual, nov(23), nov(27))  # 5 jours, payés avec la tirelire 2025 (bientôt perdue)
+        result = balance(hind, datetime.date(2026, 11, 5))
+        self.assertEqual(result["expiring"]["days"], 13)                          # 18 - 5 : ce qui reste de 2025
+        self.assertEqual(result["available"], 13 + Decimal("16.5"))               # + 2026 (11 mois gagnés au 05/11)
+        # Le 01/01/2027 : les 13 jours de 2025 sont perdus, comme ceux de 2024.
+        self.assertEqual(balance(hind, datetime.date(2027, 1, 1))["expired"], Decimal("16.5") + 13)
 
 
 class ApprovedLeaveTests(EngineTestCase):
@@ -263,7 +346,6 @@ class ApprovedLeaveTests(EngineTestCase):
 
     def setUp(self):
         super().setUp()
-        LeaveSettings.objects.update_or_create(pk=1, defaults={"counting_start": datetime.date(2026, 1, 1)})
         self.annual = LeaveType.objects.get(name="Congé annuel")
 
     def pending_step(self, leave):

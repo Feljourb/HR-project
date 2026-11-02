@@ -6,12 +6,12 @@ import type { ReferenceItem } from '@/lib/employees'
 // + le responsable pour les directions et les services, + les champs des listes du module Congés).
 export type ListValue = ReferenceItem & {
   code?: string; head?: number | null; head_label?: string | null
-  deducts_balance?: boolean; max_days?: string | null; date?: string
+  deducts_balance?: boolean; max_days?: string | null; date?: string; estimated?: boolean
 }
 
 // Un champ en plus du nom (listes du module Congés) : affiché en colonne, modifiable avec le nom.
 export type ExtraField = {
-  name: 'deducts_balance' | 'max_days' | 'date'
+  name: 'deducts_balance' | 'max_days' | 'date' | 'estimated'
   label: string
   type: 'checkbox' | 'number' | 'date'
   required?: boolean
@@ -40,8 +40,11 @@ export const LEAVE_LISTS: ListConfig[] = [
     { name: 'deducts_balance', label: 'Taken from the balance', type: 'checkbox' },
     { name: 'max_days', label: 'Legal maximum (days)', type: 'number' },
   ] },
+  // Créés tout seuls chaque année (backend leaves/holidays.py). Les fêtes religieuses arrivent "estimées" :
+  // Admin RH corrige la date si le Ministère annonce un autre jour, puis décoche.
   { name: 'public-holidays', api: '/api/leaves/lists', title: 'Jours fériés', singular: 'Jour férié', byDate: true, extra: [
     { name: 'date', label: 'Date', type: 'date', required: true },
+    { name: 'estimated', label: 'Estimated (to confirm)', type: 'checkbox' },
   ] },
 ]
 

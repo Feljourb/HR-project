@@ -18,7 +18,10 @@ HALVES = {0: (HALF, HALF), 1: (HALF, HALF), 2: (HALF, HALF), 3: (HALF, HALF), 4:
 
 
 def holiday_dates(start, end):
-    """Les jours fériés ACTIFS entre deux dates (un jour férié désactivé est un jour normal)."""
+    """Les jours fériés ACTIFS entre deux dates (un jour férié désactivé est un jour normal).
+    Les années concernées ont d'abord leurs jours fériés créés (voir holidays.py)."""
+    from .holidays import ensure_years  # ici : holidays importe les modèles, comme ce fichier
+    ensure_years(start, end)
     return set(PublicHoliday.objects.filter(date__range=(start, end), is_active=True).values_list("date", flat=True))
 
 

@@ -7,10 +7,10 @@
  */
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { apiFetch } from '@/lib/api'
-import { formatDays, type Balance, type Leave } from '@/lib/leaves'
-import { cn } from '@/lib/utils'
+import { formatDate, formatDays, isoDate, type Balance, type Leave } from '@/lib/leaves'
 import { LeaveForm } from './leave-form'
 import { MyLeaves } from './my-leaves'
+import { StatTiles } from './stat-tiles'
 
 type Loaded = { leaves: Leave[]; balance: Balance }
 
@@ -55,21 +55,17 @@ export function Message({ children }: { children: ReactNode }) {
 }
 
 // Les 4 chiffres du solde. "Available" en premier et en couleur : c'est celui qu'on cherche.
+// Pas le total gagné depuis l'embauche (il compte aussi les jours perdus) : seulement ce qui sert.
 function BalanceTiles({ balance }: { balance: Balance }) {
+  const { expiring } = balance
+  const today = isoDate(new Date())
   const tiles = [
-    { label: 'Available', value: balance.available, hint: 'You can ask for these days', strong: true },
-    { label: 'Earned', value: balance.acquired, hint: 'Earned month after month' },
-    { label: 'Taken', value: balance.taken, hint: 'Approved annual leaves' },
-    { label: 'Pending', value: balance.pending, hint: 'Waiting for approval (reserved)' },
+    { label: 'Available', value: formatDays(balance.available), hint: 'Earned month after month, usable for 2 years', strong: true },
+    { label: 'Taken', value: formatDays(balance.taken), hint: 'Approved annual leaves' },
+    { label: 'Pending', value: formatDays(balance.pending), hint: 'Waiting for approval (reserved)' },
+    // Les jours de l'an dernier qui seront perdus le 31/12 : pour penser à les prendre.
+    { label: expiring ? `Lost on ${formatDate(expiring.on)}` : 'Lost at year end', value: formatDays(expiring?.days ?? 0),
+      hint: expiring ? 'Take them first (they are used first)' : 'Nothing to lose this year' },
   ]
-  return <section aria-label="My leave balance" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-    {tiles.map((tile) => (
-      <div key={tile.label} className={cn('rounded-xl border px-4 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]',
-        tile.strong ? 'border-[#23355d] bg-[#192646] text-white' : 'border-slate-200/80 bg-white')}>
-        <p className={cn('text-[11px] font-semibold uppercase tracking-wide', tile.strong ? 'text-blue-200' : 'text-[#8C6D52]')}>{tile.label}</p>
-        <p className="mt-1 text-xl font-semibold tabular-nums">{formatDays(tile.value)}</p>
-        <p className={cn('text-[11px]', tile.strong ? 'text-slate-300' : 'text-slate-500')}>{tile.hint}</p>
-      </div>
-    ))}
-  </section>
+  return <StatTiles tiles={tiles} title="My leave balance" subtitle={`On ${formatDate(today)}`} fileName={`leave-balance_${today}.png`} />
 }

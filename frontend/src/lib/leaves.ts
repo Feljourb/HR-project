@@ -9,8 +9,12 @@ export type LeaveType = {
   max_days: number | null    // le maximum légal (ex. mariage : 4), null : pas de maximum
 }
 
-// acquired - taken - pending = available
-export type Balance = { acquired: number; taken: number; pending: number; available: number }
+// acquired = taken + pending + expired + available (les jours se prennent pendant 2 ans, puis ils sont perdus).
+// expiring : les jours qui seront perdus à la fin de cette année s'ils ne sont pas pris (null : aucun).
+export type Balance = {
+  acquired: number; taken: number; pending: number; expired: number; available: number
+  expiring: { days: number; on: string } | null
+}
 
 // Le calcul en direct (POST /api/leaves/mine/preview/) : rien n'est enregistré.
 export type LeavePreview = {
@@ -39,6 +43,14 @@ export type Leave = {
 
 // Un congé dans la page "Absences" des RH : le même congé, + qui et où.
 export type Absence = Leave & { employee: string; employee_id: number; department: string; pole: string }
+
+// Les chiffres d'une période (/api/leaves/absences/summary/) : les jours comptés sont ceux DANS la période.
+export type AbsenceSummary = { people: number; absent_today: number; approved_days: number; pending_days: number }
+
+/** Une date en "AAAA-MM-JJ", à l'heure LOCALE (toISOString donne l'heure UTC : après minuit, ce serait la veille). */
+export function isoDate(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
 
 /** 2.5 -> "2.5 days", 1 -> "1 day", 0.5 -> "0.5 day" */
 export function formatDays(days: number) {

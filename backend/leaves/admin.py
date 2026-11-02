@@ -13,8 +13,8 @@ class LeaveTypeAdmin(ReferenceAdmin):
 
 @admin.register(PublicHoliday)
 class PublicHolidayAdmin(ReferenceAdmin):
-    list_display = ("date", "name", "is_active")
-    list_filter = ("is_active",)
+    list_display = ("date", "name", "estimated", "is_active")
+    list_filter = ("estimated", "is_active")
     date_hierarchy = "date"  # naviguer par année / mois en haut de la liste
 
 
@@ -22,9 +22,10 @@ class PublicHolidayAdmin(ReferenceAdmin):
 class LeaveSettingsAdmin(admin.ModelAdmin):
     fieldsets = (
         ("Calcul du solde", {
-            "description": "Le solde part de 0 à cette date (ou à l'embauche, si elle est après), puis gagne "
-                           "chaque mois complet : (droit annuel de la fiche + ancienneté) / 12.",
-            "fields": ("counting_start",),
+            "description": "Depuis l'embauche, chaque mois complet rapporte (droit annuel de la fiche + ancienneté) / 12. "
+                           "Les jours gagnés une année se prennent pendant N ans (2 : jusqu'au 31/12 de l'année suivante), "
+                           "puis ils sont perdus.",
+            "fields": ("carry_over_years", "months_before_first_leave"),
         }),
         ("Ancienneté et maximum", {"fields": ("seniority_years", "seniority_bonus", "max_days_per_year")}),
     )

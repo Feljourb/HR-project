@@ -10,10 +10,12 @@ Annuler : /api/workflows/requests/<request>/cancel/ (le moteur s'en occupe, comm
 
 Step 8 (RH) :
 GET  /api/leaves/absences/?date_from=2026-11-01&date_to=2026-11-30 -> les congés en cours / acceptés de la période
+GET  /api/leaves/absences/summary/?date_from=...&date_to=...      -> les chiffres de la période (les cases de la page)
 GET/POST/PATCH /api/leaves/lists/leave-types/ et /lists/public-holidays/ -> les listes (voir urls.py)
 """
 import datetime
 
+from django.utils import timezone
 from django.utils.dateparse import parse_date
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
@@ -23,9 +25,12 @@ from rest_framework.response import Response
 from accounts.permissions import IsHR
 from employees.models import Employee
 from employees.services import limited_to_own_pole, user_pole
+from workflows.models import Request
 from workflows.views import run
 
 from .balance import balance
+from .counting import day_values
+from .holidays import ensure_year
 from .models import LeaveRequest, LeaveType, PublicHoliday
 from .serializers import (
     AbsenceSerializer, LeaveInputSerializer, LeaveRequestSerializer, LeaveTypeSerializer, PublicHolidaySerializer,
@@ -39,13 +44,22 @@ class LeaveTypeViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = LeaveTypeSerializer
 
 
+def ensure_coming_years(*years):
+    """Cette année et la suivante (+ celles demandées) ont leurs jours fériés (créés tout seuls, voir holidays.py)."""
+    this_year = timezone.localdate().year
+    for year in {this_year, this_year + 1, *years}:
+        ensure_year(year)
+
+
 class PublicHolidayViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = PublicHolidaySerializer
 
     def get_queryset(self):
-        holidays = PublicHoliday.objects.filter(is_active=True)
         year = self.request.query_params.get("year")
-        return holidays.filter(date__year=year) if year and year.isdigit() else holidays
+        year = int(year) if year and year.isdigit() and 1924 < int(year) < 2078 else None
+        ensure_coming_years(*([year] if year else []))
+        holidays = PublicHoliday.objects.filter(is_active=True)
+        return holidays.filter(date__year=year) if year else holidays
 
 
 class MyLeaveViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
@@ -120,3 +134,25 @@ class AbsenceViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
             # Un RH sans dossier n'a pas de pôle : il ne voit rien (plus sûr que tout montrer).
             leaves = leaves.filter(employee__department__direction__entity__pole=pole) if pole else leaves.none()
         return leaves
+
+    @action(detail=False, methods=["get"])
+    def summary(self, request):
+        """GET /api/leaves/absences/summary/?date_from=&date_to= -> les chiffres de la période, pour les cases
+        de la page (que les RH téléchargent en image pour leurs présentations) :
+        {"people": 4, "absent_today": 1, "approved_days": 12.5, "pending_days": 3}.
+        Même requête que le tableau (get_queryset) : même période, même pôle, mêmes droits.
+        Les jours comptés sont ceux DANS la période : un congé du 28/10 au 05/11 compte ses jours de novembre."""
+        params = request.query_params
+        start, end = period_param(params, "date_from"), period_param(params, "date_to")
+        today = timezone.localdate()
+        people, absent_today, days = set(), set(), {"approved": 0, "pending": 0}
+        for leave in self.get_queryset():
+            in_period = sum(value for day, value in day_values(leave.start_date, leave.end_date, leave.starts_afternoon,
+                                                               leave.ends_noon) if start <= day <= end)
+            approved = leave.request.status == Request.Status.APPROVED
+            days["approved" if approved else "pending"] += in_period
+            people.add(leave.employee_id)
+            if approved and leave.start_date <= today <= leave.end_date:
+                absent_today.add(leave.employee_id)
+        return Response({"people": len(people), "absent_today": len(absent_today),
+                         "approved_days": float(days["approved"]), "pending_days": float(days["pending"])})

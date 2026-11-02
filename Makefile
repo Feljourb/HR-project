@@ -35,6 +35,10 @@ seed:
 seed-requests:
 	$(DC) exec backend python manage.py seed_requests
 
+# Demo leaves (after make seed): accepted, in progress, refused... through the real rules and circuit.
+seed-leaves:
+	$(DC) exec backend python manage.py seed_leaves
+
 # One request, e.g.: make send-request user=collab.test type=LEAVE title="Congé du 2 au 6 décembre"
 send-request:
 	$(DC) exec backend python manage.py send_request $(user) $(type) "$(title)"
@@ -54,4 +58,4 @@ test:
 clean:
 	$(DC) down -v --remove-orphans
 
-.PHONY: up down build restart logs ps startapp migrations export-lists seed seed-requests send-request migrate superuser shell test clean
+.PHONY: up down build restart logs ps startapp migrations export-lists seed seed-requests seed-leaves send-request migrate superuser shell test clean
