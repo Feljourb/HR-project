@@ -195,7 +195,10 @@ export function AppShell({ me, onLogout, children }: AppShellProps) {
   return <div className="min-h-screen bg-[#F1F5F9] text-[#0F172A]">
     <aside className={`fixed inset-y-0 left-0 z-30 flex w-[264px] flex-col bg-[#192646] text-white transition-transform duration-200 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
       <div className="flex items-center gap-3 border-b border-white/10 px-4 py-5">
-        <BrandLogo />
+        {/* Le logo ramène au tableau de bord, comme sur la plupart des sites. */}
+        <Link href="/" aria-label="Go to the dashboard" title="Dashboard" className="rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-white/40">
+          <BrandLogo />
+        </Link>
         <button aria-label="Close navigation" onClick={() => setSidebarOpen(false)} className="ml-auto rounded-md p-1 text-slate-400 hover:bg-white/10 lg:hidden"><X /></button>
       </div>
 

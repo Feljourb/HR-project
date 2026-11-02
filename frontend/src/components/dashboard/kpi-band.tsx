@@ -1,26 +1,37 @@
 'use client'
 
 import { useState, type ReactNode } from 'react'
+import Link from 'next/link'
 import type { LucideIcon } from 'lucide-react'
 import { CalendarDays, Check, ClipboardCheck, Download, ReceiptText, Wallet } from 'lucide-react'
+import type { Balance } from '@/lib/leaves'
 import { cn } from '@/lib/utils'
 import { stagger, surface } from './panel'
-import { expenseHistory, leave, pendingExpenses, tasks } from './data'
+import { expenseHistory, pendingExpenses, tasks } from './data'
+import type { LeaveData } from './use-leave-data'
 import { useLiveState } from './live-store'
 import { MONTHS, MONTHS_LONG, daysBetween, daysInMonth, formatMad, officeClock, shortDate } from './time'
 
-export function KpiBand({ now }: { now: Date | null }) {
+export function KpiBand({ now, leaveData }: { now: Date | null; leaveData: LeaveData | 'none' | null }) {
   const clock = now ? officeClock(now) : null
-  const balance = leave.entitlement - leave.taken
+  // Le vrai solde (/api/leaves/mine/balance/) ; null tant qu'il n'est pas là, ou sans dossier RH.
+  const balance = leaveData && leaveData !== 'none' ? leaveData.balance : null
   const payday = clock ? daysInMonth(clock.year, clock.month) : null
   const daysToPay = clock && payday ? payday - clock.day : null
   const { acknowledged } = useLiveState()
   const openTasks = tasks.filter((t) => !(t.acknowledges && acknowledged[t.acknowledges])).length
 
   return <section style={stagger(1)} className={cn(surface, 'sbd-rise grid gap-px overflow-hidden bg-slate-200/80 sm:grid-cols-2 xl:grid-cols-4')}>
-    <KpiCell icon={CalendarDays} label="Leave balance" value={String(balance)} unit={`of ${leave.entitlement} days`}
-      footer={<>+{leave.monthlyAccrual} days accrue on <b className="font-semibold text-slate-700">1 {clock ? MONTHS[clock.month % 12] : 'next month'}</b></>}>
-      <LeaveMeter />
+    <KpiCell icon={CalendarDays} label="Leave balance" value={balance ? String(balance.available) : '—'}
+      unit={balance ? 'days available' : leaveData === 'none' ? 'no leave data' : ''}
+      footer={<span className="flex items-center justify-between gap-2">
+        {/* Les jours de l'an dernier perdus le 31/12 s'ils ne sont pas pris : on prévient. */}
+        <span className="truncate">{balance?.expiring
+          ? <><b className="font-semibold text-slate-700">{balance.expiring.days}</b> days lost on {shortDate(balance.expiring.on)}</>
+          : 'Usable for 2 years'}</span>
+        <Link href="/leaves" className="shrink-0 font-semibold text-[#23355d] hover:underline">Request a leave</Link>
+      </span>}>
+      {balance ? <LeaveMeter balance={balance} /> : <Meter value={0} max={1} />}
     </KpiCell>
 
     <KpiCell icon={ReceiptText} label="Expenses in approval" value={formatMad(pendingExpenses.total)} unit="MAD"
@@ -80,11 +91,12 @@ function KpiCell({ icon: Icon, label, value, unit, footer, children }: { icon: L
   </div>
 }
 
-function LeaveMeter() {
+// Pris (acceptés) / en attente (en cours de validation) / disponibles : les trois parts du solde.
+function LeaveMeter({ balance }: { balance: Balance }) {
   const segments = [
-    { label: 'Taken', value: leave.taken, color: 'bg-[#23355d]' },
-    { label: 'Planned', value: leave.planned, color: 'bg-[#8A9CC9]' },
-    { label: 'Free', value: leave.entitlement - leave.taken - leave.planned, color: 'bg-[#E4E9F2]' },
+    { label: 'Taken', value: balance.taken, color: 'bg-[#23355d]' },
+    { label: 'Pending', value: balance.pending, color: 'bg-[#8A9CC9]' },
+    { label: 'Free', value: Math.max(balance.available, 0), color: 'bg-[#E4E9F2]' },
   ]
   return <div className="flex flex-col gap-2">
     <div className="flex h-2 gap-0.5 overflow-hidden rounded-full" role="img" aria-label={segments.map((s) => `${s.label} ${s.value} days`).join(', ')}>

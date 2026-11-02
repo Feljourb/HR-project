@@ -1,4 +1,5 @@
 import type { CSSProperties, ReactNode } from 'react'
+import Link from 'next/link'
 import type { LucideIcon } from 'lucide-react'
 import { ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -24,10 +25,12 @@ export function PanelHeader({ icon: Icon, title, meta, children }: { icon: Lucid
   </header>
 }
 
-export function PanelLink({ children }: { children: ReactNode }) {
-  return <button type="button" className="mt-auto flex items-center justify-center gap-1 border-t border-slate-100 py-2.5 text-[11px] font-semibold text-[#23355d] transition-colors hover:bg-slate-50 focus-visible:bg-slate-50 focus-visible:outline-none">
-    {children}<ChevronRight className="size-3.5" />
-  </button>
+/** Le lien en bas d'une case. Avec `href` : une vraie page (ex. /leaves) ; sans : une page qui n'existe pas encore. */
+export function PanelLink({ href, children }: { href?: string; children: ReactNode }) {
+  const className = 'mt-auto flex items-center justify-center gap-1 border-t border-slate-100 py-2.5 text-[11px] font-semibold text-[#23355d] transition-colors hover:bg-slate-50 focus-visible:bg-slate-50 focus-visible:outline-none'
+  return href
+    ? <Link href={href} className={className}>{children}<ChevronRight className="size-3.5" /></Link>
+    : <button type="button" className={className}>{children}<ChevronRight className="size-3.5" /></button>
 }
 
 export function DateTile({ dayKey }: { dayKey: string }) {

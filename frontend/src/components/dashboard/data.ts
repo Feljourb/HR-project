@@ -1,5 +1,6 @@
 /* Sample data for the employee home page. Figures are kept consistent with each other:
-   pending claims add up to the KPI total, leave taken + planned + free = entitlement. */
+   pending claims add up to the KPI total.
+   Leave balance, leaves and public holidays are NOT here any more: they come from the leaves API (use-leave-data.ts). */
 
 export type RequestKind = 'leave' | 'expense'
 export type RequestStatus = 'approved' | 'pending' | 'rejected'
@@ -38,9 +39,6 @@ export const expenseHistory = [
   { month: 'Sep', amount: 3910 },
 ]
 
-/** Moroccan Labour Code: 1.5 days accrued per month worked, 18 days a year. */
-export const leave = { entitlement: 18, taken: 5.5, planned: 3, monthlyAccrual: 1.5 }
-
 /** `acknowledges` links a task to a must-read story: acknowledging the story completes the task. */
 export const tasks: { id: string; title: string; due: string; from: string; acknowledges?: string }[] = [
   { id: 'training-eval', title: 'Training evaluation · Advanced Excel', due: '2026-10-02', from: 'HR' },
@@ -73,14 +71,10 @@ export const weekLoad = [
   { day: 'Fri', hours: 1 },
 ]
 
-export type TimeOffKind = 'leave' | 'holiday' | 'event'
-
-export const timeOff: { from: string; to: string; kind: TimeOffKind; title: string; meta: string }[] = [
+/* Company events (sample: there is no events module yet). Leaves and public holidays come from the API. */
+export const timeOff: { from: string; to: string; kind: 'event'; title: string; meta: string }[] = [
   { from: '2026-10-02', to: '2026-10-02', kind: 'event', title: 'Seminar registration closes', meta: 'Annual Team Seminar' },
   { from: '2026-10-08', to: '2026-10-08', kind: 'event', title: 'Q4 Town Hall', meta: '10:00 · Main auditorium' },
-  { from: '2026-10-12', to: '2026-10-14', kind: 'leave', title: 'Annual leave', meta: '3 days · Approved' },
-  { from: '2026-11-06', to: '2026-11-06', kind: 'holiday', title: 'Green March Day', meta: 'Office closed' },
-  { from: '2026-11-18', to: '2026-11-18', kind: 'holiday', title: 'Independence Day', meta: 'Office closed' },
 ]
 
 export type Presence = 'office' | 'remote' | 'leave'

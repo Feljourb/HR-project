@@ -13,15 +13,18 @@ import { NewsPanel } from '@/components/dashboard/news-panel'
 import { RequestsPanel } from '@/components/dashboard/requests-panel'
 import { TimeOffPanel } from '@/components/dashboard/time-off-panel'
 import { useNow } from '@/components/dashboard/time'
+import { useLeaveData } from '@/components/dashboard/use-leave-data'
 import { isHr, type Me } from '@/lib/api'
 
 export function SbdDashboard({ me }: { me: Me }) {
   const firstName = displayNameOf(me.username).split(' ')[0]
   const now = useNow()
+  // Lu une seule fois ici, puis donné aux deux cases qui parlent de congés.
+  const leaveData = useLeaveData()
 
   return <>
     <Greeting now={now} name={firstName} canAddEmployee={isHr(me)} />
-    <KpiBand now={now} />
+    <KpiBand now={now} leaveData={leaveData} />
 
     {/* 12-column grid on wide screens: leadership video + news, then requests + time off.
         Two columns on tablets, one on phones. Panels in a row share a height. */}
@@ -29,7 +32,7 @@ export function SbdDashboard({ me }: { me: Me }) {
       <FeaturedVideo className="md:col-span-2 xl:col-span-7" index={2} />
       <NewsPanel className="md:col-span-2 xl:col-span-5" index={3} />
       <RequestsPanel className="md:col-span-2 xl:col-span-8" index={4} />
-      <TimeOffPanel now={now} className="xl:col-span-4" index={5} />
+      <TimeOffPanel now={now} leaveData={leaveData} className="xl:col-span-4" index={5} />
     </div>
 
     <footer className="flex flex-col gap-2 border-t border-slate-200 pt-4 text-[11px] text-slate-400 sm:flex-row sm:items-center sm:justify-between"><span>© 2026 Silent Believers Distribution</span><span className="flex items-center gap-1 font-mono"><FileText className="size-3" /> SBD-HR-PORTAL</span></footer>

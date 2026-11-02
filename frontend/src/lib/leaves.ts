@@ -9,6 +9,9 @@ export type LeaveType = {
   max_days: number | null    // le maximum légal (ex. mariage : 4), null : pas de maximum
 }
 
+// Un jour férié (/api/leaves/holidays/). estimated : fête religieuse calculée, la date peut bouger d'un jour.
+export type Holiday = { id: number; date: string; name: string; estimated: boolean }
+
 // acquired = taken + pending + expired + available (les jours se prennent pendant 2 ans, puis ils sont perdus).
 // expiring : les jours qui seront perdus à la fin de cette année s'ils ne sont pas pris (null : aucun).
 export type Balance = {

@@ -18,9 +18,11 @@ class LeaveTypeSerializer(serializers.ModelSerializer):
 
 
 class PublicHolidaySerializer(serializers.ModelSerializer):
+    """Un jour férié : {"id", "date", "name", "estimated"} (estimated : fête religieuse calculée, à confirmer)."""
+
     class Meta:
         model = PublicHoliday
-        fields = ["id", "date", "name"]
+        fields = ["id", "date", "name", "estimated"]
 
 
 class HolidayListSerializer(ReferenceSerializer):
