@@ -7,7 +7,7 @@
  */
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { apiFetch } from '@/lib/api'
-import { formatDate, formatDays, isoDate, type Balance, type Leave } from '@/lib/leaves'
+import { formatDate, formatDays, type Balance, type Leave } from '@/lib/leaves'
 import { LeaveForm } from './leave-form'
 import { MyLeaves } from './my-leaves'
 import { StatTiles } from './stat-tiles'
@@ -58,7 +58,6 @@ export function Message({ children }: { children: ReactNode }) {
 // Pas le total gagné depuis l'embauche (il compte aussi les jours perdus) : seulement ce qui sert.
 function BalanceTiles({ balance }: { balance: Balance }) {
   const { expiring } = balance
-  const today = isoDate(new Date())
   const tiles = [
     { label: 'Available', value: formatDays(balance.available), hint: 'Earned month after month, usable for 2 years', strong: true },
     { label: 'Taken', value: formatDays(balance.taken), hint: 'Approved annual leaves' },
@@ -67,5 +66,6 @@ function BalanceTiles({ balance }: { balance: Balance }) {
     { label: expiring ? `Lost on ${formatDate(expiring.on)}` : 'Lost at year end', value: formatDays(expiring?.days ?? 0),
       hint: expiring ? 'Take them first (they are used first)' : 'Nothing to lose this year' },
   ]
-  return <StatTiles tiles={tiles} title="My leave balance" subtitle={`On ${formatDate(today)}`} fileName={`leave-balance_${today}.png`} />
+  // Pas d'image ici : le téléchargement est réservé aux RH (page Absences).
+  return <StatTiles tiles={tiles} label="My leave balance" />
 }

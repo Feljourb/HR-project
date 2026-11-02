@@ -1,13 +1,13 @@
 'use client'
 
 /*
- * Les cases de chiffres (ex. Available / Taken / Pending) + "Download image" : la même bande en image PNG
- * propre, pour les présentations des RH (mieux qu'une capture d'écran : pas de menu, pas de souris,
- * un titre et la date, et nette même agrandie).
+ * Les cases de chiffres (ex. Available / Taken / Pending). Pour les RH seulement (page Absences) : une icône
+ * qui télécharge la même bande en image PNG propre, pour leurs présentations (mieux qu'une capture d'écran :
+ * pas de menu, pas de souris, un titre et la date, et nette même agrandie).
  * L'image est DESSINÉE par le navigateur (<canvas>), case par case : pas de bibliothèque en plus.
  */
 import { useState } from 'react'
-import { Download } from 'lucide-react'
+import { Check, Download } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export type Tile = { label: string; value: string; hint?: string; strong?: boolean }
@@ -83,21 +83,26 @@ function downloadImage(title: string, subtitle: string, tiles: Tile[], fileName:
 
 type StatTilesProps = {
   tiles: Tile[]
-  title: string       // le titre DANS l'image, ex. "Absences — November 2026"
-  subtitle: string    // ex. "Pôle SBD · approved and pending leaves"
-  fileName: string    // ex. "absences_2026-11.png"
+  label: string  // le nom de la bande, pour les lecteurs d'écran
+  // Seulement pour les RH (page Absences) : l'icône de téléchargement de l'image. Absent : pas d'icône.
+  image?: {
+    title: string     // le titre DANS l'image, ex. "Absences · November 2026"
+    subtitle: string  // ex. "Pôle SBD · approved and pending leaves"
+    fileName: string  // ex. "absences_2026-11.png"
+  }
 }
 
-export function StatTiles({ tiles, title, subtitle, fileName }: StatTilesProps) {
+export function StatTiles({ tiles, label, image }: StatTilesProps) {
   const [done, setDone] = useState(false)
 
   function download() {
-    downloadImage(title, subtitle, tiles, fileName)
+    if (!image) return
+    downloadImage(image.title, image.subtitle, tiles, image.fileName)
     setDone(true)
     setTimeout(() => setDone(false), 2000)
   }
 
-  return <section aria-label={title} className="flex flex-col gap-2">
+  return <section aria-label={label} className="flex flex-col gap-2">
     <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
       {tiles.map((tile) => (
         <div key={tile.label} className={cn('rounded-xl border px-4 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]',
@@ -108,9 +113,11 @@ export function StatTiles({ tiles, title, subtitle, fileName }: StatTilesProps) 
         </div>
       ))}
     </div>
-    <button type="button" onClick={download}
-      className="flex items-center gap-1.5 self-end rounded-md px-2 py-1 text-[11px] font-semibold text-slate-500 hover:bg-white hover:text-[#192646]">
-      <Download className="size-3.5" /> {done ? 'Image downloaded' : 'Download image (PNG)'}
-    </button>
+    {/* Juste l'icône (demande des RH). aria-label : le nom lu par un lecteur d'écran ; title : la bulle au survol. */}
+    {image && <button type="button" onClick={download} aria-label="Download the figures as an image (PNG)"
+      title={done ? 'Image downloaded' : 'Download the figures as an image (PNG)'}
+      className="self-start rounded-md p-1.5 text-slate-500 hover:bg-white hover:text-[#192646]">
+      {done ? <Check className="size-4 text-emerald-600" /> : <Download className="size-4" />}
+    </button>}
   </section>
 }

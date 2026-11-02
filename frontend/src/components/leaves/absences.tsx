@@ -72,9 +72,12 @@ export function Absences() {
     </div>
 
     {current && <StatTiles
-      title={`Absences · ${monthName}`}
-      subtitle={`${poles.size ? `Pôle ${[...poles].join(' & ')}` : 'Your pôle'} · approved and pending leaves`}
-      fileName={`absences_${from.slice(0, 7)}.png`}
+      label={`Absences of ${monthName}`}
+      image={{
+        title: `Absences · ${monthName}`,
+        subtitle: `${poles.size ? `Pôle ${[...poles].join(' & ')}` : 'Your pôle'} · approved and pending leaves`,
+        fileName: `absences_${from.slice(0, 7)}.png`,
+      }}
       tiles={[
         { label: 'People absent', value: String(current.summary.people), hint: 'At least one leave this month', strong: true },
         { label: 'Days approved', value: formatDays(current.summary.approved_days), hint: 'Inside this month' },
