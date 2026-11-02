@@ -78,7 +78,7 @@ Decisions (validated by the user 2026-11-02; standard + Moroccan Code du travail
 - Types (a list Admin RH manages): Congé annuel (taken from the balance), exceptional leaves with a legal maximum (mariage, naissance, décès... not taken from the balance), maladie and sans solde (not taken from the balance). Public holidays: a list Admin RH manages (fixed dates given; religious dates added each year when announced).
 - Later (v2): supporting document upload (certificat médical), cancelling an already approved leave.
 - [x] 1. Lists: `LeaveType` (deducted from the balance?, legal max days) + `PublicHoliday` (date, unique; the name repeats every year) with initial values (migration leaves 0002: 10 types, fixed holidays 2026–2027), in /admin.
-- [ ] 2. Day counting function (weekdays, Saturday half, holidays, half days) + tests.
+- [x] 2. Day counting (`leaves/counting.py`: `count_days`, `day_values` = the detail day by day; weekdays 1, Saturday 0.5, Sunday 0, active holidays 0; `starts_afternoon` / `ends_noon` remove 0.5 only on a working day) + tests.
 - [ ] 3. `LeaveRequest` + rules (dates, no overlap, enough balance, max days of the type) + submit through the engine.
 - [ ] 4. Balance (acquired with months + seniority, cap 36, taken, pending, available) + leave settings.
 - [ ] 5. `on_approved("LEAVE")` handler.

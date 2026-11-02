@@ -1,9 +1,11 @@
-"""Tests du module Congés. Step 1 : les deux listes et leurs valeurs de départ."""
+"""Tests du module Congés. Step 1 : les deux listes et leurs valeurs de départ. Step 2 : le calcul des jours."""
 import datetime
+from decimal import Decimal
 
 from django.core.exceptions import ValidationError
 from django.test import TestCase
 
+from .counting import count_days, day_values
 from .models import LeaveType, PublicHoliday
 
 
@@ -42,3 +44,44 @@ class ListRulesTests(TestCase):
     def test_leave_type_names_are_unique_and_max_is_at_least_half_a_day(self):
         self.assertIn("__all__", self.errors_of(LeaveType(name="congé ANNUEL")))  # même nom, autres majuscules
         self.assertIn("max_days", self.errors_of(LeaveType(name="Congé test", max_days=0)))
+
+
+def nov(day):
+    """Novembre 2026 : lundi 2, vendredi 6 = Marche Verte (férié), lundi 9, mercredi 18 = Indépendance (férié)."""
+    return datetime.date(2026, 11, day)
+
+
+class CountingTests(TestCase):
+    def count(self, start, end, **halves):
+        return count_days(nov(start), nov(end), **halves)
+
+    def test_weekdays_count_one_day(self):
+        self.assertEqual(self.count(23, 27), 5)  # lundi -> vendredi, sans férié
+
+    def test_saturday_is_half_a_day_and_sunday_nothing(self):
+        self.assertEqual(self.count(27, 30), Decimal("2.5"))  # vendredi 1 + samedi 0,5 + dimanche 0 + lundi 1
+        self.assertEqual(self.count(23, 29), Decimal("5.5"))  # une semaine entière
+        self.assertEqual(self.count(29, 29), 0)               # un dimanche seul
+
+    def test_public_holidays_count_nothing(self):
+        self.assertEqual(self.count(2, 6), 4)                 # le vendredi 6 est la Marche Verte
+        self.assertEqual(self.count(2, 9), Decimal("5.5"))    # 4 + férié 0 + samedi 0,5 + dimanche 0 + lundi 1
+
+    def test_a_deactivated_holiday_is_a_normal_day(self):
+        PublicHoliday.objects.filter(date=nov(6)).update(is_active=False)
+        self.assertEqual(self.count(2, 6), 5)
+
+    def test_half_days_at_the_start_or_the_end(self):
+        self.assertEqual(self.count(23, 25, starts_afternoon=True), Decimal("2.5"))  # lundi après-midi -> mercredi
+        self.assertEqual(self.count(23, 25, ends_noon=True), Decimal("2.5"))         # lundi -> mercredi midi
+        self.assertEqual(self.count(23, 25, starts_afternoon=True, ends_noon=True), 2)
+        self.assertEqual(self.count(23, 23, ends_noon=True), Decimal("0.5"))          # une matinée
+        # Un samedi ou un férié garde son prix : la demi-journée ne change qu'un jour de travail.
+        self.assertEqual(self.count(28, 30, starts_afternoon=True), Decimal("1.5"))  # samedi 0,5 + dim 0 + lundi 1
+
+    def test_the_detail_explains_the_total(self):
+        self.assertEqual(day_values(nov(6), nov(7)), [(nov(6), 0), (nov(7), Decimal("0.5"))])
+
+    def test_end_before_start_is_refused(self):
+        with self.assertRaises(ValueError):
+            self.count(9, 2)
