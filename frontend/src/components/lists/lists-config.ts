@@ -6,7 +6,7 @@ import type { ReferenceItem } from '@/lib/employees'
 // + le responsable pour les directions et les services, + les champs des listes du module Congés).
 export type ListValue = ReferenceItem & {
   code?: string; head?: number | null; head_label?: string | null
-  deducts_balance?: boolean; max_days?: string | null; date?: string; estimated?: boolean
+  deducts_balance?: boolean; max_days?: string | null; date?: string; estimated?: boolean; fixed?: boolean
   ceiling?: string; receipt_required?: boolean
 }
 
@@ -34,6 +34,7 @@ export type ListConfig = {
   headFilter?: 'direction' | 'department'
   extra?: ExtraField[]  // des champs en plus du nom
   byDate?: boolean      // trier par date (jours fériés), pas par nom
+  panel?: 'holidays'    // une page à part (jours fériés : année par année, onglets fixes / variables)
 }
 
 // Les listes du module Congés (adresse /api/leaves/lists/...).
@@ -42,9 +43,9 @@ export const LEAVE_LISTS: ListConfig[] = [
     { name: 'deducts_balance', label: 'Taken from the balance', type: 'checkbox' },
     { name: 'max_days', label: 'Legal maximum (days)', type: 'number' },
   ] },
-  // Créés tout seuls chaque année (backend leaves/holidays.py). Les fêtes religieuses arrivent "estimées" :
-  // Admin RH corrige la date si le Ministère annonce un autre jour, puis décoche.
-  { name: 'public-holidays', api: '/api/leaves/lists', title: 'Jours fériés', singular: 'Jour férié', byDate: true, extra: [
+  // Créés tout seuls chaque année (backend leaves/holidays.py) ; chaque année garde SES lignes (jamais remplacées).
+  // Page à part (holidays-panel.tsx) : une année à la fois, onglets "fixes" / "variables" (décision du 2026-11-03).
+  { name: 'public-holidays', api: '/api/leaves/lists', title: 'Jours fériés', singular: 'Jour férié', byDate: true, panel: 'holidays', extra: [
     { name: 'date', label: 'Date', type: 'date', required: true },
     { name: 'estimated', label: 'Estimated (to confirm)', type: 'checkbox' },
   ] },

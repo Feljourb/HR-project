@@ -637,6 +637,8 @@ class Notification(models.Model):
         INFORMED = "INFORMED", "Pour information"
         APPROVED = "APPROVED", "Demande acceptée"
         REJECTED = "REJECTED", "Demande refusée"
+        # Un jour férié a changé : le congé a été recompté (app leaves, recount.py).
+        RECOUNTED = "RECOUNTED", "Congé recalculé"
 
     recipient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notifications",
                                   verbose_name="Destinataire")

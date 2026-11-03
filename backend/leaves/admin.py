@@ -1,8 +1,10 @@
 from django.contrib import admin
+from django.db import transaction
 
 from employees.admin import ReferenceAdmin
 
-from .models import LeaveRequest, LeaveSettings, LeaveType, PublicHoliday
+from .models import LeaveRecount, LeaveRequest, LeaveSettings, LeaveType, PublicHoliday
+from .recount import holiday_changed
 
 
 @admin.register(LeaveType)
@@ -16,6 +18,13 @@ class PublicHolidayAdmin(ReferenceAdmin):
     list_display = ("date", "name", "estimated", "is_active")
     list_filter = ("estimated", "is_active")
     date_hierarchy = "date"  # naviguer par année / mois en haut de la liste
+
+    @transaction.atomic
+    def save_model(self, request, obj, form, change):
+        # Comme la page Reference lists : les congés touchés par ce jour férié sont recomptés (recount.py).
+        old = PublicHoliday.objects.filter(pk=obj.pk).values_list("date", "is_active").first() if change else None
+        super().save_model(request, obj, form, change)
+        holiday_changed(obj, tuple(old) if old else None, request.user)
 
 
 @admin.register(LeaveSettings)
@@ -38,8 +47,21 @@ class LeaveSettingsAdmin(admin.ModelAdmin):
         return False
 
 
+class RecountInline(admin.TabularInline):
+    """Les recalculs du congé (un jour férié a changé), en lecture seule : c'est son historique."""
+    model = LeaveRecount
+    extra = 0
+    can_delete = False
+    readonly_fields = ("created_at", "old_days", "new_days", "reason", "warning", "changed_by")
+    fields = readonly_fields
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
 @admin.register(LeaveRequest)
 class LeaveRequestAdmin(admin.ModelAdmin):
+    inlines = [RecountInline]
     # En lecture seule, comme les demandes du moteur : un congé change seulement par son circuit.
     list_display = ("employee", "leave_type", "start_date", "end_date", "days", "status")
     list_filter = ("leave_type", "request__status")

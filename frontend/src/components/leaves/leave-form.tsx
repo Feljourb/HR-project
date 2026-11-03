@@ -42,7 +42,9 @@ export function LeaveForm({ onSent }: { onSent: () => void }) {
 
   // Ce que le calcul dépend : tout sauf le motif. Vide tant qu'il manque le type ou une date.
   const { reason, ...counted } = draft
-  const previewKey = draft.leave_type && draft.start_date && draft.end_date ? JSON.stringify(counted) : ''
+  // Une date "finie" : l'année tapée en entier (pendant la frappe, le navigateur donne 0002, 0020, 0202...).
+  const finished = (date: string) => Number(date.slice(0, 4)) >= 2000
+  const previewKey = draft.leave_type && finished(draft.start_date) && finished(draft.end_date) ? JSON.stringify(counted) : ''
 
   useEffect(() => {
     if (!previewKey) return

@@ -87,6 +87,12 @@ class AutomaticHolidaysTests(TestCase):
         self.assertEqual(PublicHoliday.objects.filter(date__year=2028).count(), 18)
         self.assertFalse(PublicHoliday.objects.get(date=datetime.date(2028, 11, 6)).is_active)
 
+    def test_impossible_years_are_never_created(self):
+        # Une année trop loin d'aujourd'hui (une faute de frappe, ex. l'an 202) : rien n'est créé.
+        ensure_year(202)
+        ensure_year(timezone.localdate().year + 50)
+        self.assertFalse(PublicHoliday.objects.filter(date__year__in=[202, timezone.localdate().year + 50]).exists())
+
     def test_counting_a_leave_creates_the_year_if_needed(self):
         self.assertEqual(count_days(datetime.date(2029, 11, 5), datetime.date(2029, 11, 6)), 1)  # 06/11 = Marche Verte
 
@@ -178,8 +184,10 @@ class RequestLeaveTests(EngineTestCase):
         self.assertEqual(self.sara.leaves.get(), leave)  # "mes congés"
 
     def test_the_days_are_a_photo_taken_when_sent(self):
+        # Un jour férié écrit directement en base ne change rien : le recalcul passe par recount.holiday_changed
+        # (la page Reference lists et /admin l'appellent ; voir test_recount.py).
         leave = self.ask(23, 27)
-        PublicHoliday.objects.create(name="Fête ajoutée", date=nov(24))  # Admin RH ajoute un férié APRÈS
+        PublicHoliday.objects.create(name="Fête ajoutée", date=nov(24))
         leave.refresh_from_db()
         self.assertEqual(leave.days, 5)
 

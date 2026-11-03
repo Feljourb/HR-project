@@ -19,6 +19,7 @@ import { AddValueDialog, type AddRequest } from '@/components/employees/add-valu
 import { SelectField } from '@/components/employees/form-fields'
 import { useList } from '@/components/employees/use-list'
 import { EXPENSE_LISTS, LEAVE_LISTS, LISTS_API, ORGANISATION, OTHER_LISTS, filtersOf, type ListConfig, type ListValue } from './lists-config'
+import { HolidaysPanel } from './holidays-panel'
 import { ValueRow } from './value-row'
 
 // Le choix fait dans un filtre : l'id (pour l'API) et le nom (pour "Dans : Challenge").
@@ -44,7 +45,8 @@ export function ListsManager() {
   // --- Les valeurs de la liste (actives et désactivées) ---
   // La "clé" de la requête, ex. "departments/?all=1&direction=4" ; null tant que le parent manque.
   const api = current.api ?? LISTS_API
-  const key = ready ? `${api}/${current.name}/?all=1${current.parentField ? `&${current.parentField}=${parent?.id}` : ''}` : null
+  // (Une liste avec sa propre page, ex. les jours fériés, charge elle-même ses valeurs.)
+  const key = ready && !current.panel ? `${api}/${current.name}/?all=1${current.parentField ? `&${current.parentField}=${parent?.id}` : ''}` : null
   const sortItems = current.byDate ? byDate : byName
   const [loaded, setLoaded] = useState<{ key: string; items: ListValue[] } | null>(null)
   const [failedKey, setFailedKey] = useState<string | null>(null)
@@ -126,12 +128,14 @@ export function ListsManager() {
         ))}
       </nav>
 
+      {/* Les jours fériés : leur propre page (année par année, onglets fixes / variables). */}
+      {current.panel === 'holidays' ? <HolidaysPanel list={current} /> :
       <section className="min-w-0 rounded-xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
         <header className="flex flex-wrap items-center gap-3 border-b border-slate-100 px-4 py-3">
           <div className="min-w-0 flex-1">
             <h2 className="text-sm font-semibold text-[#192646]">{current.title}</h2>
             <p className="text-[11px] text-slate-500">
-              {items ? `${items.length} values${inactiveCount ? ` · ${inactiveCount} inactive` : ''}` : ' '}
+              {items ? `${items.length} values${inactiveCount ? ` · ${inactiveCount} inactive` : ''}` :' '}
             </p>
           </div>
           <button type="button" onClick={openAdd} disabled={!ready}
@@ -185,7 +189,7 @@ export function ListsManager() {
                       </tbody>
                     </table>
                   </div>}
-      </section>
+      </section>}
     </div>
   </div>
 }

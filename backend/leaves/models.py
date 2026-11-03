@@ -8,6 +8,7 @@ Step 4 : LeaveSettings, les règles du solde (ancienneté, maximum par an, jours
 """
 from decimal import Decimal
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models
@@ -123,8 +124,8 @@ class LeaveRequest(models.Model):
     end_date = models.DateField("Au")
     starts_afternoon = models.BooleanField("Commence l'après-midi", default=False)
     ends_noon = models.BooleanField("Finit à midi", default=False)
-    # Le nombre de jours, calculé UNE fois à l'envoi (la "photo", comme le circuit) :
-    # si Admin RH ajoute un jour férié plus tard, un congé déjà envoyé ne change pas tout seul.
+    # Le nombre de jours, calculé à l'envoi (la "photo"). Si Admin RH change un jour férié plus tard,
+    # il est RECALCULÉ (leaves/recount.py) et le changement est noté dans LeaveRecount (décision du 2026-11-03).
     days = models.DecimalField("Jours", max_digits=5, decimal_places=1)
     reason = models.TextField("Motif", blank=True)
 
@@ -197,3 +198,27 @@ class LeaveRequest(models.Model):
                     f"Solde insuffisant : {days_label(max(available, 0))} jour(s) disponible(s), "
                     f"cette demande en compte {days_label(self.days)}."
                 )
+
+
+class LeaveRecount(models.Model):
+    """Un congé recalculé parce qu'un jour férié a changé (ajouté, déplacé, désactivé...) : la trace.
+    Ex. "Aïd Al Fitr : 20/03/2026 -> 21/03/2026", 4 -> 3 jours, par Nadia le 05/03.
+    Jamais modifiée ni supprimée : c'est l'historique du congé."""
+
+    leave = models.ForeignKey(LeaveRequest, on_delete=models.CASCADE, related_name="recounts", verbose_name="Congé")
+    old_days = models.DecimalField("Avant (jours)", max_digits=5, decimal_places=1)
+    new_days = models.DecimalField("Après (jours)", max_digits=5, decimal_places=1)
+    reason = models.CharField("Raison", max_length=200)  # ce qui a changé dans le jour férié
+    # Un point que les RH doivent regarder (solde négatif, maximum du type dépassé, 0 jour), ou vide.
+    warning = models.CharField("À vérifier", max_length=200, blank=True)
+    changed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name="+", verbose_name="Jour férié changé par")
+    created_at = models.DateTimeField("Le", auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at", "id"]
+        verbose_name = "Recalcul de congé"
+        verbose_name_plural = "Recalculs de congé"
+
+    def __str__(self):
+        return f"{self.leave} : {self.old_days} -> {self.new_days} j"

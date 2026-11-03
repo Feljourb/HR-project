@@ -67,7 +67,8 @@ class MyLeaveViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.Cr
     serializer_class = LeaveRequestSerializer
 
     def get_queryset(self):
-        return LeaveRequest.objects.filter(employee__user=self.request.user).select_related("leave_type", "request")
+        return (LeaveRequest.objects.filter(employee__user=self.request.user)
+                .select_related("leave_type", "request").prefetch_related("recounts"))
 
     def employee(self):
         """MON dossier RH. Un compte sans dossier (ex. un compte IT) n'a pas de congés."""
@@ -131,6 +132,7 @@ class AbsenceViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         leaves = (
             LeaveRequest.objects.filter(request__status__in=statuses, start_date__lte=end, end_date__gte=start)
             .select_related("leave_type", "request", "employee__department__direction__entity__pole")
+            .prefetch_related("recounts")
             .order_by("start_date", "employee__last_name")
         )
         if limited_to_own_pole(user):

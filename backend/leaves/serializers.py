@@ -4,7 +4,8 @@ from rest_framework import serializers
 from employees.serializers import ReferenceSerializer
 from workflows.serializers import person
 
-from .models import LeaveRequest, LeaveType, PublicHoliday
+from .holidays import in_window, is_fixed
+from .models import LeaveRecount, LeaveRequest, LeaveType, PublicHoliday
 
 
 class LeaveTypeSerializer(serializers.ModelSerializer):
@@ -28,12 +29,18 @@ class PublicHolidaySerializer(serializers.ModelSerializer):
 class HolidayListSerializer(ReferenceSerializer):
     """Un jour férié dans la page "Reference lists" (Admin RH). Comme les autres listes, sauf un détail :
     DRF ajoute tout seul un contrôle "date unique" avec un message anglais ("... already exists").
-    On l'enlève : la règle du modèle (full_clean) donne le message en français."""
+    On l'enlève : la règle du modèle (full_clean) donne le message en français.
+    + "fixed" : l'onglet de la page (fêtes fixes / variables)."""
+
+    fixed = serializers.SerializerMethodField()
 
     class Meta:
         model = PublicHoliday
         fields = "__all__"
         extra_kwargs = {"date": {"validators": []}}
+
+    def get_fixed(self, holiday):
+        return is_fixed(holiday)
 
 
 class LeaveInputSerializer(serializers.Serializer):
@@ -47,11 +54,31 @@ class LeaveInputSerializer(serializers.Serializer):
     ends_noon = serializers.BooleanField(default=False)
     reason = serializers.CharField(required=False, allow_blank=True, default="", max_length=1000)
 
+    def validate(self, data):
+        # Une date à moins de 5 ans d'aujourd'hui : "0002-11-10" (une année pas encore tapée en entier) est
+        # refusée tout de suite, sans calcul (sinon : 2000 ans de jours à compter, et des jours fériés créés).
+        for name in ("start_date", "end_date"):
+            if not in_window(data[name].year):
+                raise serializers.ValidationError({name: f"Année impossible ({data[name].year}) : vérifiez la date."})
+        return data
+
+
+class RecountSerializer(serializers.ModelSerializer):
+    """Un recalcul du congé (un jour férié a changé) : {"old_days": 4, "new_days": 3, "reason": "...", ...}."""
+
+    old_days = serializers.DecimalField(max_digits=5, decimal_places=1, coerce_to_string=False)
+    new_days = serializers.DecimalField(max_digits=5, decimal_places=1, coerce_to_string=False)
+
+    class Meta:
+        model = LeaveRecount
+        fields = ["old_days", "new_days", "reason", "warning", "created_at"]
+
 
 class LeaveRequestSerializer(serializers.ModelSerializer):
     """Un de MES congés, pour "Mes congés". Le statut vient du moteur (request.status)."""
 
     leave_type_label = serializers.StringRelatedField(source="leave_type")
+    recounts = RecountSerializer(many=True, read_only=True)  # vide la plupart du temps
     days = serializers.DecimalField(max_digits=5, decimal_places=1, coerce_to_string=False)  # 2.5, pas "2.5"
     status = serializers.CharField(source="request.status")
     status_label = serializers.CharField(source="request.get_status_display")
@@ -62,7 +89,7 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
         # request = le numéro de la demande du moteur : pour l'annuler (/api/workflows/requests/<id>/cancel/)
         # et ouvrir son historique (/requests/<id>).
         fields = ["id", "request", "leave_type", "leave_type_label", "start_date", "end_date", "starts_afternoon",
-                  "ends_noon", "days", "reason", "status", "status_label", "created_at"]
+                  "ends_noon", "days", "reason", "status", "status_label", "created_at", "recounts"]
         read_only_fields = fields
 
 

@@ -6,6 +6,7 @@ from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from employees.models import Department
@@ -67,6 +68,14 @@ class LeaveApiTests(EngineTestCase):
         data = self.client.post(url("mine-preview"), form(wedding, 9, 13)).json()
         self.assertIn("4 jour(s) au maximum", data["error"])
         self.assertIsNone(data["balance_after"])  # pas pris sur le solde
+
+    def test_an_unfinished_year_is_refused_and_creates_nothing(self):
+        # Bug du 2026-11-03 : pendant qu'on tape "2026", la date vaut 0002-11-10, puis 0020-11-10...
+        data = {"leave_type": self.annual.pk, "start_date": "0002-11-10", "end_date": "2026-11-12"}
+        response = self.client.post(url("mine-preview"), data)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Année impossible", response.json()["start_date"][0])
+        self.assertFalse(PublicHoliday.objects.filter(date__year__lt=2000).exists())
 
     def test_send_a_leave_and_see_it_in_my_leaves(self):
         response = self.client.post(url("mine-list"), form(self.annual, 23, 27, reason="Vacances"))
@@ -191,6 +200,23 @@ class HrLeaveApiTests(EngineTestCase):
         self.assertEqual(self.client.post(holidays, {"name": "Aïd Al Fitr", "date": "2027-03-10"}).status_code, 201)
         twice = self.client.post(holidays, {"name": "Autre", "date": "2027-03-10"})
         self.assertEqual(twice.json()["non_field_errors"], ["Il y a déjà un jour férié à cette date."])
+        # La page : année par année (par défaut cette année), "fixed" = l'onglet (fixes / variables).
+        this_year = timezone.localdate().year
+        items = self.client.get(holidays, {"all": "1"}).json()
+        self.assertTrue(all(item["date"].startswith(str(this_year)) for item in items))
+        fixed = [item for item in items if item["fixed"]]
+        self.assertEqual(len(fixed), 11)  # Marche Verte, Fête du Trône...
+        self.assertTrue(all(not item["estimated"] for item in fixed))
+        self.assertIn("Aïd Al Fitr", [item["name"] for item in items if not item["fixed"]])
+        self.assertIn("2027-03-10", [item["date"] for item in self.client.get(holidays, {"all": "1", "year": "2027"}).json()])
+        # Une année passée : gardée (on la consulte), mais en lecture seule (l'historique des anciens congés).
+        old = PublicHoliday.objects.create(name="Fête passée", date=datetime.date(this_year - 1, 6, 1))
+        years = self.client.get(reverse("leaves:list-public-holidays-years")).json()
+        self.assertEqual((years["years"][0], years["current"]), (this_year - 1, this_year))
+        self.assertEqual(len(self.client.get(holidays, {"all": "1", "year": str(this_year - 1)}).json()), 1)
+        detail = reverse("leaves:list-public-holidays-detail", args=[old.pk])
+        self.assertIn("Année passée", self.client.patch(detail, {"name": "Autre"}).json()["date"][0])
+        self.assertEqual(self.client.post(holidays, {"name": "Trop tard", "date": f"{this_year - 1}-06-02"}).status_code, 400)
         # Un type : décompté ou pas, le maximum légal ; jamais supprimé, seulement désactivé.
         wedding = LeaveType.objects.get(name="Congé exceptionnel - Mariage du salarié")
         response = self.client.patch(reverse("leaves:list-leave-types-detail", args=[wedding.pk]), {"max_days": "5", "is_active": False})

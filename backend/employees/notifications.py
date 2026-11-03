@@ -84,6 +84,10 @@ def message(notification):
     name = f"{employee.first_name} {employee.last_name}"
     Kind = Notification.Kind
 
+    # Un congé recompté (un jour férié a changé) : le recalcul de CE moment-là (il peut y en avoir plusieurs).
+    if notification.kind == Kind.RECOUNTED:
+        return recount_message(notification, name)
+
     # Les demandes (app workflows, step 7).
     if notification.kind != Kind.TRIAL_END:
         title = notification.request.title
@@ -108,3 +112,22 @@ def message(notification):
     if days == 0:
         return f"La période d'essai de {name} se termine aujourd'hui."
     return f"La période d'essai de {name} s'est terminée le {end} : confirmez l'embauche ou mettez fin au contrat."
+
+
+def recount_message(notification, name):
+    """Ex. pour le collaborateur : "Votre congé a été recalculé : 4 -> 3 j (Aïd Al Fitr déplacé : ...)." ;
+    pour les RH : "Congé de Sara Alami recalculé : 4 -> 5 j. À vérifier : Solde négatif : -1 j."."""
+    # Importé ici : l'app leaves importe déjà employees (sinon une boucle d'imports).
+    from leaves.counting import days_label
+    from leaves.models import LeaveRecount
+
+    # Le recalcul qui a créé CETTE notification : le dernier enregistré avant elle.
+    recount = (LeaveRecount.objects.filter(leave__request=notification.request_id, created_at__lte=notification.created_at)
+               .order_by("-created_at", "-id").first())
+    if recount is None:
+        return f"Congé recalculé : {notification.request.title}."
+    change = f"{days_label(recount.old_days)} -> {days_label(recount.new_days)} j ({recount.reason})"
+    if notification.recipient_id == notification.employee.user_id:
+        return f"Votre congé a été recalculé : {change}."
+    # Les RH ne sont prévenus que s'il y a un point à vérifier (recount.notify).
+    return f"Congé de {name} recalculé : {change}." + (f" À vérifier : {recount.warning}" if recount.warning else "")

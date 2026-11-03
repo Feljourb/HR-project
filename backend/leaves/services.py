@@ -63,7 +63,12 @@ def request_leave(employee, leave_type, start_date, end_date, starts_afternoon=F
 
     # 2. Le circuit : le moteur crée la demande, trouve le N+1... et sonne la cloche.
     #    Le titre se lit dans "My requests" et dans la cloche des valideurs.
-    title = f"{leave_type} du {start_date:%d/%m/%Y} au {end_date:%d/%m/%Y} ({days_label(leave.days)} j)"
-    leave.request = engine.submit(Workflow.Code.LEAVE, employee, title)
+    leave.request = engine.submit(Workflow.Code.LEAVE, employee, leave_title(leave))
     leave.save()
     return leave
+
+
+def leave_title(leave):
+    """Le titre de la demande, ex. "Congé annuel du 23/11/2026 au 27/11/2026 (5 j)".
+    Refait après un recalcul (recount.py) : le nombre de jours du titre reste juste."""
+    return f"{leave.leave_type} du {leave.start_date:%d/%m/%Y} au {leave.end_date:%d/%m/%Y} ({days_label(leave.days)} j)"
