@@ -5,7 +5,7 @@ from rest_framework import serializers
 
 from workflows.serializers import person
 
-from .models import ExpenseCategory, ExpenseClaim, ExpenseLine, ExpenseScale
+from .models import TOO_HIGH, ExpenseCategory, ExpenseClaim, ExpenseLine, ExpenseScale
 
 
 def amount_field(**kwargs):
@@ -43,7 +43,9 @@ class LineInputSerializer(serializers.Serializer):
 
     date = serializers.DateField()
     category = serializers.PrimaryKeyRelatedField(queryset=ExpenseCategory.objects.all())
-    amount = serializers.DecimalField(max_digits=10, decimal_places=2)
+    # Un nombre énorme (ex. 1 000 000 000 000) : le même message clair que le modèle, pas "trop de chiffres".
+    amount = serializers.DecimalField(max_digits=10, decimal_places=2,
+                                      error_messages={"max_digits": TOO_HIGH, "max_whole_digits": TOO_HIGH})
     description = serializers.CharField(required=False, allow_blank=True, default="", max_length=200)
 
 

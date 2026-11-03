@@ -24,6 +24,10 @@ from workflows.models import Request
 
 POSITIVE = [MinValueValidator(Decimal("0.01"))]
 MAX_RECEIPT_SIZE = 5 * 1024 * 1024  # 5 Mo : une photo de téléphone ou un PDF scanné
+# Le maximum d'UNE dépense, même sans plafond du barème (carburant, billet d'avion...) : une sécurité
+# contre une faute de frappe (un zéro de trop). Valeur standard, à confirmer par les RH.
+MAX_LINE_AMOUNT = Decimal("100000")
+TOO_HIGH = "Montant trop élevé : au plus 100 000 MAD par dépense (vérifiez la saisie ; au-delà, voyez avec les RH)."
 
 
 class ExpenseCategory(ReferenceItem):
@@ -135,6 +139,9 @@ class ExpenseLine(models.Model):
     def clean(self):
         if self.date is None or self.category_id is None or self.amount is None:
             return  # le champ vide a déjà son message ("Ce champ est obligatoire")
+        # Règle 0 : un montant raisonnable, même pour une catégorie sans plafond.
+        if self.amount > MAX_LINE_AMOUNT:
+            raise ValidationError({"amount": TOO_HIGH})
         # Règle 1 : pas de dépense dans le futur (on rembourse ce qui a été payé).
         if self.date > timezone.localdate():
             raise ValidationError({"date": "La date ne peut pas être dans le futur."})

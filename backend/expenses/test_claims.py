@@ -109,6 +109,8 @@ class RulesTests(ClaimTestCase):
         self.assertIn("5 Mo", self.errors_of([self.line(receipt=ticket(size=6 * 1024 * 1024))])["line_0"][0])
         self.assertIn("line_0", self.errors_of([self.line(receipt=ticket("virus.exe"))]))
         self.assertIn("line_0", self.errors_of([self.line(amount="0")]))
+        # Même sans plafond (carburant) : au plus 100 000 MAD par dépense (une faute de frappe).
+        self.assertIn("trop élevé", self.errors_of([self.line(self.fuel, "100000.01")])["line_0"][0])
         ExpenseCategory.objects.filter(pk=self.taxi.pk).update(is_active=False)
         self.taxi.refresh_from_db()
         self.assertIn("plus proposée", self.errors_of([self.line()])["line_0"][0])
@@ -174,6 +176,10 @@ class ApiTests(ClaimTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("line_1", response.json())
         self.assertNotIn("line_0", response.json())
+        # Un montant énorme : refusé avec un message clair, sous sa ligne.
+        huge = self.send([self.raw(self.fuel, "1000000000000000")])
+        self.assertEqual(huge.status_code, 400)
+        self.assertIn("trop élevé", huge.json()["line_0"][0])
         missing = self.send([{"category": self.taxi.pk, "amount": "10"}], files={})
         self.assertIn("date", missing.json()["line_0"][0])
 

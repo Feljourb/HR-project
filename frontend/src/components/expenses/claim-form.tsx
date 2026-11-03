@@ -20,6 +20,8 @@ type Line = { key: number; date: string; category: string; amount: string; descr
 let nextKey = 1
 const emptyLine = (): Line => ({ key: nextKey++, date: '', category: '', amount: '', description: '', file: null })
 const MAX_LINES = 20
+// Le même maximum que Django (MAX_LINE_AMOUNT) : une sécurité contre un zéro de trop.
+const MAX_AMOUNT = 100000
 
 const PER: Record<string, string> = { DAILY_ALLOWANCE: 'per day', TRANSPORT: 'per trip', HOTEL: 'per night' }
 
@@ -89,6 +91,7 @@ export function ClaimForm({ categories, scale, onSent }: {
         const category = categories.find((c) => String(c.id) === line.category)
         const ceiling = ceilingOf(scale, category)
         const over = ceiling !== null && Number(line.amount) > ceiling
+        const tooHigh = Number(line.amount) > MAX_AMOUNT
         const lineErrors = errors[`line_${index}`]
         return <fieldset key={line.key} className={cn('rounded-lg border p-3', lineErrors ? 'border-red-200 bg-red-50/30' : 'border-slate-200')}>
           <legend className="px-1 text-[11px] font-semibold text-slate-500">Expense {index + 1}</legend>
@@ -108,8 +111,8 @@ export function ClaimForm({ categories, scale, onSent }: {
             </div>
             <div>
               <label htmlFor={`amount-${line.key}`} className="sr-only">Amount (MAD)</label>
-              <input id={`amount-${line.key}`} type="number" required min="0.01" step="0.01" placeholder="MAD" value={line.amount}
-                aria-invalid={over || undefined} onChange={(e) => change(line.key, 'amount', e.target.value)} className={cn(controlClass, 'mt-0')} />
+              <input id={`amount-${line.key}`} type="number" required min="0.01" max={MAX_AMOUNT} step="0.01" placeholder="MAD" value={line.amount}
+                aria-invalid={over || tooHigh || undefined} onChange={(e) => change(line.key, 'amount', e.target.value)} className={cn(controlClass, 'mt-0')} />
             </div>
           </div>
           <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
@@ -132,7 +135,10 @@ export function ClaimForm({ categories, scale, onSent }: {
             </div>
           </div>
           {/* L'aide du barème (le plafond de MON grade), puis les messages de Django pour cette ligne. */}
-          {ceiling !== null && <p className={cn('mt-1.5 text-[11px]', over ? 'font-medium text-red-600' : 'text-slate-500')}>
+          {tooHigh && <p className="mt-1.5 text-[11px] font-medium text-red-600">
+            Too high: at most {formatMad(MAX_AMOUNT)} per expense (check the amount).
+          </p>}
+          {ceiling !== null && !tooHigh && <p className={cn('mt-1.5 text-[11px]', over ? 'font-medium text-red-600' : 'text-slate-500')}>
             Max for your grade: {formatMad(ceiling)} {PER[category!.ceiling]}{over ? ' — this amount is above.' : '.'}
           </p>}
           {lineErrors?.map((message) => <p key={message} role="alert" className="mt-1 text-[11px] font-medium text-red-600">{message}</p>)}
