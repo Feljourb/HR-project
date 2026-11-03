@@ -158,6 +158,14 @@ class HrLeaveApiTests(EngineTestCase):
         self.assertEqual(len(self.absences().json()), 2)
         self.assertEqual(len(self.absences(date_from="2026-11-20").json()), 1)  # seulement Sara (23 -> 27)
 
+    def test_hr_can_also_see_refused_and_cancelled_leaves(self):
+        self.as_role(self.nadia, User.Role.HR)
+        rows = self.absences(status="all").json()
+        self.assertEqual(sorted(row["status"] for row in rows), ["CANCELLED", "IN_PROGRESS"])  # Sara : en cours + annulé
+        # Les chiffres restent ceux des absences : l'annulé ne compte pas.
+        summary = self.client.get(url("absence-summary"), {"date_from": "2026-11-01", "date_to": "2026-11-30", "status": "all"})
+        self.assertEqual(summary.json()["pending_days"], 5)
+
     def test_the_numbers_of_the_month(self):
         # Youssef : du mercredi 28/10 au jeudi 05/11. En novembre, seulement lundi 2 -> jeudi 5 = 4 jours.
         request_leave(self.youssef, self.annual, datetime.date(2026, 10, 28), datetime.date(2026, 11, 5))

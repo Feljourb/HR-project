@@ -24,7 +24,7 @@ export function SbdDashboard({ me }: { me: Me }) {
 
   return <>
     <Greeting now={now} name={firstName} canAddEmployee={isHr(me)} />
-    <KpiBand now={now} leaveData={leaveData} />
+    <KpiBand now={now} leaveData={leaveData} validator={me.is_superuser || me.role !== 'COLLABORATOR'} />
 
     {/* 12-column grid on wide screens: leadership video + news, then requests + time off.
         Two columns on tablets, one on phones. Panels in a row share a height. */}

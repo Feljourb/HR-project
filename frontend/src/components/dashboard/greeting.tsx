@@ -48,7 +48,10 @@ export function Greeting({ now, name, canAddEmployee }: { now: Date | null; name
       {canAddEmployee && <Link href="/employees/new" className={cn(buttonVariants({ variant: 'outline' }), secondaryClass)}>
         <UserPlus className={iconClass} /> Add employee
       </Link>}
-      <Button className="h-9 gap-1.5 bg-[#23355d] px-3.5 text-[13px] font-semibold text-white shadow-sm hover:bg-[#192646]"><CalendarDays className="size-4" /> Request leave</Button>
+      {/* L'action principale (en bleu) : la plus utilisée par tout le monde. Un lien vers la page des congés. */}
+      <Link href="/leaves" className={cn(buttonVariants(), 'h-9 gap-1.5 bg-[#23355d] px-3.5 text-[13px] font-semibold text-white shadow-sm hover:bg-[#192646]')}>
+        <CalendarDays className="size-4" /> Request leave
+      </Link>
       {secondaryActions.map(({ label, icon: Icon }) => (
         <Button key={label} variant="outline" className={secondaryClass}>
           <Icon className={iconClass} /> {label}

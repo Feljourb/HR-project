@@ -1,25 +1,25 @@
 'use client'
 
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import type { LucideIcon } from 'lucide-react'
 import { CalendarDays, Check, ClipboardCheck, Download, ReceiptText, Wallet } from 'lucide-react'
+import { apiFetch } from '@/lib/api'
 import type { Balance } from '@/lib/leaves'
+import type { Approval, WorkflowRequest } from '@/lib/requests'
 import { cn } from '@/lib/utils'
 import { stagger, surface } from './panel'
-import { expenseHistory, pendingExpenses, tasks } from './data'
+import { expenseHistory, pendingExpenses } from './data'
 import type { LeaveData } from './use-leave-data'
-import { useLiveState } from './live-store'
-import { MONTHS, MONTHS_LONG, daysBetween, daysInMonth, formatMad, officeClock, shortDate } from './time'
+import { MONTHS, MONTHS_LONG, daysInMonth, formatMad, officeClock, shortDate } from './time'
 
-export function KpiBand({ now, leaveData }: { now: Date | null; leaveData: LeaveData | 'none' | null }) {
+// validator : manager, RH, Admin RH, IT (ceux qui valident d'habitude). Un collaborateur voit ses demandes.
+export function KpiBand({ now, leaveData, validator }: { now: Date | null; leaveData: LeaveData | 'none' | null; validator: boolean }) {
   const clock = now ? officeClock(now) : null
   // Le vrai solde (/api/leaves/mine/balance/) ; null tant qu'il n'est pas là, ou sans dossier RH.
   const balance = leaveData && leaveData !== 'none' ? leaveData.balance : null
   const payday = clock ? daysInMonth(clock.year, clock.month) : null
   const daysToPay = clock && payday ? payday - clock.day : null
-  const { acknowledged } = useLiveState()
-  const openTasks = tasks.filter((t) => !(t.acknowledges && acknowledged[t.acknowledges])).length
 
   return <section style={stagger(1)} className={cn(surface, 'sbd-rise grid gap-px overflow-hidden bg-slate-200/80 sm:grid-cols-2 xl:grid-cols-4')}>
     <KpiCell icon={CalendarDays} label="Leave balance" value={balance ? String(balance.available) : '—'}
@@ -39,23 +39,7 @@ export function KpiBand({ now, leaveData }: { now: Date | null; leaveData: Leave
       <ClaimsColumns />
     </KpiCell>
 
-    <KpiCell icon={ClipboardCheck} label="Tasks to complete" value={String(openTasks)} unit={openTasks === 1 ? 'task left' : 'tasks left'}
-      footer={<>Assigned by HR and IT</>}>
-      <ul className="flex flex-col gap-1">
-        {tasks.map((task) => {
-          const done = Boolean(task.acknowledges && acknowledged[task.acknowledges])
-          return <li key={task.id} className="flex items-center gap-2 text-xs">
-            {done
-              ? <Check className="size-3 shrink-0 text-emerald-600" />
-              : <span className="mx-[3px] size-1.5 shrink-0 rounded-full bg-[#23355d]" />}
-            <span className={cn('min-w-0 flex-1 truncate font-medium', done ? 'text-slate-400 line-through decoration-slate-300' : 'text-slate-700')}>{task.title}</span>
-            {done
-              ? <span className="shrink-0 rounded-full bg-emerald-50 px-1.5 py-px text-[10px] font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-200">Done</span>
-              : <DueChip due={task.due} days={clock ? daysBetween(clock.key, task.due) : null} />}
-          </li>
-        })}
-      </ul>
-    </KpiCell>
+    <WorkCell validator={validator} now={now} />
 
     <KpiCell icon={Wallet} label="Next payday" value={clock && payday ? `${payday} ${MONTHS[clock.month - 1]}` : '—'}
       unit={daysToPay === null ? '' : daysToPay === 0 ? 'today' : `in ${daysToPay} day${daysToPay > 1 ? 's' : ''}`}
@@ -148,11 +132,63 @@ function Meter({ value, max }: { value: number; max: number }) {
   </div>
 }
 
-function DueChip({ due, days }: { due: string; days: number | null }) {
-  const tone = days === null ? 'bg-slate-50 text-slate-600 ring-slate-200'
-    : days < 0 ? 'bg-red-50 text-red-700 ring-red-200'
-    : days <= 3 ? 'bg-amber-50 text-amber-700 ring-amber-200'
-    : 'bg-slate-50 text-slate-600 ring-slate-200'
-  const label = days === null ? shortDate(due) : days < 0 ? 'Overdue' : days === 0 ? 'Due today' : `${shortDate(due)} · ${days} d`
-  return <span className={cn('shrink-0 rounded-full px-1.5 py-px text-[10px] font-semibold tabular-nums ring-1 ring-inset', tone)}>{label}</span>
+/*
+ * La 3e case : ce que J'AI à faire, avec les vraies demandes du moteur des circuits.
+ * - Un valideur (manager, RH...) : "To approve", les demandes qui attendent SA réponse (/api/workflows/approvals/).
+ * - Un collaborateur : "My requests", ses demandes encore en cours (/api/workflows/requests/), et qui les attend.
+ * Un collaborateur responsable d'équipe (il peut être le N+1 de quelqu'un) voit aussi "To approve" s'il a des demandes.
+ */
+function WorkCell({ validator, now }: { validator: boolean; now: Date | null }) {
+  const [work, setWork] = useState<{ approvals: Approval[]; mine: WorkflowRequest[] } | null>(null)
+
+  useEffect(() => {
+    Promise.all([apiFetch('/api/workflows/approvals/'), apiFetch('/api/workflows/requests/')])
+      .then(async ([approvals, mine]) => {
+        if (!approvals.ok || !mine.ok) throw new Error()
+        setWork({ approvals: await approvals.json(), mine: await mine.json() })
+      })
+      .catch(() => setWork({ approvals: [], mine: [] }))
+  }, [])
+
+  const toApprove = work?.approvals ?? []
+  const inProgress = (work?.mine ?? []).filter((request) => request.status === 'IN_PROGRESS')
+  const approving = validator || toApprove.length > 0
+
+  // Depuis combien de jours la demande attend (pour voir celles qui traînent).
+  const ageOf = (sent: string) => now ? Math.max(0, Math.floor((now.getTime() - Date.parse(sent)) / 86_400_000)) : null
+
+  const lines = approving
+    ? toApprove.slice(0, 3).map((approval) => ({ id: approval.id, title: approval.request.title, who: approval.request.requester, age: ageOf(approval.request.created_at) }))
+    : inProgress.slice(0, 3).map((request) => {
+        const step = request.steps.find((s) => s.status === 'PENDING')
+        return { id: request.id, title: request.title, who: step ? `Waiting for ${step.validator}` : '', age: ageOf(request.created_at) }
+      })
+  const count = approving ? toApprove.length : inProgress.length
+
+  return <KpiCell icon={ClipboardCheck} label={approving ? 'To approve' : 'My requests'}
+    value={work ? String(count) : '—'} unit={approving ? 'waiting for you' : 'in progress'}
+    footer={<span className="flex items-center justify-between gap-2">
+      <span className="truncate">{approving ? 'Leaves, expenses and documents' : 'Follow them step by step'}</span>
+      <Link href={approving ? '/approvals' : '/requests'} className="shrink-0 font-semibold text-[#23355d] hover:underline">
+        {approving ? 'Team approvals' : 'My requests'}
+      </Link>
+    </span>}>
+    {work && lines.length === 0
+      ? <p className="flex items-center gap-1.5 text-xs text-slate-500"><Check className="size-3.5 text-emerald-600" />{approving ? 'Nothing waiting for you.' : 'No request in progress.'}</p>
+      : <ul className="flex flex-col gap-1">
+          {lines.map((line) => <li key={line.id} className="flex items-center gap-2 text-xs">
+            <span className="mx-[3px] size-1.5 shrink-0 rounded-full bg-[#23355d]" />
+            <span className="min-w-0 flex-1 truncate font-medium text-slate-700" title={`${line.title} · ${line.who}`}>
+              {line.title} <span className="font-normal text-slate-400">· {line.who}</span>
+            </span>
+            {line.age !== null && <AgeChip days={line.age} />}
+          </li>)}
+        </ul>}
+  </KpiCell>
+}
+
+// "today", "2 d"... ; en orange après 3 jours d'attente : une demande qui traîne.
+function AgeChip({ days }: { days: number }) {
+  const tone = days >= 3 ? 'bg-amber-50 text-amber-700 ring-amber-200' : 'bg-slate-50 text-slate-600 ring-slate-200'
+  return <span className={cn('shrink-0 rounded-full px-1.5 py-px text-[10px] font-semibold tabular-nums ring-1 ring-inset', tone)}>{days === 0 ? 'today' : `${days} d`}</span>
 }

@@ -39,13 +39,6 @@ export const expenseHistory = [
   { month: 'Sep', amount: 3910 },
 ]
 
-/** `acknowledges` links a task to a must-read story: acknowledging the story completes the task. */
-export const tasks: { id: string; title: string; due: string; from: string; acknowledges?: string }[] = [
-  { id: 'training-eval', title: 'Training evaluation · Advanced Excel', due: '2026-10-02', from: 'HR' },
-  { id: 'remote-policy-ack', title: 'Acknowledge remote work policy', due: '2026-10-05', from: 'HR', acknowledges: 'remote-policy' },
-  { id: 'it-charter', title: 'Sign IT charter v3', due: '2026-10-05', from: 'IT' },
-]
-
 export interface AgendaItem {
   start: string
   end: string

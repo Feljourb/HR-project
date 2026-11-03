@@ -2,8 +2,10 @@
 
 /*
  * La page "Absences" (RH, Admin RH, IT) : qui est en congé, mois par mois.
- * Lu dans /api/leaves/absences/?date_from=&date_to= : Django renvoie les congés acceptés ET en cours
- * qui touchent ce mois. Un RH ne reçoit que son pôle ; Admin RH et IT, les deux pôles.
+ * Lu dans /api/leaves/absences/?date_from=&date_to=&status=all : TOUTES les demandes qui touchent ce mois
+ * (aussi refusées et annulées) ; les filtres (statut, type, nom) se font ici, dans le navigateur.
+ * Par défaut le tableau montre les absences (acceptées + en cours). Un RH ne reçoit que son pôle ;
+ * Admin RH et IT, les deux pôles. Chaque ligne ouvre l'historique de la demande.
  * En haut, les chiffres du mois (/api/leaves/absences/summary/), que les RH téléchargent en image
  * pour leurs présentations ("Download image").
  */
@@ -18,7 +20,27 @@ import { StatTiles } from './stat-tiles'
 const BADGE: Record<string, string> = {
   IN_PROGRESS: 'bg-amber-50 text-amber-700',
   APPROVED: 'bg-emerald-50 text-emerald-700',
+  REJECTED: 'bg-red-50 text-red-700',
+  CANCELLED: 'bg-slate-100 text-slate-500',
 }
+
+// Le filtre "Status". "active" (par défaut) = les absences : acceptées + en cours.
+const STATUS_FILTERS = [
+  { id: 'active', name: 'Approved & pending' },
+  { id: 'all', name: 'All requests' },
+  { id: 'APPROVED', name: 'Approved' },
+  { id: 'IN_PROGRESS', name: 'Pending' },
+  { id: 'REJECTED', name: 'Refused' },
+  { id: 'CANCELLED', name: 'Cancelled' },
+]
+
+function matchesStatus(status: string, filter: string) {
+  if (filter === 'all') return true
+  if (filter === 'active') return status === 'APPROVED' || status === 'IN_PROGRESS'
+  return status === filter
+}
+
+const filterClass = 'h-8 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs outline-none focus:border-[#23355d] focus:bg-white'
 
 type Loaded = { key: string; rows: Absence[]; summary: AbsenceSummary }
 
@@ -30,12 +52,16 @@ export function Absences() {
   const key = `date_from=${from}&date_to=${to}`
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [failedKey, setFailedKey] = useState('')
+  // Les filtres du tableau (gardés quand on change de mois).
+  const [statusFilter, setStatusFilter] = useState('active')
+  const [typeFilter, setTypeFilter] = useState('')
+  const [search, setSearch] = useState('')
 
   useEffect(() => {
     const controller = new AbortController()
     // Le tableau et ses chiffres, ensemble : ils parlent toujours du même mois.
     Promise.all([
-      apiFetch(`/api/leaves/absences/?${key}`, { signal: controller.signal }),
+      apiFetch(`/api/leaves/absences/?${key}&status=all`, { signal: controller.signal }),
       apiFetch(`/api/leaves/absences/summary/?${key}`, { signal: controller.signal }),
     ])
       .then(async ([rows, summary]) => {
@@ -49,6 +75,12 @@ export function Absences() {
   const current = loaded?.key === key ? loaded : null
   const rows = current?.rows ?? null
   const poles = new Set((rows ?? []).map((row) => row.pole))
+  const types = [...new Set((rows ?? []).map((row) => row.leave_type_label))].sort()
+  const needle = search.trim().toLowerCase()
+  const shown = (rows ?? []).filter((row) => matchesStatus(row.status, statusFilter)
+    && (!typeFilter || row.leave_type_label === typeFilter)
+    && (!needle || row.employee.toLowerCase().includes(needle)))
+  const activeCount = (rows ?? []).filter((row) => matchesStatus(row.status, 'active')).length
   const today = isoDate(new Date())
   const monthName = month.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
   const isThisMonth = from <= today && today <= to
@@ -85,19 +117,36 @@ export function Absences() {
         // "Aujourd'hui" n'a de sens que pour le mois en cours ; sinon, le nombre de congés.
         isThisMonth
           ? { label: 'Absent today', value: String(current.summary.absent_today), hint: 'Approved leave today' }
-          : { label: 'Leave requests', value: String(current.rows.length), hint: 'Approved or pending' },
+          : { label: 'Leave requests', value: String(activeCount), hint: 'Approved or pending' },
       ]} />}
 
     <section className="rounded-xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
       <header className="flex flex-wrap items-center gap-3 border-b border-slate-100 px-4 py-3">
-        <h2 className="text-sm font-semibold text-[#192646]">Leaves of {monthName}</h2>
-        {rows && <p className="ml-auto text-[11px] text-slate-500">{rows.length} leave{rows.length === 1 ? '' : 's'}</p>}
+        <h2 className="text-sm font-semibold text-[#192646]">Leave requests of {monthName}</h2>
+        {rows && <p className="ml-auto text-[11px] text-slate-500">{shown.length} of {rows.length} request{rows.length === 1 ? '' : 's'}</p>}
       </header>
+
+      {/* Les filtres : statut (par défaut les absences), type de congé, nom du collaborateur. */}
+      <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-4 py-2.5">
+        <label htmlFor="status-filter" className="sr-only">Status</label>
+        <select id="status-filter" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className={filterClass}>
+          {STATUS_FILTERS.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
+        </select>
+        <label htmlFor="type-filter" className="sr-only">Type of leave</label>
+        <select id="type-filter" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className={filterClass}>
+          <option value="">All types</option>
+          {types.map((name) => <option key={name} value={name}>{name}</option>)}
+        </select>
+        <label htmlFor="employee-search" className="sr-only">Search an employee</label>
+        <input id="employee-search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search an employee..."
+          className={cn(filterClass, 'w-52')} />
+      </div>
 
       {rows === null
         ? <p className="px-4 py-10 text-center text-sm text-slate-500">{failedKey === key ? 'Could not load the absences. Please try again later.' : 'Loading...'}</p>
-        : rows.length === 0
-          ? <p className="px-4 py-10 text-center text-sm text-slate-500"><CalendarDays className="mx-auto mb-2 size-6 text-[#8C6D52]" />No leave this month.</p>
+        : shown.length === 0
+          ? <p className="px-4 py-10 text-center text-sm text-slate-500"><CalendarDays className="mx-auto mb-2 size-6 text-[#8C6D52]" />
+              {rows.length === 0 ? 'No leave request this month.' : 'No request matches these filters.'}</p>
           : <div className="overflow-x-auto">
               <table className="w-full min-w-[760px] text-xs">
                 <thead>
@@ -108,11 +157,13 @@ export function Absences() {
                     <th className="px-4 py-2">Dates</th>
                     <th className="px-4 py-2 text-right">Days</th>
                     <th className="px-4 py-2">Status</th>
+                    <th className="px-4 py-2 text-right">History</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((row) => {
-                    const now = row.start_date <= today && today <= row.end_date
+                  {shown.map((row) => {
+                    // "Today" : seulement une vraie absence (un congé refusé ou annulé n'éloigne personne).
+                    const now = matchesStatus(row.status, 'active') && row.start_date <= today && today <= row.end_date
                     return <tr key={row.id} className={cn('border-t border-slate-100', now && 'bg-blue-50/40')}>
                       <td className="px-4 py-2.5 font-semibold text-[#192646]">
                         {row.employee}
@@ -129,6 +180,10 @@ export function Absences() {
                       <td className="px-4 py-2.5 text-right tabular-nums text-slate-700">{formatDays(row.days)}</td>
                       <td className="px-4 py-2.5">
                         <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold', BADGE[row.status])}>{row.status_label}</span>
+                      </td>
+                      {/* L'historique de la demande : chaque étape, qui a répondu, quand, et le commentaire. */}
+                      <td className="px-4 py-2.5 text-right">
+                        <Link href={`/requests/${row.request}`} className="font-semibold text-[#23355d] hover:underline">View</Link>
                       </td>
                     </tr>
                   })}

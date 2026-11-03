@@ -10,6 +10,7 @@ Annuler : /api/workflows/requests/<request>/cancel/ (le moteur s'en occupe, comm
 
 Step 8 (RH) :
 GET  /api/leaves/absences/?date_from=2026-11-01&date_to=2026-11-30 -> les congés en cours / acceptés de la période
+                                                     (&status=all : aussi les refusés et les annulés)
 GET  /api/leaves/absences/summary/?date_from=...&date_to=...      -> les chiffres de la période (les cases de la page)
 GET/POST/PATCH /api/leaves/lists/leave-types/ et /lists/public-holidays/ -> les listes (voir urls.py)
 """
@@ -124,8 +125,11 @@ class AbsenceViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         if end < start or end - start > datetime.timedelta(days=366):
             raise ValidationError({"detail": "Période invalide (au plus un an, la fin après le début)."})
 
+        # Par défaut : les absences (en cours + acceptées). ?status=all : aussi les refusées et les annulées,
+        # pour que les RH retrouvent TOUTES les demandes et leur historique (les filtres sont dans la page).
+        statuses = Request.Status.values if params.get("status") == "all" else LeaveRequest.ACTIVE
         leaves = (
-            LeaveRequest.objects.filter(request__status__in=LeaveRequest.ACTIVE, start_date__lte=end, end_date__gte=start)
+            LeaveRequest.objects.filter(request__status__in=statuses, start_date__lte=end, end_date__gte=start)
             .select_related("leave_type", "request", "employee__department__direction__entity__pole")
             .order_by("start_date", "employee__last_name")
         )
@@ -146,7 +150,8 @@ class AbsenceViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         start, end = period_param(params, "date_from"), period_param(params, "date_to")
         today = timezone.localdate()
         people, absent_today, days = set(), set(), {"approved": 0, "pending": 0}
-        for leave in self.get_queryset():
+        # Toujours les absences seulement : un congé refusé ou annulé n'éloigne personne du bureau.
+        for leave in self.get_queryset().filter(request__status__in=LeaveRequest.ACTIVE):
             in_period = sum(value for day, value in day_values(leave.start_date, leave.end_date, leave.starts_afternoon,
                                                                leave.ends_noon) if start <= day <= end)
             approved = leave.request.status == Request.Status.APPROVED
