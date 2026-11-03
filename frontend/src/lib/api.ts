@@ -69,7 +69,8 @@ function refreshTokens(): Promise<boolean> {
 
 export async function apiFetch(path: string, options: RequestInit = {}): Promise<Response> {
   const headers = new Headers(options.headers);
-  if (options.body && !headers.has("Content-Type")) {
+  // Un FormData (envoi de fichiers) : le navigateur écrit lui-même "multipart/form-data; boundary=...".
+  if (options.body && !(options.body instanceof FormData) && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
 

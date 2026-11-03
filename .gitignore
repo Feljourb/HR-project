@@ -7,6 +7,9 @@ cookies.txt
 # Generated Excel exports (python manage.py export_lists)
 backend/exports/
 
+# Uploaded files (expense receipts: personal data, never in git)
+backend/media/
+
 # Python
 __pycache__/
 *.pyc

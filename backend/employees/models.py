@@ -336,7 +336,10 @@ class Employee(models.Model):
     category = models.ForeignKey(Category, on_delete=models.PROTECT, related_name="employees", verbose_name="Catégorie")
     contract_type = models.ForeignKey(ContractType, on_delete=models.PROTECT, related_name="employees", verbose_name="Type de contrat")
     temp_agency = models.ForeignKey(TempAgency, on_delete=models.PROTECT, null=True, blank=True, related_name="employees", verbose_name="Agence d'intérim")
-    grade = models.ForeignKey(Grade, on_delete=models.PROTECT, null=True, blank=True, related_name="employees", verbose_name="Grade")
+    # Obligatoire (décision du 2026-11-03) : le barème des notes de frais dépend du grade (A -> E).
+    # null=True reste pour les anciennes fiches sans grade : le RH le choisit à la prochaine modification
+    # (comme la situation familiale) ; "Mon profil" n'est pas bloqué (ce n'est pas un champ personnel).
+    grade = models.ForeignKey(Grade, on_delete=models.PROTECT, null=True, related_name="employees", verbose_name="Grade")
     region = models.ForeignKey(Region, on_delete=models.PROTECT, related_name="employees", verbose_name="Région")
     cost_center = models.ForeignKey(CostCenter, on_delete=models.PROTECT, null=True, blank=True, related_name="employees", verbose_name="Centre de coût")
     work_location = models.CharField("Lieu de travail", max_length=150)

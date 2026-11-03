@@ -5,19 +5,24 @@ import Link from 'next/link'
 import type { LucideIcon } from 'lucide-react'
 import { CalendarDays, Check, ClipboardCheck, Download, ReceiptText, Wallet } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
+import type { ExpenseClaim } from '@/lib/expenses'
 import type { Balance } from '@/lib/leaves'
 import type { Approval, WorkflowRequest } from '@/lib/requests'
 import { cn } from '@/lib/utils'
 import { stagger, surface } from './panel'
-import { expenseHistory, pendingExpenses } from './data'
 import type { LeaveData } from './use-leave-data'
 import { MONTHS, MONTHS_LONG, daysInMonth, formatMad, officeClock, shortDate } from './time'
 
 // validator : manager, RH, Admin RH, IT (ceux qui valident d'habitude). Un collaborateur voit ses demandes.
-export function KpiBand({ now, leaveData, validator }: { now: Date | null; leaveData: LeaveData | 'none' | null; validator: boolean }) {
+export function KpiBand({ now, leaveData, claims, validator }: {
+  now: Date | null; leaveData: LeaveData | 'none' | null; claims: ExpenseClaim[] | null; validator: boolean
+}) {
   const clock = now ? officeClock(now) : null
   // Le vrai solde (/api/leaves/mine/balance/) ; null tant qu'il n'est pas là, ou sans dossier RH.
   const balance = leaveData && leaveData !== 'none' ? leaveData.balance : null
+  // Mes vraies notes de frais : en attente du N+1, et validées (à imprimer pour les RH, pas encore remboursées).
+  const inApproval = (claims ?? []).filter((c) => c.status === 'IN_PROGRESS')
+  const toPrint = (claims ?? []).filter((c) => c.status === 'APPROVED' && !c.reimbursed_at).length
   const payday = clock ? daysInMonth(clock.year, clock.month) : null
   const daysToPay = clock && payday ? payday - clock.day : null
 
@@ -34,9 +39,12 @@ export function KpiBand({ now, leaveData, validator }: { now: Date | null; leave
       {balance ? <LeaveMeter balance={balance} /> : <Meter value={0} max={1} />}
     </KpiCell>
 
-    <KpiCell icon={ReceiptText} label="Expenses in approval" value={formatMad(pendingExpenses.total)} unit="MAD"
-      footer={<>{pendingExpenses.claims} claims · {pendingExpenses.withManager} with manager · {pendingExpenses.withFinance} with finance</>}>
-      <ClaimsColumns />
+    <KpiCell icon={ReceiptText} label="Expenses in approval" value={claims ? formatMad(inApproval.reduce((sum, c) => sum + c.total, 0)) : '—'} unit="MAD"
+      footer={<span className="flex items-center justify-between gap-2">
+        <span className="truncate">{claims ? `${inApproval.length} in approval · ${toPrint} validated (PDF for HR)` : ' '}</span>
+        <Link href="/expenses" className="shrink-0 font-semibold text-[#23355d] hover:underline">Expense claims</Link>
+      </span>}>
+      {claims ? <ClaimsColumns history={monthlyTotals(claims, now)} /> : <Meter value={0} max={1} />}
     </KpiCell>
 
     <WorkCell validator={validator} now={now} />
@@ -92,12 +100,24 @@ function LeaveMeter({ balance }: { balance: Balance }) {
   </div>
 }
 
+/** Le montant de MES notes (validées ou en cours) par mois d'envoi, sur les 6 derniers mois. */
+function monthlyTotals(claims: ExpenseClaim[], now: Date | null): { month: string; amount: number }[] {
+  const today = now ?? new Date()
+  return Array.from({ length: 6 }, (_, i) => {
+    const day = new Date(today.getFullYear(), today.getMonth() - 5 + i, 1)
+    const key = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}`
+    const amount = claims.filter((c) => (c.status === 'IN_PROGRESS' || c.status === 'APPROVED') && c.created_at.startsWith(key))
+      .reduce((sum, c) => sum + c.total, 0)
+    return { month: MONTHS[day.getMonth()], amount }
+  })
+}
+
 /* Sparkline columns: history in the de-emphasis tone, the focused month in the accent.
    Hover or keyboard focus moves the readout; it rests on the current month. */
-function ClaimsColumns() {
+function ClaimsColumns({ history: expenseHistory }: { history: { month: string; amount: number }[] }) {
   const last = expenseHistory.length - 1
   const [active, setActive] = useState(last)
-  const max = Math.max(...expenseHistory.map((m) => m.amount))
+  const max = Math.max(1, ...expenseHistory.map((m) => m.amount))  // au moins 1 : pas de division par zéro sans notes
   const slot = 20
   const bar = 12
   const height = 40
@@ -105,7 +125,7 @@ function ClaimsColumns() {
   const current = expenseHistory[active]
 
   return <div className="flex items-end justify-between gap-3">
-    <svg width={expenseHistory.length * slot} height={height} viewBox={`0 0 ${expenseHistory.length * slot} ${height}`} role="img" aria-label="Amount claimed per month, April to September" onMouseLeave={() => setActive(last)} className="shrink-0">
+    <svg width={expenseHistory.length * slot} height={height} viewBox={`0 0 ${expenseHistory.length * slot} ${height}`} role="img" aria-label={`Amount claimed per month, ${expenseHistory[0].month} to ${expenseHistory[last].month}`} onMouseLeave={() => setActive(last)} className="shrink-0">
       <line x1={0} x2={expenseHistory.length * slot} y1={base + 0.5} y2={base + 0.5} stroke="#E2E8F0" strokeWidth={1} />
       {expenseHistory.map((m, i) => {
         const h = Math.max(3, (m.amount / max) * (base - 2))

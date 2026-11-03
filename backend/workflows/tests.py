@@ -28,7 +28,8 @@ class StandardCircuitsTests(TestCase):
         self.assertEqual(circuit(Workflow.Code.LEAVE), [(Approver.MANAGER, Mode.VALIDATE), (Approver.HR, Mode.INFORM)])
 
     def test_expense(self):
-        self.assertEqual(circuit(Workflow.Code.EXPENSE), [(Approver.MANAGER, Mode.VALIDATE)])
+        # + "RH informée" : migration expenses 0004 (décision du 2026-11-03).
+        self.assertEqual(circuit(Workflow.Code.EXPENSE), [(Approver.MANAGER, Mode.VALIDATE), (Approver.HR, Mode.INFORM)])
 
     def test_admin_request(self):
         self.assertEqual(circuit(Workflow.Code.ADMIN_REQUEST), [(Approver.HR, Mode.VALIDATE)])

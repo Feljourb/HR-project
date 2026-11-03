@@ -47,6 +47,7 @@ INSTALLED_APPS = [
     'employees',
     'workflows',
     'leaves',
+    'expenses',
 ]
 
 AUTH_USER_MODEL = "accounts.User"
@@ -144,6 +145,10 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
+
+# Les fichiers envoyés (justificatifs des notes de frais). Ils ne sont PAS servis par une adresse publique :
+# on les télécharge seulement par l'API, qui vérifie qui a le droit de les voir (pas de MEDIA_URL dans urls.py).
+MEDIA_ROOT = BASE_DIR / "media"
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

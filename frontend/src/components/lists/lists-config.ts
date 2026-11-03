@@ -7,14 +7,16 @@ import type { ReferenceItem } from '@/lib/employees'
 export type ListValue = ReferenceItem & {
   code?: string; head?: number | null; head_label?: string | null
   deducts_balance?: boolean; max_days?: string | null; date?: string; estimated?: boolean
+  ceiling?: string; receipt_required?: boolean
 }
 
-// Un champ en plus du nom (listes du module Congés) : affiché en colonne, modifiable avec le nom.
+// Un champ en plus du nom (listes des modules Congés et Notes de frais) : affiché en colonne, modifiable avec le nom.
 export type ExtraField = {
-  name: 'deducts_balance' | 'max_days' | 'date' | 'estimated'
+  name: 'deducts_balance' | 'max_days' | 'date' | 'estimated' | 'ceiling' | 'receipt_required'
   label: string
-  type: 'checkbox' | 'number' | 'date'
+  type: 'checkbox' | 'number' | 'date' | 'select'
   required?: boolean
+  options?: { id: string; name: string }[]  // pour type "select"
 }
 
 // L'adresse des listes de l'app employees. Les listes d'un autre module ont la leur (`api`).
@@ -48,10 +50,25 @@ export const LEAVE_LISTS: ListConfig[] = [
   ] },
 ]
 
+// La liste du module Notes de frais (adresse /api/expenses/lists/...). Le barème par grade : page Expense claims.
+export const EXPENSE_LISTS: ListConfig[] = [
+  { name: 'categories', api: '/api/expenses/lists', title: 'Catégories de dépense', singular: 'Catégorie de dépense', extra: [
+    { name: 'ceiling', label: 'Ceiling of the scale', type: 'select', required: true, options: [
+      { id: 'NONE', name: 'No ceiling' },
+      { id: 'DAILY_ALLOWANCE', name: 'Allowance (per day)' },
+      { id: 'TRANSPORT', name: 'Transport (per trip)' },
+      { id: 'HOTEL', name: 'Hotel (per night)' },
+    ] },
+    { name: 'receipt_required', label: 'Receipt required', type: 'checkbox' },
+  ] },
+]
+
 /** La valeur d'un champ en plus, en texte pour un <input> ("true" / "false" pour une case). */
 export function extraValue(item: ListValue | null, field: ExtraField): string {
   const value = item?.[field.name]
   if (field.type === 'checkbox') return value ? 'true' : 'false'
+  // Une nouvelle valeur : la première option (ex. "No ceiling").
+  if (field.type === 'select' && (value === undefined || value === null)) return field.options?.[0]?.id ?? ''
   return value === null || value === undefined ? '' : String(value)
 }
 

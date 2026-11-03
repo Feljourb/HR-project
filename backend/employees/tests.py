@@ -13,8 +13,8 @@ from openpyxl import load_workbook
 
 from . import services
 from .models import (
-    Assignment, Bank, Category, City, ContractType, Department, Direction, Employee, Entity, Pole, Position, Region,
-    TempAgency,
+    Assignment, Bank, Category, City, ContractType, Department, Direction, Employee, Entity, Grade, Pole, Position,
+    Region, TempAgency,
 )
 
 
@@ -116,6 +116,7 @@ class EmployeeTestCase(TestCase):
             "marital_status": Employee.MaritalStatus.SINGLE,
             "department": self.sales, "position": self.salesman,
             "assignment": Assignment.objects.get(name="Field"), "category": Category.objects.get(name="Employé"),
+            "grade": Grade.objects.get(name="Grade E — Employé"),
             "contract_type": ContractType.objects.get(name="CDI"), "region": Region.objects.get(name="Casablanca-Settat"),
             "work_location": "Casablanca", "hire_date": datetime.date(2026, 1, 5),
             **fields,
@@ -229,7 +230,7 @@ class AccountCreationTests(EmployeeTestCase):
             "birth_date": "1995-03-10", "cin": "cd987654", "marital_status": fiche.marital_status,
             "phone": fiche.phone, "professional_email": "sara.bennani@sbd.ma", "address": fiche.address,
             "city": fiche.city.pk, "country": fiche.country, "department": self.sales.pk, "position": self.salesman.pk,
-            "contract_type": fiche.contract_type.pk, "category": fiche.category.pk,
+            "contract_type": fiche.contract_type.pk, "category": fiche.category.pk, "grade": fiche.grade.pk,
             "assignment": fiche.assignment.pk, "region": fiche.region.pk, "work_location": fiche.work_location,
             "hire_date": "2026-01-05", "annual_leave_days": "0",
             # Le petit tableau des enfants (inline) : l'admin veut savoir combien de lignes il y a.
@@ -248,6 +249,12 @@ class AccountCreationTests(EmployeeTestCase):
     def test_admin_add_gives_the_chosen_role(self):
         """L'IT crée le premier Admin RH depuis la fiche."""
         self.assertEqual(self.admin_add("HR_ADMIN").user.role, "HR_ADMIN")
+
+    def test_the_grade_is_required(self):
+        # Le barème des notes de frais en dépend (décision du 2026-11-03).
+        with self.assertRaises(ValidationError) as error:
+            self.fiche("CD987654", grade=None).full_clean()
+        self.assertIn("grade", error.exception.message_dict)
 
     def test_admin_change_page_shows_the_role(self):
         employee = self.admin_add("HR")

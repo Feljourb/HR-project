@@ -53,6 +53,10 @@ export function RequestCard({ request, showRequester, children }: { request: Wor
         <p className="text-[11px] text-slate-500">
           {showRequester && <>{request.requester} · </>}Sent on {formatDateTime(request.created_at)} · {whereIsIt(request)}
         </p>
+        {/* Une note de frais : ses dépenses et ses justificatifs, à regarder AVANT de valider. */}
+        {request.workflow_code === 'EXPENSE' && <Link href={`/expenses/${request.id}`} className="text-[11px] font-semibold text-[#23355d] hover:underline">
+          View the claim (expenses and receipts)
+        </Link>}
       </div>
       <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold', REQUEST_BADGE[request.status])}>{request.status_label}</span>
     </header>

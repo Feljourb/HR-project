@@ -1,43 +1,6 @@
-/* Sample data for the employee home page. Figures are kept consistent with each other:
-   pending claims add up to the KPI total.
-   Leave balance, leaves and public holidays are NOT here any more: they come from the leaves API (use-leave-data.ts). */
-
-export type RequestKind = 'leave' | 'expense'
-export type RequestStatus = 'approved' | 'pending' | 'rejected'
-
-export interface RequestRow {
-  ref: string
-  kind: RequestKind
-  submitted: string
-  detail: string
-  amount: string
-  status: RequestStatus
-  /** Index of the approval step the request is at: 0 Submitted, 1 Manager, 2 Finance/HR, 3 done. */
-  stage: number
-  pdf?: boolean
-}
-
-export const requests: RequestRow[] = [
-  { ref: 'EXP-26-0418', kind: 'expense', submitted: '2026-09-25', detail: 'Train Casablanca – Rabat · client visit', amount: '620 MAD', status: 'pending', stage: 1 },
-  { ref: 'LVE-26-0411', kind: 'leave', submitted: '2026-09-22', detail: 'Annual leave · 12–14 Oct', amount: '3 days', status: 'approved', stage: 3 },
-  { ref: 'EXP-26-0405', kind: 'expense', submitted: '2026-09-18', detail: 'Client lunch · Casablanca', amount: '1,280 MAD', status: 'pending', stage: 2 },
-  { ref: 'EXP-26-0397', kind: 'expense', submitted: '2026-09-11', detail: 'Work equipment · keyboard', amount: '1,550 MAD', status: 'pending', stage: 1 },
-  { ref: 'EXP-26-0384', kind: 'expense', submitted: '2026-09-04', detail: 'Taxi & tram · August', amount: '460 MAD', status: 'approved', stage: 3, pdf: true },
-  { ref: 'LVE-26-0371', kind: 'leave', submitted: '2026-08-27', detail: 'Personal leave · 29 Aug', amount: '1 day', status: 'rejected', stage: 1 },
-  { ref: 'LVE-26-0352', kind: 'leave', submitted: '2026-08-10', detail: 'Sick leave · medical certificate', amount: '2 days', status: 'approved', stage: 3, pdf: true },
-]
-
-export const pendingExpenses = { total: 3450, claims: 3, withManager: 2, withFinance: 1 }
-
-/** Amount claimed per month (by submission date), in MAD. */
-export const expenseHistory = [
-  { month: 'Apr', amount: 940 },
-  { month: 'May', amount: 1620 },
-  { month: 'Jun', amount: 780 },
-  { month: 'Jul', amount: 2150 },
-  { month: 'Aug', amount: 1310 },
-  { month: 'Sep', amount: 3910 },
-]
+/* Sample data for the employee home page (news, video, town hall, company events).
+   Leaves, public holidays, requests and expense claims are NOT here any more: they come from the API
+   (use-leave-data.ts, use-expense-claims.ts, the approvals and requests of the workflow engine). */
 
 export interface AgendaItem {
   start: string

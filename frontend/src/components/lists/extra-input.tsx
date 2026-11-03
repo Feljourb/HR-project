@@ -19,6 +19,15 @@ export function ExtraInput({ id, field, value, onChange, compact }: {
       {field.label}
     </label>
   }
+  if (field.type === 'select') {
+    return <>
+      <label htmlFor={id} className={compact ? 'sr-only' : 'block text-xs font-semibold text-slate-700'}>{field.label}</label>
+      <select id={id} required={field.required} value={value} onChange={(e) => onChange(e.target.value)}
+        className={cn(controlClass, 'px-2.5', compact && 'mt-0 h-8 w-44')}>
+        {field.options?.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
+      </select>
+    </>
+  }
   return <>
     <label htmlFor={id} className={compact ? 'sr-only' : 'block text-xs font-semibold text-slate-700'}>{field.label}</label>
     <input id={id} type={field.type} required={field.required} value={value} onChange={(e) => onChange(e.target.value)}
@@ -33,6 +42,7 @@ export function extraText(item: ListValue, field: ExtraField) {
   const value = item[field.name]
   if (field.type === 'checkbox') return value ? 'Yes' : 'No'
   if (value === null || value === undefined || value === '') return '—'
+  if (field.type === 'select') return field.options?.find((option) => option.id === value)?.name ?? String(value)
   if (field.type === 'number') return `${Number(value)} days`
   return formatDate(String(value))
 }

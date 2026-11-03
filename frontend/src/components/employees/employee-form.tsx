@@ -483,7 +483,9 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
         onAdd={adder(tempAgencies, (v) => set('temp_agency', v), { list: 'temp-agencies', title: "Agence d'intérim" })} />}
       <SelectField id="category" label="Category" required value={values.category} onChange={(v) => set('category', v)} options={categories.items} error={error('category')}
         onAdd={adder(categories, (v) => set('category', v), { list: 'categories', title: 'Catégorie' })} />
-      <SelectField id="grade" label="Grade" value={values.grade} onChange={(v) => set('grade', v)} options={grades.items} placeholder="None" error={error('grade')}
+      {/* Obligatoire : le barème des notes de frais (plafonds indemnité / transport / hôtel) dépend du grade. */}
+      <SelectField id="grade" label="Grade" required value={values.grade} onChange={(v) => set('grade', v)} options={grades.items}
+        placeholder="Choose a grade" hint="Sets the expense ceilings." error={error('grade')}
         onAdd={adder(grades, (v) => set('grade', v), { list: 'grades', title: 'Grade' })} />
       <SelectField id="division" label="Division" value={values.division} onChange={(v) => set('division', v)} options={divisions.items} placeholder="None" error={error('division')}
         onAdd={adder(divisions, (v) => set('division', v), { list: 'divisions', title: 'Division' })} />

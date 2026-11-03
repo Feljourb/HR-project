@@ -8,8 +8,9 @@ import { cn } from '@/lib/utils'
 import { stagger } from './panel'
 import { isoWeek, longDate, officeClock } from './time'
 
-const secondaryActions = [
-  { label: 'Submit expense', icon: ReceiptText },
+// href : la page existe ; sans : le module n'est pas encore fait (simple bouton).
+const secondaryActions: { label: string; icon: LucideIcon; href?: string }[] = [
+  { label: 'Submit expense', icon: ReceiptText, href: '/expenses' },
   { label: 'Demande administrative', icon: FileText },
 ]
 
@@ -52,11 +53,13 @@ export function Greeting({ now, name, canAddEmployee }: { now: Date | null; name
       <Link href="/leaves" className={cn(buttonVariants(), 'h-9 gap-1.5 bg-[#23355d] px-3.5 text-[13px] font-semibold text-white shadow-sm hover:bg-[#192646]')}>
         <CalendarDays className="size-4" /> Request leave
       </Link>
-      {secondaryActions.map(({ label, icon: Icon }) => (
-        <Button key={label} variant="outline" className={secondaryClass}>
-          <Icon className={iconClass} /> {label}
-        </Button>
-      ))}
+      {secondaryActions.map(({ label, icon: Icon, href }) => href
+        ? <Link key={label} href={href} className={cn(buttonVariants({ variant: 'outline' }), secondaryClass)}>
+            <Icon className={iconClass} /> {label}
+          </Link>
+        : <Button key={label} variant="outline" className={secondaryClass}>
+            <Icon className={iconClass} /> {label}
+          </Button>)}
     </div>
   </section>
 }

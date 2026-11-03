@@ -13,25 +13,27 @@ import { NewsPanel } from '@/components/dashboard/news-panel'
 import { RequestsPanel } from '@/components/dashboard/requests-panel'
 import { TimeOffPanel } from '@/components/dashboard/time-off-panel'
 import { useNow } from '@/components/dashboard/time'
+import { useExpenseClaims } from '@/components/dashboard/use-expense-claims'
 import { useLeaveData } from '@/components/dashboard/use-leave-data'
 import { isHr, type Me } from '@/lib/api'
 
 export function SbdDashboard({ me }: { me: Me }) {
   const firstName = displayNameOf(me.username).split(' ')[0]
   const now = useNow()
-  // Lu une seule fois ici, puis donné aux deux cases qui parlent de congés.
+  // Lus une seule fois ici, puis donnés aux cases qui parlent de congés et de notes de frais.
   const leaveData = useLeaveData()
+  const claims = useExpenseClaims()
 
   return <>
     <Greeting now={now} name={firstName} canAddEmployee={isHr(me)} />
-    <KpiBand now={now} leaveData={leaveData} validator={me.is_superuser || me.role !== 'COLLABORATOR'} />
+    <KpiBand now={now} leaveData={leaveData} claims={claims} validator={me.is_superuser || me.role !== 'COLLABORATOR'} />
 
     {/* 12-column grid on wide screens: leadership video + news, then requests + time off.
         Two columns on tablets, one on phones. Panels in a row share a height. */}
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-12">
       <FeaturedVideo className="md:col-span-2 xl:col-span-7" index={2} />
       <NewsPanel className="md:col-span-2 xl:col-span-5" index={3} />
-      <RequestsPanel className="md:col-span-2 xl:col-span-8" index={4} />
+      <RequestsPanel leaveData={leaveData} claims={claims} className="md:col-span-2 xl:col-span-8" index={4} />
       <TimeOffPanel now={now} leaveData={leaveData} className="xl:col-span-4" index={5} />
     </div>
 

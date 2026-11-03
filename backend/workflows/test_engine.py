@@ -112,6 +112,7 @@ class SubmitTests(EngineTestCase):
     # --- Toutes les étapes "Valider" sautées -> la RH valide ------------------------------
 
     def test_without_validator_the_hr_of_the_pole_validates(self):
+        self.set_circuit("EXPENSE", ("MANAGER", "VALIDATE"))  # un circuit d'une seule étape "Valider"
         alone = self.make_alone("ali.seul", "AA100006")  # pas de N+1
         request = engine.submit("EXPENSE", alone, "Note de frais")
         self.assertEqual(self.steps(request), [

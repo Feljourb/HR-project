@@ -53,7 +53,7 @@ class EmployeesApiTests(EmployeeTestCase):
             "cin": cin, "city": fiche.city.pk, "address": fiche.address, "phone": fiche.phone,
             "marital_status": fiche.marital_status,  # pas d'email : Django le crée
             "department": self.sales.pk, "position": self.salesman.pk,
-            "assignment": fiche.assignment.pk, "category": fiche.category.pk,
+            "assignment": fiche.assignment.pk, "category": fiche.category.pk, "grade": fiche.grade.pk,
             "contract_type": fiche.contract_type.pk, "region": fiche.region.pk,
             "work_location": fiche.work_location, "hire_date": "2026-01-05",
         }
@@ -114,7 +114,7 @@ class EmployeesApiTests(EmployeeTestCase):
     def test_create_like_the_frontend_form(self):
         """Le formulaire envoie tous les champs : les vides en null, les ids en texte."""
         self.login_hr_sbd()
-        empty = dict.fromkeys(["temp_agency", "grade", "division", "cost_center", "bank",
+        empty = dict.fromkeys(["temp_agency", "division", "cost_center", "bank",
                                "trial_end_date", "onboarding_end_date", "departure_date"])
         # Les textes optionnels vides arrivent en "" (pas null), et les enfants en liste.
         empty.update(dict.fromkeys(["cnss_number", "cimr_number", "rib", "emergency_contact_name",

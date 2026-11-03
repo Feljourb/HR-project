@@ -43,7 +43,7 @@ const navGroups: NavGroup[] = [
     { label: 'My Profile', icon: UserRound, href: '/profile' },
     { label: 'My Requests', icon: Inbox, href: '/requests' },
     { label: 'Leave Requests', icon: CalendarDays, href: '/leaves' },
-    { label: 'Expense Claims', icon: ReceiptText },
+    { label: 'Expense Claims', icon: ReceiptText, href: '/expenses' },
     { label: 'Administrative Documents', icon: FolderOpen },
   ] },
   { label: 'Company Services', icon: Building2, items: [
@@ -62,6 +62,7 @@ const navGroups: NavGroup[] = [
     { label: 'Team Approvals', icon: Check, href: '/approvals' },
     { label: 'Employees', icon: UserRoundCog, href: '/employees', hrOnly: true },
     { label: 'Absences', icon: CalendarDays, href: '/absences', hrOnly: true },
+    { label: 'Reimbursements', icon: ReceiptText, href: '/reimbursements', hrOnly: true },
     { label: 'Audit log', icon: ScrollText, href: '/audit', hrOnly: true },
     { label: 'Reference lists', icon: ListChecks, href: '/lists', adminOnly: true },
     { label: 'Workflows', icon: Workflow, href: '/workflows', adminOnly: true },
@@ -83,6 +84,7 @@ const SUB_PAGES: [RegExp, string][] = [
   [/^\/employees\/new$/, 'New employee'],
   [/^\/employees\/\d+$/, 'Employee file'],
   [/^\/requests\/\d+$/, 'Request history'],
+  [/^\/expenses\/\d+$/, 'Expense claim'],
 ]
 
 /**
