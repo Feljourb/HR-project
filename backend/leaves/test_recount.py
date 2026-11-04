@@ -157,3 +157,10 @@ class RecountTests(EngineTestCase):
         self.sara.user.save()
         mine = client.get(reverse("leaves:mine-list")).json()
         self.assertEqual(mine[0]["recounts"][0]["old_days"], 5)
+        # L'historique de la demande : Sara (et son N+1, les RH...) voit le recalcul ; un autre collaborateur, rien.
+        history = client.get(reverse("leaves:recount-list"), {"request": leave.request_id}).json()
+        self.assertEqual((history[0]["new_days"], history[0]["changed_by"]), (4, "nadia.rh"))
+        self.karim.user.must_change_password = False
+        self.karim.user.save()
+        client.force_authenticate(self.karim.user)  # le N+2 : pas une étape de ce circuit (N+1 puis RH)
+        self.assertEqual(client.get(reverse("leaves:recount-list"), {"request": leave.request_id}).json(), [])

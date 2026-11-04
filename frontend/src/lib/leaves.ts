@@ -42,6 +42,17 @@ export type Leave = {
   status: string             // IN_PROGRESS, APPROVED, REJECTED, CANCELLED (le statut du moteur)
   status_label: string
   created_at: string
+  recounts: Recount[]        // vide la plupart du temps : les recalculs après un changement de jour férié
+}
+
+// Un recalcul (backend leaves/recount.py) : un jour férié a changé, le congé a été recompté.
+export type Recount = {
+  old_days: number
+  new_days: number
+  reason: string             // ex. "Jour férié ajouté : Fête ajoutée (24/11/2026)"
+  warning: string            // un point à vérifier par les RH (solde négatif...), ou ""
+  changed_by: string | null
+  created_at: string
 }
 
 // Un congé dans la page "Absences" des RH : le même congé, + qui et où.

@@ -11,7 +11,7 @@
  */
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react'
+import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 import { formatDate, formatDays, isoDate, type Absence, type AbsenceSummary } from '@/lib/leaves'
 import { cn } from '@/lib/utils'
@@ -164,6 +164,9 @@ export function Absences() {
                   {shown.map((row) => {
                     // "Today" : seulement une vraie absence (un congé refusé ou annulé n'éloigne personne).
                     const now = matchesStatus(row.status, 'active') && row.start_date <= today && today <= row.end_date
+                    // Un jour férié a changé après l'envoi : le dernier recalcul, et ce que les RH doivent vérifier.
+                    const recount = row.recounts[row.recounts.length - 1]
+                    const toCheck = recount?.warning && matchesStatus(row.status, 'active') ? recount.warning : ''
                     return <tr key={row.id} className={cn('border-t border-slate-100', now && 'bg-blue-50/40')}>
                       <td className="px-4 py-2.5 font-semibold text-[#192646]">
                         {row.employee}
@@ -177,9 +180,21 @@ export function Absences() {
                           {formatDate(row.start_date, true)}{row.starts_afternoon && ' (pm)'} → {formatDate(row.end_date, true)}{row.ends_noon && ' (am)'}
                         </Link>
                       </td>
-                      <td className="px-4 py-2.5 text-right tabular-nums text-slate-700">{formatDays(row.days)}</td>
+                      <td className="px-4 py-2.5 text-right tabular-nums text-slate-700">
+                        {recount && <span title={`Recounted ${formatDays(recount.old_days)} → ${formatDays(recount.new_days)} · ${recount.reason}`}
+                          className="mr-1.5 inline-flex align-[-2px] text-sky-600">
+                          <RefreshCw className="size-3" aria-hidden />
+                          <span className="sr-only">Recounted from {formatDays(recount.old_days)}: {recount.reason}.</span>
+                        </span>}
+                        {formatDays(row.days)}
+                      </td>
                       <td className="px-4 py-2.5">
-                        <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold', BADGE[row.status])}>{row.status_label}</span>
+                        <div className="flex flex-wrap items-center gap-1">
+                          <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold', BADGE[row.status])}>{row.status_label}</span>
+                          {toCheck && <span title={toCheck} className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
+                            <AlertTriangle className="size-3" aria-hidden /> To check<span className="sr-only">: {toCheck}</span>
+                          </span>}
+                        </div>
                       </td>
                       {/* L'historique de la demande : chaque étape, qui a répondu, quand, et le commentaire. */}
                       <td className="px-4 py-2.5 text-right">

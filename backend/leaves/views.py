@@ -26,15 +26,17 @@ from rest_framework.response import Response
 from accounts.permissions import IsHR
 from employees.models import Employee
 from employees.services import limited_to_own_pole, user_pole
+from workflows import engine
 from workflows.models import Request
 from workflows.views import run
 
 from .balance import balance
 from .counting import day_values
 from .holidays import ensure_year
-from .models import LeaveRequest, LeaveType, PublicHoliday
+from .models import LeaveRecount, LeaveRequest, LeaveType, PublicHoliday
 from .serializers import (
     AbsenceSerializer, LeaveInputSerializer, LeaveRequestSerializer, LeaveTypeSerializer, PublicHolidaySerializer,
+    RecountSerializer,
 )
 from .services import preview_leave, request_leave
 
@@ -99,6 +101,21 @@ class MyLeaveViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.Cr
     @action(detail=False, methods=["get"], url_path="balance", url_name="balance")
     def my_balance(self, request):
         return Response(balance(self.employee()))
+
+
+class RecountViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
+    """GET /api/leaves/recounts/?request=12 -> les recalculs de CE congé (un jour férié a changé), pour la ligne
+    du temps de /requests/12. Mêmes droits que l'historique de la demande (sinon : liste vide)."""
+
+    serializer_class = RecountSerializer
+
+    def get_queryset(self):
+        request_id = self.request.query_params.get("request", "")
+        if not request_id.isdigit():
+            return LeaveRecount.objects.none()
+        return (LeaveRecount.objects.filter(leave__request=int(request_id),
+                                            leave__request__in=engine.requests_visible_to(self.request.user))
+                .select_related("changed_by"))
 
 
 def period_param(params, name):

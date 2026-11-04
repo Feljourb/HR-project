@@ -5,11 +5,13 @@
  * "Envoyée par Sara" -> "Validée par Youssef : « Bon repos »" -> "RH informée" -> "Acceptée".
  * Lu dans /api/workflows/history/12/ : Django répond 404 si la demande ne me concerne pas.
  * La ligne du temps est construite avec la demande et ses étapes (qui, quoi, quand, commentaire).
+ * Un congé : + ses recalculs (un jour férié a changé, /api/leaves/recounts/?request=12), à leur place dans le temps.
  */
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Ban, Check, CheckCheck, Circle, Clock, Info, Minus, Send, X, XCircle, type LucideIcon } from 'lucide-react'
+import { ArrowLeft, Ban, Check, CheckCheck, Circle, Clock, Info, Minus, RefreshCw, Send, X, XCircle, type LucideIcon } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
+import { formatDays, type Recount } from '@/lib/leaves'
 import { cn } from '@/lib/utils'
 import { formatDateTime } from '@/components/employees/history-changes'
 import type { WorkflowRequest } from '@/lib/requests'
@@ -21,6 +23,7 @@ type Event = {
   title: string
   detail?: string
   comment?: string
+  warning?: string      // un point à vérifier par les RH (recalcul d'un congé)
   at?: string | null    // la date, si l'événement a eu lieu
   muted?: boolean       // pas encore arrivé (étapes suivantes)
 }
@@ -32,8 +35,25 @@ const BADGE: Record<string, string> = {
   CANCELLED: 'bg-slate-100 text-slate-500',
 }
 
-/** La demande -> la liste des événements, dans l'ordre. */
-function eventsOf(request: WorkflowRequest): Event[] {
+/** La demande (+ les recalculs d'un congé) -> la liste des événements, dans l'ordre. */
+function eventsOf(request: WorkflowRequest, recounts: Recount[]): Event[] {
+  const events = stepEvents(request)
+  for (const recount of recounts) {
+    const event: Event = {
+      icon: RefreshCw, tone: recount.warning ? 'text-amber-600' : 'text-sky-600',
+      title: `Recounted: ${formatDays(recount.old_days)} → ${formatDays(recount.new_days)}`,
+      detail: `${recount.reason}${recount.changed_by ? ` · by ${recount.changed_by}` : ''}`,
+      warning: recount.warning || undefined, at: recount.created_at,
+    }
+    // À sa place dans le temps : avant le premier événement plus récent, ou pas encore arrivé ("Waiting for...").
+    const index = events.findIndex((other) => other.muted || !other.at || other.at > recount.created_at)
+    events.splice(index === -1 ? events.length : index, 0, event)
+  }
+  return events
+}
+
+/** La demande -> les événements de son circuit, dans l'ordre. */
+function stepEvents(request: WorkflowRequest): Event[] {
   const events: Event[] = [{ icon: Send, tone: 'text-[#23355d]', title: `Sent by ${request.requester}`, at: request.created_at }]
   const finished = request.status !== 'IN_PROGRESS'
 
@@ -68,12 +88,21 @@ function eventsOf(request: WorkflowRequest): Event[] {
 
 export function RequestHistory({ requestId }: { requestId: number }) {
   const [request, setRequest] = useState<WorkflowRequest | null>(null)
+  const [recounts, setRecounts] = useState<Recount[]>([])
   const [error, setError] = useState('')
 
   useEffect(() => {
     apiFetch(`/api/workflows/history/${requestId}/`)
       .then(async (response) => {
-        if (response.ok) setRequest(await response.json())
+        if (response.ok) {
+          const data: WorkflowRequest = await response.json()
+          // Un congé : ses recalculs aussi (le module Congés les garde ; le moteur n'en sait rien).
+          if (data.workflow_code === 'LEAVE') {
+            const found = await apiFetch(`/api/leaves/recounts/?request=${requestId}`).catch(() => null)
+            if (found?.ok) setRecounts(await found.json())
+          }
+          setRequest(data)
+        }
         // 404 : la demande n'existe pas, ou elle ne me concerne pas (Django ne dit pas lequel).
         else setError(response.status === 404 ? 'This request does not exist or does not concern you.' : 'Could not load this request.')
       })
@@ -96,7 +125,7 @@ export function RequestHistory({ requestId }: { requestId: number }) {
 
     {/* La ligne du temps : une icône par événement, reliées par un trait vertical. */}
     <ol className="rounded-xl border border-slate-200/80 bg-white px-4 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-      {eventsOf(request).map((event, index, events) => {
+      {eventsOf(request, recounts).map((event, index, events) => {
         const Icon = event.icon
         return <li key={index} className="relative flex gap-3 pb-5 last:pb-0">
           {index < events.length - 1 && <span aria-hidden className="absolute left-[11px] top-7 h-[calc(100%-1.75rem)] w-px bg-slate-200" />}
@@ -109,6 +138,7 @@ export function RequestHistory({ requestId }: { requestId: number }) {
               {event.detail}{event.detail && event.at ? ' · ' : ''}{event.at ? formatDateTime(event.at) : ''}
             </p>}
             {event.comment && <p className="mt-1 rounded-md bg-slate-50 px-2 py-1 text-xs italic text-slate-600">“{event.comment}”</p>}
+            {event.warning && <p className="mt-1 rounded-md bg-amber-50 px-2 py-1 text-xs font-medium text-amber-800">To check: {event.warning}</p>}
           </div>
         </li>
       })}

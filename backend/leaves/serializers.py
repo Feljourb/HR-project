@@ -68,10 +68,11 @@ class RecountSerializer(serializers.ModelSerializer):
 
     old_days = serializers.DecimalField(max_digits=5, decimal_places=1, coerce_to_string=False)
     new_days = serializers.DecimalField(max_digits=5, decimal_places=1, coerce_to_string=False)
+    changed_by = serializers.StringRelatedField()  # le compte qui a changé le jour férié (ou null)
 
     class Meta:
         model = LeaveRecount
-        fields = ["old_days", "new_days", "reason", "warning", "created_at"]
+        fields = ["old_days", "new_days", "reason", "warning", "changed_by", "created_at"]
 
 
 class LeaveRequestSerializer(serializers.ModelSerializer):

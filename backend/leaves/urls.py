@@ -11,7 +11,9 @@ from employees.views import make_viewset
 from .models import LeaveType, PublicHoliday
 from .recount import holiday_changed
 from .serializers import HolidayListSerializer
-from .views import AbsenceViewSet, LeaveTypeViewSet, MyLeaveViewSet, PublicHolidayViewSet, ensure_coming_years
+from .views import (
+    AbsenceViewSet, LeaveTypeViewSet, MyLeaveViewSet, PublicHolidayViewSet, RecountViewSet, ensure_coming_years,
+)
 
 
 class HolidayListViewSet(make_viewset(PublicHoliday)):
@@ -70,5 +72,7 @@ router.register("absences", AbsenceViewSet, basename="absence")
 router.register("types", LeaveTypeViewSet, basename="type")
 router.register("holidays", PublicHolidayViewSet, basename="holiday")
 router.register("mine", MyLeaveViewSet, basename="mine")  # "leaves:mine-list", "leaves:mine-preview"...
+# Les recalculs d'un congé (un jour férié a changé), pour l'historique de la demande.
+router.register("recounts", RecountViewSet, basename="recount")
 
 urlpatterns = router.urls

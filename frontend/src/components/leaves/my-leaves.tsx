@@ -7,7 +7,7 @@
  */
 import { useState } from 'react'
 import Link from 'next/link'
-import { CalendarDays, Loader2 } from 'lucide-react'
+import { CalendarDays, Loader2, RefreshCw } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 import { formatDate, formatDays, type Leave } from '@/lib/leaves'
 import { cn } from '@/lib/utils'
@@ -46,12 +46,27 @@ function LeaveLine({ leave, onCancelled }: { leave: Leave; onCancelled: () => vo
         <span className="font-semibold text-slate-700"> · {formatDays(leave.days)}</span>
       </p>
       {leave.reason && <p className="mt-0.5 text-[11px] italic text-slate-500">“{leave.reason}”</p>}
+      <RecountNote leave={leave} />
     </div>
     <div className="flex flex-col items-end gap-1.5">
       <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold', BADGE[leave.status])}>{leave.status_label}</span>
       {leave.status === 'IN_PROGRESS' && <CancelButton leave={leave} onCancelled={onCancelled} />}
     </div>
   </li>
+}
+
+/** Un jour férié a changé après l'envoi : le DERNIER recalcul, en une ligne ("5 → 4 days · Jour férié ajouté..."). */
+export function RecountNote({ leave }: { leave: Leave }) {
+  const last = leave.recounts[leave.recounts.length - 1]
+  if (!last) return null
+  const earlier = leave.recounts.length - 1
+  return <p className="mt-1 flex items-start gap-1.5 rounded-md bg-sky-50 px-2 py-1 text-[11px] text-sky-800">
+    <RefreshCw className="mt-0.5 size-3 shrink-0" aria-hidden />
+    <span>
+      <b className="font-semibold">Recounted {formatDays(last.old_days)} → {formatDays(last.new_days)}</b>
+      {' · '}{last.reason}{earlier > 0 && ` (+${earlier} earlier)`}
+    </span>
+  </p>
 }
 
 // Annuler en deux clics ("Cancel" puis "Yes, cancel") pour ne pas annuler par erreur.
