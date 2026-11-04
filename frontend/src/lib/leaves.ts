@@ -55,6 +55,27 @@ export type Recount = {
   created_at: string
 }
 
+// Page "Leave balances" (RH) : une ligne = qui + son solde (/api/leaves/balances/).
+export type BalanceRow = Balance & {
+  employee_id: number; employee: string; department: string; pole: string
+  status: string; hire_date: string; yearly_right: number
+}
+
+// Un changement du droit annuel à partir d'une date (P1 step 2), ex. 30 jours à partir du 01/09/2026.
+export type RightChange = { id: number; effective_from: string; annual_days: number; reason: string; changed_by: string | null; created_at: string }
+
+// Une "tirelire" : les jours gagnés une année, ce qui en est utilisé et jusqu'à quand ils se prennent.
+export type YearPool = { year: number; earned: number; used: number; left: number; valid_until: string; state: 'VALID' | 'EXPIRING' | 'EXPIRED' }
+
+// Le panneau du clic (/api/leaves/balances/<employee>/) : la ligne + le détail.
+export type BalanceDetail = BalanceRow & {
+  base_right: number           // le droit de la fiche, depuis l'embauche
+  right_changes: RightChange[]
+  can_change_right: boolean    // RH du pôle / Admin RH, jamais pour soi-même (Django décide)
+  years: YearPool[]
+  leaves: Leave[]
+}
+
 // Un congé dans la page "Absences" des RH : le même congé, + qui et où.
 export type Absence = Leave & { employee: string; employee_id: number; department: string; pole: string }
 

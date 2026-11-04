@@ -1,11 +1,13 @@
 """Step 6 : les congés en JSON."""
+from decimal import Decimal
+
 from rest_framework import serializers
 
 from employees.serializers import ReferenceSerializer
 from workflows.serializers import person
 
 from .holidays import in_window, is_fixed
-from .models import LeaveRecount, LeaveRequest, LeaveType, PublicHoliday
+from .models import AnnualRightChange, LeaveRecount, LeaveRequest, LeaveType, PublicHoliday
 
 
 class LeaveTypeSerializer(serializers.ModelSerializer):
@@ -73,6 +75,25 @@ class RecountSerializer(serializers.ModelSerializer):
     class Meta:
         model = LeaveRecount
         fields = ["old_days", "new_days", "reason", "warning", "changed_by", "created_at"]
+
+
+class RightChangeSerializer(serializers.ModelSerializer):
+    """P1 step 2 : un changement du droit annuel, dans le panneau RH."""
+
+    annual_days = serializers.DecimalField(max_digits=5, decimal_places=2, coerce_to_string=False)
+    changed_by = serializers.StringRelatedField()
+
+    class Meta:
+        model = AnnualRightChange
+        fields = ["id", "effective_from", "annual_days", "reason", "changed_by", "created_at"]
+
+
+class RightChangeInputSerializer(serializers.Serializer):
+    """Ce que le formulaire "Change the annual right" envoie (la forme ; les règles sont dans le modèle)."""
+
+    annual_days = serializers.DecimalField(max_digits=5, decimal_places=2, min_value=Decimal("0"))
+    effective_from = serializers.DateField()
+    reason = serializers.CharField(max_length=200)
 
 
 class LeaveRequestSerializer(serializers.ModelSerializer):

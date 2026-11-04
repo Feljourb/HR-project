@@ -12,7 +12,8 @@ from .models import LeaveType, PublicHoliday
 from .recount import holiday_changed
 from .serializers import HolidayListSerializer
 from .views import (
-    AbsenceViewSet, LeaveTypeViewSet, MyLeaveViewSet, PublicHolidayViewSet, RecountViewSet, ensure_coming_years,
+    AbsenceViewSet, BalanceViewSet, LeaveTypeViewSet, MyLeaveViewSet, PublicHolidayViewSet, RecountViewSet,
+    ensure_coming_years,
 )
 
 
@@ -68,6 +69,8 @@ router.register("lists/leave-types", make_viewset(LeaveType), basename="list-lea
 router.register("lists/public-holidays", HolidayListViewSet, basename="list-public-holidays")
 # Step 8 : les absences du pôle (RH).
 router.register("absences", AbsenceViewSet, basename="absence")
+# P1 step 1 : le solde de chaque collaborateur du pôle (RH) : "leaves:balances-list".
+router.register("balances", BalanceViewSet, basename="balances")
 
 router.register("types", LeaveTypeViewSet, basename="type")
 router.register("holidays", PublicHolidayViewSet, basename="holiday")

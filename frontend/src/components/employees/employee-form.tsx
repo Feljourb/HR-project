@@ -19,6 +19,7 @@ import {
   FORM_FIELDS, MARITAL_LABELS, RELATIONSHIP_LABELS, STATUS_LABELS, TITLE_LABELS,
   type Child, type EmployeeFiche, type FormField, type HierarchyLevel, type ReferenceItem,
 } from '@/lib/employees'
+import { formatDate } from '@/lib/leaves'
 import { AddValueDialog, type AddRequest } from './add-value-dialog'
 import { ChildrenEditor } from './children-editor'
 import { cn } from '@/lib/utils'
@@ -508,8 +509,28 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
         hint="HR is notified 10 days before (1 month for a Cadre)." onChange={(v) => set('trial_end_date', v)} error={error('trial_end_date')} />}
       {isLeft && <TextField id="departure_date" label="Departure date" type="date" required value={values.departure_date} onChange={(v) => set('departure_date', v)} error={error('departure_date')} />}
       <TextField id="onboarding_end_date" label="End of onboarding" type="date" value={values.onboarding_end_date} onChange={(v) => set('onboarding_end_date', v)} error={error('onboarding_end_date')} />
-      <TextField id="annual_leave_days" label="Annual leave entitlement (days)" type="number" required
-        hint="Per year (18 = legal minimum). The balance starts at 0 and earns this / 12 every month." value={values.annual_leave_days} onChange={(v) => set('annual_leave_days', v)} error={error('annual_leave_days')} />
+      {/* Le droit annuel : saisi à la création (valable depuis l'embauche). Ensuite il change avec une DATE
+          d'effet, dans "Leave balances" (sinon il serait recompté jusqu'à l'embauche). */}
+      {isEdit
+        ? <div>
+            {/* Le droit ACTUEL (pas celui de l'embauche), d'où il vient, et un changement prévu s'il y en a un. */}
+            <p className="text-xs font-semibold text-slate-700">Annual leave entitlement</p>
+            <p className="mt-1.5 flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-slate-100 px-3 text-sm text-slate-700">
+              <b className="font-semibold">{fiche?.current_annual_right.days ?? Number(values.annual_leave_days)} days / year</b>
+              {fiche && fiche.current_annual_right.days !== Number(values.annual_leave_days) && <span className="text-xs text-slate-500">
+                since {formatDate(fiche.current_annual_right.since)} · started at {Number(values.annual_leave_days)}
+              </span>}
+            </p>
+            {fiche?.current_annual_right.planned && <p className="mt-1 text-[11px] font-medium text-blue-700">
+              Planned: {fiche.current_annual_right.planned.days} days / year from {formatDate(fiche.current_annual_right.planned.from)}.
+            </p>}
+            <p className="mt-1 text-[11px] text-slate-500">
+              {/* Le lien ouvre Leave balances AVEC le panneau de ce collaborateur (pas la liste de tout le monde). */}
+              To change it from a date (e.g. a promotion), open <Link href={`/leave-balances?employee=${employeeId}`} className="font-semibold text-[#23355d] hover:underline">this employee in Leave balances</Link>.
+            </p>
+          </div>
+        : <TextField id="annual_leave_days" label="Annual leave entitlement (days)" type="number" required
+            hint="Per year (18 = legal minimum). The balance starts at 0 and earns this / 12 every month." value={values.annual_leave_days} onChange={(v) => set('annual_leave_days', v)} error={error('annual_leave_days')} />}
     </FormSection>
 
     {/* Barre d'actions, toujours visible en bas de l'écran. */}

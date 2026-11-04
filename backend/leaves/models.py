@@ -200,6 +200,41 @@ class LeaveRequest(models.Model):
                 )
 
 
+class AnnualRightChange(models.Model):
+    """P1 step 2 : un changement du DROIT annuel, à partir d'une date (comme une augmentation de salaire).
+    Ex. Sara passe manager : "à partir du 01/09/2026 : 30 jours", par Nadia, motif "Promotion".
+    Avant le premier changement, c'est le droit de la fiche (Employee.annual_leave_days) depuis l'embauche.
+    Le solde lit le droit valable à la fin de CHAQUE mois (comme l'ancienneté) : rien n'est donné en arrière.
+    Jamais modifié ni supprimé : c'est l'historique (une erreur se corrige par un nouveau changement)."""
+
+    employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name="right_changes", verbose_name="Collaborateur")
+    effective_from = models.DateField("À partir du")
+    annual_days = models.DecimalField("Droit annuel (jours)", max_digits=5, decimal_places=2,
+                                      validators=[MinValueValidator(Decimal("0"))])
+    reason = models.CharField("Motif", max_length=200)
+    changed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name="+", verbose_name="Changé par")
+    created_at = models.DateTimeField("Enregistré le", auto_now_add=True)
+
+    class Meta:
+        ordering = ["effective_from"]
+        verbose_name = "Changement du droit annuel"
+        verbose_name_plural = "Changements du droit annuel"
+        constraints = [
+            models.UniqueConstraint(fields=["employee", "effective_from"], name="leaves_right_change_unique_date",
+                                    violation_error_message="Il y a déjà un changement à cette date."),
+        ]
+
+    def __str__(self):
+        return f"{self.employee} : {self.annual_days} j à partir du {self.effective_from:%d/%m/%Y}"
+
+    def clean(self):
+        if self.effective_from and self.employee_id and self.effective_from < self.employee.hire_date:
+            raise ValidationError({"effective_from": "La date est avant l'embauche."})
+        if self.annual_days is not None and self.annual_days > LeaveSettings.load().max_days_per_year:
+            raise ValidationError({"annual_days": "Plus que le maximum par an (réglages des congés)."})
+
+
 class LeaveRecount(models.Model):
     """Un congé recalculé parce qu'un jour férié a changé (ajouté, déplacé, désactivé...) : la trace.
     Ex. "Aïd Al Fitr : 20/03/2026 -> 21/03/2026", 4 -> 3 jours, par Nadia le 05/03.

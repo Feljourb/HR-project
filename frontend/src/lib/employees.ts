@@ -65,6 +65,8 @@ export type EmployeeFiche = {
   assignable_roles: string[];   // les rôles que CE RH peut lui donner (vide : il ne peut pas le changer)
   children: Child[];
   number_of_children: number;   // calculé par Django à partir de la liste
+  // Le droit annuel ACTUEL (annual_leave_days = celui de l'embauche ; les changements datés : Leave balances).
+  current_annual_right: { days: number; since: string; planned: { days: number; from: string } | null };
 } & Record<FormField, string | number | null>;
 
 // Une ligne de l'historique d'un dossier (/api/employees/<id>/history/).

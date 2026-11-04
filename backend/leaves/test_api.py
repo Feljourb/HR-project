@@ -1,6 +1,7 @@
 """Tests de l'API des congés (step 6), des pages RH (step 8) et de la commande de démo (step 9)."""
 import datetime
 from io import StringIO
+from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
@@ -9,10 +10,12 @@ from django.urls import reverse
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from employees.models import Department
+from employees.models import Department, Employee
 from workflows.test_engine import EngineTestCase
 
+from .balance import balance
 from .models import LeaveRequest, LeaveType, PublicHoliday
+from .tests import frozen_localdate
 from .services import request_leave
 
 User = get_user_model()
@@ -161,6 +164,60 @@ class HrLeaveApiTests(EngineTestCase):
         self.assertEqual([(row["employee"], row["days"], row["status"]) for row in rows],
                          [(f"{self.sara.first_name} {self.sara.last_name.title()}", 5, "IN_PROGRESS")])  # ni Riaya, ni l'annulé
         self.assertEqual(rows[0]["department"], "Ventes")
+
+    def test_hr_sees_the_balances_of_their_pole(self):
+        # P1 step 1 : la page "Leave balances". Les chiffres = ceux de la page du collaborateur (balance()).
+        self.as_role(self.nadia, User.Role.HR)  # RH de SBD : pas Salma (Riaya)
+        rows = {row["employee_id"]: row for row in self.client.get(url("balances-list")).json()}
+        self.assertNotIn(self.salma.pk, rows)
+        sara = rows[self.sara.pk]
+        self.assertEqual((sara["department"], sara["yearly_right"]), ("Ventes", 18))
+        self.assertEqual(sara["pending"], 5)  # 23 -> 27/11 en cours (l'annulé ne compte pas)
+        self.assertEqual(sara["available"], float(balance(self.sara)["available"]))
+        # Un "Sorti" : caché, sauf avec ?left=1 (ses jours restants pour le solde de tout compte).
+        Employee.objects.filter(pk=self.youssef.pk).update(status=Employee.Status.LEFT, departure_date=datetime.date(2026, 10, 31))
+        self.assertNotIn(self.youssef.pk, [row["employee_id"] for row in self.client.get(url("balances-list")).json()])
+        self.assertIn(self.youssef.pk, [row["employee_id"] for row in self.client.get(url("balances-list"), {"left": "1"}).json()])
+        # Admin RH : les deux pôles. Un collaborateur : non.
+        self.as_role(self.nadia, User.Role.HR_ADMIN)
+        self.assertIn(self.salma.pk, [row["employee_id"] for row in self.client.get(url("balances-list")).json()])
+        self.as_role(self.sara, User.Role.COLLABORATOR)
+        self.assertEqual(self.client.get(url("balances-list")).status_code, 403)
+
+    @mock.patch("django.utils.timezone.localdate", frozen_localdate)  # "aujourd'hui" = 02/11/2026
+    def test_the_annual_right_changes_from_a_date(self):
+        # P1 step 2 : Sara (embauchée le 05/01/2026, 18 j) passe à 30 j à partir du 01/09/2026.
+        self.as_role(self.nadia, User.Role.HR)
+        detail = reverse("leaves:balances-detail", args=[self.sara.pk])
+        self.assertEqual(self.client.get(detail).json()["acquired"], 13.5)  # 9 mois x 1,5
+        response = self.client.post(reverse("leaves:balances-right", args=[self.sara.pk]),
+                                    {"annual_days": "30", "effective_from": "2026-09-01", "reason": "Promotion manager"})
+        self.assertEqual(response.status_code, 200, response.json())
+        data = response.json()
+        # Les 7 mois d'avant restent à 1,5 ; les mois finis les 05/09 et 05/10 rapportent 2,5 : rien en arrière.
+        self.assertEqual((data["acquired"], data["yearly_right"], data["base_right"]), (15.5, 30, 18))
+        self.assertEqual(data["right_changes"][0]["reason"], "Promotion manager")
+        self.assertEqual(data["years"][0]["earned"], 15.5)
+        # La trace dans la fiche (onglet History, Audit log).
+        line = self.sara.history.latest("created_at").changes[0]
+        self.assertEqual((line["old"], line["new"]), ("18", "30 à partir du 01/09/2026 (Promotion manager)"))
+        # Les règles : un motif, pas avant l'embauche, une seule fois par date.
+        right = reverse("leaves:balances-right", args=[self.sara.pk])
+        self.assertEqual(self.client.post(right, {"annual_days": "20", "effective_from": "2026-10-01", "reason": " "}).status_code, 400)
+        self.assertIn("avant l'embauche", self.client.post(right, {"annual_days": "20", "effective_from": "2025-01-01", "reason": "x"}).json()["detail"])
+        self.assertIn("déjà un changement", self.client.post(right, {"annual_days": "20", "effective_from": "2026-09-01", "reason": "x"}).json()["detail"])
+        # Jamais son propre droit (comme valider sa propre demande) ; un collaborateur d'un autre pôle : 404.
+        self.assertEqual(self.client.post(reverse("leaves:balances-right", args=[self.nadia.pk]),
+                                          {"annual_days": "30", "effective_from": "2026-09-01", "reason": "x"}).status_code, 403)
+        self.assertEqual(self.client.get(reverse("leaves:balances-detail", args=[self.salma.pk])).status_code, 404)
+        # La fiche ne change plus le droit (sinon : recompté jusqu'à l'embauche)...
+        fiche = reverse("employees:employee-detail", args=[self.sara.pk])
+        patch = self.client.patch(fiche, {"annual_leave_days": "25"}, format="json")
+        self.assertIn("Leave balances", patch.json()["annual_leave_days"][0])
+        # ... mais elle montre le droit ACTUEL (30 depuis le 01/09), et un changement prévu.
+        self.client.post(right, {"annual_days": "32", "effective_from": "2027-01-01", "reason": "Ancienneté contrat"})
+        current = self.client.get(fiche).json()["current_annual_right"]
+        self.assertEqual(current, {"days": 30.0, "since": "2026-09-01", "planned": {"days": 32.0, "from": "2027-01-01"}})
 
     def test_admin_rh_sees_both_poles_and_the_period_filters(self):
         self.as_role(self.nadia, User.Role.HR_ADMIN)

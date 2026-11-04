@@ -28,17 +28,18 @@ from employees.models import Employee
 from employees.services import limited_to_own_pole, user_pole
 from workflows import engine
 from workflows.models import Request
+from workflows.serializers import person
 from workflows.views import run
 
-from .balance import balance
+from .balance import balance, balance_by_year, yearly_right
 from .counting import day_values
 from .holidays import ensure_year
-from .models import LeaveRecount, LeaveRequest, LeaveType, PublicHoliday
+from .models import AnnualRightChange, LeaveRecount, LeaveRequest, LeaveSettings, LeaveType, PublicHoliday
 from .serializers import (
     AbsenceSerializer, LeaveInputSerializer, LeaveRequestSerializer, LeaveTypeSerializer, PublicHolidaySerializer,
-    RecountSerializer,
+    RecountSerializer, RightChangeInputSerializer, RightChangeSerializer,
 )
-from .services import preview_leave, request_leave
+from .services import can_change_right, change_annual_right, preview_leave, request_leave
 
 
 class LeaveTypeViewSet(viewsets.ReadOnlyModelViewSet):
@@ -101,6 +102,85 @@ class MyLeaveViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.Cr
     @action(detail=False, methods=["get"], url_path="balance", url_name="balance")
     def my_balance(self, request):
         return Response(balance(self.employee()))
+
+
+class BalanceViewSet(viewsets.GenericViewSet):
+    """P1 step 1 : la page "Leave balances" (RH) : le solde de chaque collaborateur, sur un seul écran.
+    GET /api/leaves/balances/ (?left=1 : aussi les "Sorti", pour leurs jours restants au départ).
+    RH : son pôle ; Admin RH et IT : les deux pôles (comme le tableau des collaborateurs).
+    Chaque solde est calculé par la MÊME fonction balance() que la page du collaborateur : mêmes chiffres partout.
+    Limite connue : un calcul par personne (rapide pour quelques centaines ; voir l'optimisation plus tard)."""
+
+    permission_classes = [IsHR]
+
+    def get_queryset(self):
+        user = self.request.user
+        employees = (Employee.objects.select_related("department__direction__entity__pole")
+                     .order_by("last_name", "first_name"))
+        if self.request.query_params.get("left") != "1":
+            employees = employees.exclude(status=Employee.Status.LEFT)
+        if limited_to_own_pole(user):
+            pole = user_pole(user)
+            # Un RH sans dossier n'a pas de pôle : il ne voit rien (plus sûr que tout montrer).
+            employees = employees.filter(department__direction__entity__pole=pole) if pole else employees.none()
+        return employees
+
+    def row(self, employee, settings, today):
+        return {
+            "employee_id": employee.pk,
+            "employee": person(employee),
+            "department": employee.department.name,
+            "pole": employee.pole.name,
+            "status": employee.status,
+            "hire_date": employee.hire_date,
+            "yearly_right": float(yearly_right(employee, settings, today)),  # droit + ancienneté, aujourd'hui
+            **balance(employee, today),
+        }
+
+    def list(self, request):
+        settings, today = LeaveSettings.load(), timezone.localdate()
+        return Response([self.row(employee, settings, today) for employee in self.get_queryset()])
+
+    def retrieve(self, request, pk=None):
+        """GET /api/leaves/balances/<employee>/ -> le panneau du clic : la ligne du tableau, + le détail
+        année par année (les tirelires) et ses congés (tous les types : la liste complète pour les RH).
+        Un collaborateur hors du pôle du RH : 404 (comme s'il n'existait pas). Les "Sorti" aussi s'ouvrent."""
+        employee = (Employee.objects.select_related("department__direction__entity__pole")
+                    .filter(pk=pk, pk__in=self.visible_ids()).first()) if str(pk).isdigit() else None
+        if employee is None:
+            raise NotFound("Collaborateur introuvable.")
+        settings, today = LeaveSettings.load(), timezone.localdate()
+        leaves = (LeaveRequest.objects.filter(employee=employee).select_related("leave_type", "request")
+                  .prefetch_related("recounts"))
+        changes = AnnualRightChange.objects.filter(employee=employee).select_related("changed_by")
+        return Response({
+            **self.row(employee, settings, today),
+            "base_right": float(employee.annual_leave_days),  # le droit de la fiche, depuis l'embauche
+            "right_changes": RightChangeSerializer(changes, many=True).data,
+            "can_change_right": can_change_right(request.user, employee),
+            "years": balance_by_year(employee, today),
+            "leaves": LeaveRequestSerializer(leaves, many=True).data,
+        })
+
+    @action(detail=True, methods=["post"])
+    def right(self, request, pk=None):
+        """POST /api/leaves/balances/<employee>/right/ {"annual_days": 30, "effective_from": "2026-09-01",
+        "reason": "Promotion manager"} -> P1 step 2 : le nouveau droit, à partir de cette date. Répond le panneau à jour."""
+        employee = Employee.objects.filter(pk=pk, pk__in=self.visible_ids()).first() if str(pk).isdigit() else None
+        if employee is None:
+            raise NotFound("Collaborateur introuvable.")
+        data = RightChangeInputSerializer(data=request.data)
+        data.is_valid(raise_exception=True)
+        run(lambda: change_annual_right(employee, user=request.user, **data.validated_data))
+        return self.retrieve(request, pk=pk)
+
+    def visible_ids(self):
+        """Les collaborateurs que ce RH peut ouvrir : son pôle (Admin RH, IT : tous), "Sorti" compris."""
+        user, employees = self.request.user, Employee.objects.all()
+        if limited_to_own_pole(user):
+            pole = user_pole(user)
+            employees = employees.filter(department__direction__entity__pole=pole) if pole else employees.none()
+        return employees.values("pk")
 
 
 class RecountViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):

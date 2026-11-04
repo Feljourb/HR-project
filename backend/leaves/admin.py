@@ -3,7 +3,7 @@ from django.db import transaction
 
 from employees.admin import ReferenceAdmin
 
-from .models import LeaveRecount, LeaveRequest, LeaveSettings, LeaveType, PublicHoliday
+from .models import AnnualRightChange, LeaveRecount, LeaveRequest, LeaveSettings, LeaveType, PublicHoliday
 from .recount import holiday_changed
 
 
@@ -42,6 +42,21 @@ class LeaveSettingsAdmin(admin.ModelAdmin):
     # Une seule ligne : on la modifie, on ne l'ajoute pas deux fois et on ne la supprime jamais.
     def has_add_permission(self, request):
         return not LeaveSettings.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(AnnualRightChange)
+class AnnualRightChangeAdmin(admin.ModelAdmin):
+    """P1 step 2 : l'historique du droit annuel, en lecture seule (il se change depuis la page Leave balances)."""
+    list_display = ("employee", "effective_from", "annual_days", "reason", "changed_by", "created_at")
+    search_fields = ("employee__last_name", "employee__first_name")
+    readonly_fields = list_display
+    list_select_related = ("employee", "changed_by")
+
+    def has_add_permission(self, request):
+        return False
 
     def has_delete_permission(self, request, obj=None):
         return False

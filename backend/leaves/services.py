@@ -4,7 +4,7 @@ Le module Congés vérifie SES règles (dates, jours, maximum, chevauchement), p
 au moteur des circuits (engine.submit("LEAVE")), qui s'occupe de QUI valide.
 Step 6 : l'aperçu (preview_leave), pour le formulaire : le calcul en direct, sans rien enregistrer.
 """
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 
 from employees.models import Employee
@@ -66,6 +66,40 @@ def request_leave(employee, leave_type, start_date, end_date, starts_afternoon=F
     leave.request = engine.submit(Workflow.Code.LEAVE, employee, leave_title(leave))
     leave.save()
     return leave
+
+
+def can_change_right(user, employee):
+    """P1 step 2 : qui change le droit annuel : les RH du pôle et Admin RH (comme pour valider : jamais le sien),
+    et l'IT (support)."""
+    return user.is_superuser or engine.hr_validators(employee).filter(pk=user.pk).exists()
+
+
+@transaction.atomic
+def change_annual_right(employee, annual_days, effective_from, reason, user):
+    """Ex. change_annual_right(sara, 30, date(2026, 9, 1), "Promotion manager", nadia.user).
+    Le solde change tout seul (il lit le droit mois par mois). Une ligne aussi dans l'historique de la fiche
+    (onglet History et Audit log), comme toute modification du dossier."""
+    from employees import history
+    from employees.models import EmployeeHistory
+
+    from .balance import right_on
+    from .models import AnnualRightChange
+
+    if not can_change_right(user, employee):
+        raise PermissionDenied("Seuls les RH du pôle (et Admin RH) changent le droit annuel.")
+    if not (reason or "").strip():
+        raise ValidationError({"reason": "Indiquez le motif (ex. « Promotion manager »)."})
+    old = right_on(employee, effective_from)
+    change = AnnualRightChange(employee=employee, annual_days=annual_days, effective_from=effective_from,
+                               reason=reason.strip(), changed_by=user)
+    change.full_clean()
+    change.save()
+    history.record(employee, user, EmployeeHistory.Action.UPDATED, [{
+        "field": "Droit annuel de congé",
+        "old": days_label(old),
+        "new": f"{days_label(change.annual_days)} à partir du {effective_from:%d/%m/%Y} ({change.reason})",
+    }])
+    return change
 
 
 def leave_title(leave):

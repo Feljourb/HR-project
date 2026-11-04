@@ -2,7 +2,8 @@
 
 Une TIRELIRE PAR ANNÉE (décision du 2026-11-02) :
 - Depuis le jour de l'embauche, chaque mois COMPLET travaillé rapporte : droit annuel / 12 (18 -> 1,5 ; 30 -> 2,5).
-  Droit annuel = Employee.annual_leave_days + l'ancienneté (1,5 par période de 5 ans), au maximum 36.
+  Droit annuel = le droit valable ce mois-là (Employee.annual_leave_days depuis l'embauche, puis les
+  changements AnnualRightChange à partir de leur date, P1 step 2) + l'ancienneté (1,5 par 5 ans), au maximum 36.
   Le mois rapporte dans la tirelire de SON année (gagné en mars 2026 -> tirelire 2026).
 - Une tirelire se vide pendant 2 ans (LeaveSettings.carry_over_years) : celle de 2026 jusqu'au 31/12/2027.
   Après, ce qui reste est PERDU ("expired").
@@ -19,7 +20,7 @@ from django.utils import timezone
 
 from workflows.models import Request
 
-from .models import LeaveRequest, LeaveSettings
+from .models import AnnualRightChange, LeaveRequest, LeaveSettings
 
 ZERO, CENT = Decimal("0"), Decimal("0.01")
 
@@ -37,22 +38,44 @@ def full_years(start, end):
     return end.year - start.year - ((end.month, end.day) < (start.month, start.day))
 
 
-def yearly_right(employee, settings, on_day):
+def right_changes(employee):
+    """Les changements du droit annuel (P1 step 2), du plus ancien au plus récent : [(à partir du, jours), ...]."""
+    if employee.pk is None:
+        return []  # une fiche pas encore enregistrée
+    return list(AnnualRightChange.objects.filter(employee=employee).order_by("effective_from")
+                .values_list("effective_from", "annual_days"))
+
+
+def right_on(employee, day, changes=None):
+    """Le droit annuel (sans l'ancienneté) valable CE jour-là : le dernier changement déjà commencé,
+    sinon le droit de la fiche (depuis l'embauche). Ex. 18 jusqu'au 31/08, 30 à partir du 01/09.
+    `changes` : déjà lus (monthly_earnings les lit UNE fois pour tous les mois)."""
+    right = employee.annual_leave_days
+    for start, days in right_changes(employee) if changes is None else changes:
+        if start > day:
+            break
+        right = days
+    return right
+
+
+def yearly_right(employee, settings, on_day, changes=None):
     """Le droit annuel de ce collaborateur à cette date : son droit + l'ancienneté, au maximum le plafond."""
     periods = full_years(employee.hire_date, on_day) // settings.seniority_years if settings.seniority_years else 0
-    return min(employee.annual_leave_days + periods * settings.seniority_bonus, settings.max_days_per_year)
+    return min(right_on(employee, on_day, changes) + periods * settings.seniority_bonus, settings.max_days_per_year)
 
 
 def monthly_earnings(employee, today, settings):
     """Ce que chaque mois complet a rapporté depuis l'embauche : [(fin du mois, jours), ...]."""
     # Un collaborateur "Sorti" ne gagne plus rien après sa date de sortie.
     end = min(today, employee.departure_date) if employee.departure_date else today
+    changes = right_changes(employee)  # une seule requête pour tous les mois
     earnings, months = [], 1
     # Toujours compté depuis l'embauche (pas mois après mois) : 31/01 -> 28/02 -> 31/03, sans glisser au 28.
     while add_months(employee.hire_date, months) <= end:
         month_end = add_months(employee.hire_date, months)
-        # L'ancienneté est lue à la fin de CE mois : le bonus commence le mois des 5 ans.
-        earnings.append((month_end, yearly_right(employee, settings, month_end) / 12))
+        # Le droit ET l'ancienneté sont lus à la fin de CE mois : une promotion le 01/09 compte pour le mois
+        # qui finit après (rien n'est donné pour les mois d'avant), le bonus commence le mois des 5 ans.
+        earnings.append((month_end, yearly_right(employee, settings, month_end, changes) / 12))
         months += 1
     return earnings
 
@@ -72,19 +95,16 @@ def acquired(employee, today=None, settings=None):
     return money(sum((days for _, days in monthly_earnings(employee, today or timezone.localdate(), settings)), ZERO))
 
 
-def balance(employee, today=None, exclude=None):
-    """Le solde complet, ex. {"acquired": 40.5, "taken": 5, "pending": 2.5, "expired": 3, "available": 30,
-    "expiring": {"days": 4, "on": date(2026, 12, 31)}}. acquired = taken + pending + expired + available.
-    `exclude` : un congé à ne pas compter (celui qu'on est en train de vérifier)."""
-    settings = LeaveSettings.load()
-    today = today or timezone.localdate()
-
-    # 1. Remplir les tirelires : année -> jours gagnés cette année-là.
-    pools = {}
+def fill_and_pay(employee, today, settings, exclude=None):
+    """Le cœur du calcul (utilisé par balance() et balance_by_year()) :
+    1. remplir les tirelires : année -> jours gagnés cette année-là ;
+    2. payer les congés, du plus ancien au plus récent, avec la tirelire valable la plus ancienne.
+    Renvoie (gagné par année, reste par année, pris, en attente, manquant)."""
+    earned = {}
     for month_end, days in monthly_earnings(employee, today, settings):
-        pools[month_end.year] = pools.get(month_end.year, ZERO) + days
+        earned[month_end.year] = earned.get(month_end.year, ZERO) + days
+    pools = dict(earned)
 
-    # 2. Payer les congés, du plus ancien au plus récent, avec la tirelire valable la plus ancienne.
     leaves = (LeaveRequest.objects.filter(employee=employee, leave_type__deducts_balance=True,
                                           request__status__in=LeaveRequest.ACTIVE)
               .exclude(pk=exclude).order_by("start_date").values_list("start_date", "days", "request__status"))
@@ -103,6 +123,16 @@ def balance(employee, today=None, exclude=None):
                 pools[year] -= used
                 rest -= used
         missing += rest  # pas assez dans les tirelires (ex. le RH a baissé le droit) : le disponible devient négatif
+    return earned, pools, taken, pending, missing
+
+
+def balance(employee, today=None, exclude=None):
+    """Le solde complet, ex. {"acquired": 40.5, "taken": 5, "pending": 2.5, "expired": 3, "available": 30,
+    "expiring": {"days": 4, "on": date(2026, 12, 31)}}. acquired = taken + pending + expired + available.
+    `exclude` : un congé à ne pas compter (celui qu'on est en train de vérifier)."""
+    settings = LeaveSettings.load()
+    today = today or timezone.localdate()
+    _, pools, taken, pending, missing = fill_and_pay(employee, today, settings, exclude)
 
     # 3. Ce qui reste : perdu (tirelire périmée aujourd'hui) ou disponible.
     valid = [year for year in sorted(pools) if expiry(year, settings) >= today]
@@ -118,3 +148,19 @@ def balance(employee, today=None, exclude=None):
         "available": money(available),
         "expiring": {"days": money(pools[soon[0]]), "on": expiry(soon[0], settings)} if soon else None,
     }
+
+
+def balance_by_year(employee, today=None):
+    """Le détail des tirelires, pour le panneau RH (comme les grands logiciels RH) :
+    [{"year": 2025, "earned": 16.5, "used": 16.5, "left": 0, "valid_until": date(2026, 12, 31), "state": "VALID"}, ...]
+    state : VALID (se dépense encore), EXPIRING (perdue le 31/12 de cette année), EXPIRED (déjà perdue)."""
+    settings = LeaveSettings.load()
+    today = today or timezone.localdate()
+    earned, pools, *_ = fill_and_pay(employee, today, settings)
+    rows = []
+    for year in sorted(earned):
+        until = expiry(year, settings)
+        state = "EXPIRED" if until < today else "EXPIRING" if until.year == today.year else "VALID"
+        rows.append({"year": year, "earned": money(earned[year]), "used": money(earned[year] - pools[year]),
+                     "left": money(pools[year]), "valid_until": until, "state": state})
+    return rows

@@ -7,6 +7,7 @@ from copy import copy
 from django.contrib.auth import get_user_model
 from django.core.exceptions import NON_FIELD_ERRORS, ValidationError as DjangoValidationError
 from django.db import transaction
+from django.utils import timezone
 from rest_framework import serializers
 
 from accounts.services import can_change_role, can_give_role_to_new_account, can_reset_password
@@ -128,6 +129,9 @@ class EmployeeSerializer(serializers.ModelSerializer):
     # l'ancienne (voir save_children). Le nombre d'enfants est calculé, jamais saisi.
     children = ChildSerializer(many=True, required=False)
     number_of_children = serializers.IntegerField(read_only=True)
+    # Le droit annuel ACTUEL (annual_leave_days = celui de l'embauche ; ensuite les changements datés de
+    # Leave balances) : ce que la fiche affiche, pour ne pas laisser croire que "18" est toujours vrai.
+    current_annual_right = serializers.SerializerMethodField()
 
     class Meta:
         model = Employee
@@ -138,6 +142,22 @@ class EmployeeSerializer(serializers.ModelSerializer):
 
     def get_hierarchy(self, employee):
         return hierarchy_data(employee)
+
+    def get_current_annual_right(self, employee):
+        """{"days": 30, "since": "2026-09-01", "planned": {"days": 32, "from": "2027-01-01"} ou null}.
+        Sans changement : le droit de la fiche, depuis l'embauche."""
+        # Importé ici : l'app leaves importe déjà employees (sinon une boucle d'imports).
+        from leaves.models import AnnualRightChange
+
+        today = timezone.localdate()
+        changes = AnnualRightChange.objects.filter(employee=employee)
+        current = changes.filter(effective_from__lte=today).order_by("-effective_from").first()
+        planned = changes.filter(effective_from__gt=today).order_by("effective_from").first()
+        return {
+            "days": float(current.annual_days if current else employee.annual_leave_days),
+            "since": current.effective_from if current else employee.hire_date,
+            "planned": {"days": float(planned.annual_days), "from": planned.effective_from} if planned else None,
+        }
 
     def get_can_reset_password(self, employee):
         request = self.context.get("request")
@@ -190,6 +210,13 @@ class EmployeeSerializer(serializers.ModelSerializer):
         if self.instance is not None and role and role != self.instance.user.role:
             if not can_change_role(user, self.instance.user, role):
                 raise serializers.ValidationError({"role": "Vous ne pouvez pas donner ce rôle à ce compte."})
+
+        # 4. Le droit annuel de congé : saisi à la CRÉATION (valable depuis l'embauche). Ensuite il change
+        #    seulement avec une date d'effet (page Leave balances, leaves.AnnualRightChange) : changé ici, il
+        #    serait recompté jusqu'à l'embauche (des jours donnés en trop pour les années d'avant).
+        right = attrs.get("annual_leave_days")
+        if self.instance is not None and right is not None and right != self.instance.annual_leave_days:
+            raise serializers.ValidationError({"annual_leave_days": "Changez le droit annuel depuis « Leave balances » (avec une date d'effet)."})
         return attrs
 
     # atomic : le dossier et ses enfants sont enregistrés ensemble, ou pas du tout.
