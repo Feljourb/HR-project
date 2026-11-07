@@ -12,10 +12,10 @@ export type LeaveType = {
 // Un jour férié (/api/leaves/holidays/). estimated : fête religieuse calculée, la date peut bouger d'un jour.
 export type Holiday = { id: number; date: string; name: string; estimated: boolean }
 
-// acquired = taken + pending + expired + available (les jours se prennent pendant 2 ans, puis ils sont perdus).
 // expiring : les jours qui seront perdus à la fin de cette année s'ils ne sont pas pris (null : aucun).
+// acquired (les mois gagnés) + adjusted (les corrections RH, + ou -) = taken + pending + expired + available.
 export type Balance = {
-  acquired: number; taken: number; pending: number; expired: number; available: number
+  acquired: number; adjusted: number; taken: number; pending: number; expired: number; available: number
   expiring: { days: number; on: string } | null
 }
 
@@ -64,14 +64,19 @@ export type BalanceRow = Balance & {
 // Un changement du droit annuel à partir d'une date (P1 step 2), ex. 30 jours à partir du 01/09/2026.
 export type RightChange = { id: number; effective_from: string; annual_days: number; reason: string; changed_by: string | null; created_at: string }
 
-// Une "tirelire" : les jours gagnés une année, ce qui en est utilisé et jusqu'à quand ils se prennent.
-export type YearPool = { year: number; earned: number; used: number; left: number; valid_until: string; state: 'VALID' | 'EXPIRING' | 'EXPIRED' }
+// Une "tirelire" : les jours gagnés une année (+ les corrections RH en plus), ce qui en est utilisé
+// (congés + corrections en moins) et jusqu'à quand ils se prennent.
+export type YearPool = { year: number; earned: number; added: number; used: number; left: number; valid_until: string; state: 'VALID' | 'EXPIRING' | 'EXPIRED' }
+
+// Une correction du solde par les RH (P1 step 3), ex. -10 jours au 31/12/2025 "Congés pris avant l'application".
+export type Adjustment = { id: number; date: string; days: number; reason: string; created_by: string | null; created_at: string }
 
 // Le panneau du clic (/api/leaves/balances/<employee>/) : la ligne + le détail.
 export type BalanceDetail = BalanceRow & {
   base_right: number           // le droit de la fiche, depuis l'embauche
   right_changes: RightChange[]
-  can_change_right: boolean    // RH du pôle / Admin RH, jamais pour soi-même (Django décide)
+  adjustments: Adjustment[]
+  can_manage: boolean          // "Change" et "Add a correction" : RH du pôle / Admin RH, jamais pour soi-même (Django décide)
   years: YearPool[]
   leaves: Leave[]
 }

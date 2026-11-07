@@ -219,6 +219,34 @@ class HrLeaveApiTests(EngineTestCase):
         current = self.client.get(fiche).json()["current_annual_right"]
         self.assertEqual(current, {"days": 30.0, "since": "2026-09-01", "planned": {"days": 32.0, "from": "2027-01-01"}})
 
+    @mock.patch("django.utils.timezone.localdate", frozen_localdate)  # "aujourd'hui" = 02/11/2026
+    def test_hr_corrections_go_into_the_year_of_their_date(self):
+        # P1 step 3 : Omar, embauché le 06/01/2025 (18 j) : 2025 = 11 mois = 16,5 j ; 2026 = 10 mois = 15 j.
+        omar = self.make_employee("omar.old", "AA100020", hire_date=datetime.date(2025, 1, 6))
+        self.as_role(self.nadia, User.Role.HR)
+        detail = reverse("leaves:balances-detail", args=[omar.pk])
+        before = self.client.get(detail).json()
+        self.assertEqual((before["available"], before["expiring"]["days"]), (31.5, 16.5))  # tout 2025 perdu au 31/12
+        # Les congés 2025 pris AVANT l'application (Excel RH) : -10 j au 31/12/2025, dans la tirelire 2025.
+        adjust = reverse("leaves:balances-adjustment", args=[omar.pk])
+        data = self.client.post(adjust, {"days": "-10", "date": "2025-12-31", "reason": "Congés 2025 (Excel RH)"}).json()
+        self.assertEqual((data["available"], data["adjusted"], data["acquired"]), (21.5, -10, 31.5))
+        self.assertEqual(data["expiring"]["days"], 6.5)  # 16,5 - 10 : seulement 6,5 perdus au 31/12 (pas 16,5)
+        self.assertEqual((data["years"][0]["year"], data["years"][0]["used"]), (2025, 10))
+        # Un jour rendu (2 samedis d'inventaire) : +1 dans la tirelire 2026.
+        data = self.client.post(adjust, {"days": "1", "date": "2026-10-15", "reason": "Samedis d'inventaire"}).json()
+        self.assertEqual((data["available"], data["years"][1]["added"]), (22.5, 1))
+        self.assertEqual([a["days"] for a in data["adjustments"]], [-10, 1])
+        # La trace dans la fiche.
+        self.assertEqual(omar.history.latest("created_at").changes[0]["new"], "+1 j au 15/10/2026 (Samedis d'inventaire)")
+        # Les règles : jamais 0, pas dans le futur, pas avant l'embauche, un motif.
+        for wrong in ({"days": "0", "date": "2026-10-01", "reason": "x"}, {"days": "1", "date": "2026-12-01", "reason": "x"},
+                      {"days": "1", "date": "2024-12-01", "reason": "x"}, {"days": "1", "date": "2026-10-01", "reason": ""}):
+            self.assertEqual(self.client.post(adjust, wrong).status_code, 400, wrong)
+        # Un collaborateur : non ; jamais son propre solde.
+        self.assertEqual(self.client.post(reverse("leaves:balances-adjustment", args=[self.nadia.pk]),
+                                          {"days": "5", "date": "2026-10-01", "reason": "x"}).status_code, 403)
+
     def test_admin_rh_sees_both_poles_and_the_period_filters(self):
         self.as_role(self.nadia, User.Role.HR_ADMIN)
         self.assertEqual(len(self.absences().json()), 2)

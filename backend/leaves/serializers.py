@@ -7,7 +7,7 @@ from employees.serializers import ReferenceSerializer
 from workflows.serializers import person
 
 from .holidays import in_window, is_fixed
-from .models import AnnualRightChange, LeaveRecount, LeaveRequest, LeaveType, PublicHoliday
+from .models import AnnualRightChange, BalanceAdjustment, LeaveRecount, LeaveRequest, LeaveType, PublicHoliday
 
 
 class LeaveTypeSerializer(serializers.ModelSerializer):
@@ -93,6 +93,25 @@ class RightChangeInputSerializer(serializers.Serializer):
 
     annual_days = serializers.DecimalField(max_digits=5, decimal_places=2, min_value=Decimal("0"))
     effective_from = serializers.DateField()
+    reason = serializers.CharField(max_length=200)
+
+
+class AdjustmentSerializer(serializers.ModelSerializer):
+    """P1 step 3 : une correction du solde, dans le panneau RH."""
+
+    days = serializers.DecimalField(max_digits=5, decimal_places=2, coerce_to_string=False)
+    created_by = serializers.StringRelatedField()
+
+    class Meta:
+        model = BalanceAdjustment
+        fields = ["id", "date", "days", "reason", "created_by", "created_at"]
+
+
+class AdjustmentInputSerializer(serializers.Serializer):
+    """Ce que le formulaire "Add a correction" envoie (la forme ; les règles sont dans le modèle)."""
+
+    days = serializers.DecimalField(max_digits=5, decimal_places=2)
+    date = serializers.DateField()
     reason = serializers.CharField(max_length=200)
 
 

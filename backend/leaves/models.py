@@ -235,6 +235,42 @@ class AnnualRightChange(models.Model):
             raise ValidationError({"annual_days": "Plus que le maximum par an (réglages des congés)."})
 
 
+class BalanceAdjustment(models.Model):
+    """P1 step 3 : une CORRECTION du solde par les RH, avec une date et un motif (comme une ligne de correction
+    à la banque). Ex. "-10 jours au 31/12/2025 : congés pris avant l'application (Excel RH)",
+    "+1 jour au 15/10/2026 : 2 samedis travaillés pendant l'inventaire".
+    Dans le solde, comme si l'application avait toujours existé :
+    - un PLUS entre dans la tirelire de l'année de sa date (et suit sa règle des 2 ans) ;
+    - un MOINS se paie comme un congé pris ce jour-là (la tirelire valable la plus ancienne d'abord).
+    Jamais modifiée ni supprimée : une erreur se corrige par une nouvelle correction (ex. -2 puis +2)."""
+
+    employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name="balance_adjustments", verbose_name="Collaborateur")
+    date = models.DateField("Date")
+    days = models.DecimalField("Jours (+ ou -)", max_digits=5, decimal_places=2)
+    reason = models.CharField("Motif", max_length=200)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name="+", verbose_name="Fait par")
+    created_at = models.DateTimeField("Enregistrée le", auto_now_add=True)
+
+    class Meta:
+        ordering = ["date", "id"]
+        verbose_name = "Correction du solde"
+        verbose_name_plural = "Corrections du solde"
+
+    def __str__(self):
+        return f"{self.employee} : {self.days:+} j au {self.date:%d/%m/%Y}"
+
+    def clean(self):
+        if self.days is not None and (self.days == 0 or abs(self.days) > 100):
+            raise ValidationError({"days": "Entre -100 et +100 jours, et jamais 0."})
+        if self.date is None or not self.employee_id:
+            return
+        if self.date < self.employee.hire_date:
+            raise ValidationError({"date": "La date est avant l'embauche."})
+        if self.date > timezone.localdate():
+            raise ValidationError({"date": "Pas de correction dans le futur."})
+
+
 class LeaveRecount(models.Model):
     """Un congé recalculé parce qu'un jour férié a changé (ajouté, déplacé, désactivé...) : la trace.
     Ex. "Aïd Al Fitr : 20/03/2026 -> 21/03/2026", 4 -> 3 jours, par Nadia le 05/03.

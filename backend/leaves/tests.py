@@ -311,7 +311,7 @@ class BalanceTests(EngineTestCase):
     def test_taken_pending_and_available(self):
         today = datetime.date(2026, 11, 5)  # Sara : 10 mois = 15 jours
         first = request_leave(self.sara, self.annual, nov(23), nov(27))     # 5 jours, en attente
-        self.assertEqual(balance(self.sara, today), {"acquired": 15, "taken": 0, "pending": 5, "expired": 0,
+        self.assertEqual(balance(self.sara, today), {"acquired": 15, "adjusted": 0, "taken": 0, "pending": 5, "expired": 0,
                                                      "available": 10, "expiring": None})
         engine.approve(first.request.steps.get(status=RequestStep.Status.PENDING), self.youssef.user)  # N+1 valide
         self.assertEqual(balance(self.sara, today)["taken"], 5)

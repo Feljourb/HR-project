@@ -111,13 +111,14 @@ export function LeaveBalances({ initialEmployee = null }: { initialEmployee?: nu
           ? <p className="px-4 py-10 text-center text-sm text-slate-500"><PiggyBank className="mx-auto mb-2 size-6 text-[#8C6D52]" />
               {rows.length === 0 ? 'No employee in your pôle yet.' : 'No employee matches these filters.'}</p>
           : <div className="overflow-x-auto">
-              <table className="w-full min-w-[860px] text-xs">
+              <table className="w-full min-w-[940px] text-xs">
                 <thead>
                   <tr className="text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                     <SortHeader label="Employee" column="employee" sort={sort} onSort={sortBy} />
                     <th className="px-4 py-2">Service</th>
                     <th className="px-4 py-2 text-right" title="Annual right + seniority, today">Right / year</th>
                     <th className="px-4 py-2 text-right" title="All the days earned since the hire date">Earned</th>
+                    <th className="px-4 py-2 text-right" title="Days added or removed by HR (e.g. leaves taken before the app)">Corrections</th>
                     <th className="px-4 py-2 text-right">Taken</th>
                     <th className="px-4 py-2 text-right" title="Leaves waiting for approval">Pending</th>
                     <th className="px-4 py-2 text-right" title="Days not taken in time (older than 2 years)">Expired</th>
@@ -141,6 +142,9 @@ export function LeaveBalances({ initialEmployee = null }: { initialEmployee?: nu
                     <td className="px-4 py-2.5 text-slate-600">{row.department}{poles.size > 1 && <span className="text-slate-400"> · {row.pole}</span>}</td>
                     <td className="px-4 py-2.5 text-right tabular-nums text-slate-600">{days(row.yearly_right)}</td>
                     <td className="px-4 py-2.5 text-right tabular-nums text-slate-600">{days(row.acquired)}</td>
+                    <td className={cn('px-4 py-2.5 text-right tabular-nums', row.adjusted > 0 ? 'text-emerald-700' : row.adjusted < 0 ? 'text-red-600' : 'text-slate-300')}>
+                      {row.adjusted ? `${row.adjusted > 0 ? '+' : ''}${days(row.adjusted)}` : '—'}
+                    </td>
                     <td className="px-4 py-2.5 text-right tabular-nums text-slate-600">{days(row.taken)}</td>
                     <td className="px-4 py-2.5 text-right tabular-nums text-slate-600">{row.pending ? days(row.pending) : '—'}</td>
                     <td className="px-4 py-2.5 text-right tabular-nums text-slate-400">{row.expired ? days(row.expired) : '—'}</td>

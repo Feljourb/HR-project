@@ -34,12 +34,14 @@ from workflows.views import run
 from .balance import balance, balance_by_year, yearly_right
 from .counting import day_values
 from .holidays import ensure_year
-from .models import AnnualRightChange, LeaveRecount, LeaveRequest, LeaveSettings, LeaveType, PublicHoliday
-from .serializers import (
-    AbsenceSerializer, LeaveInputSerializer, LeaveRequestSerializer, LeaveTypeSerializer, PublicHolidaySerializer,
-    RecountSerializer, RightChangeInputSerializer, RightChangeSerializer,
+from .models import (
+    AnnualRightChange, BalanceAdjustment, LeaveRecount, LeaveRequest, LeaveSettings, LeaveType, PublicHoliday,
 )
-from .services import can_change_right, change_annual_right, preview_leave, request_leave
+from .serializers import (
+    AbsenceSerializer, AdjustmentInputSerializer, AdjustmentSerializer, LeaveInputSerializer, LeaveRequestSerializer,
+    LeaveTypeSerializer, PublicHolidaySerializer, RecountSerializer, RightChangeInputSerializer, RightChangeSerializer,
+)
+from .services import add_adjustment, can_manage_balance, change_annual_right, preview_leave, request_leave
 
 
 class LeaveTypeViewSet(viewsets.ReadOnlyModelViewSet):
@@ -153,11 +155,14 @@ class BalanceViewSet(viewsets.GenericViewSet):
         leaves = (LeaveRequest.objects.filter(employee=employee).select_related("leave_type", "request")
                   .prefetch_related("recounts"))
         changes = AnnualRightChange.objects.filter(employee=employee).select_related("changed_by")
+        adjustments = BalanceAdjustment.objects.filter(employee=employee).select_related("created_by")
         return Response({
             **self.row(employee, settings, today),
             "base_right": float(employee.annual_leave_days),  # le droit de la fiche, depuis l'embauche
             "right_changes": RightChangeSerializer(changes, many=True).data,
-            "can_change_right": can_change_right(request.user, employee),
+            "adjustments": AdjustmentSerializer(adjustments, many=True).data,
+            # Les boutons "Change" et "Add a correction" : RH du pôle / Admin RH, jamais pour soi-même.
+            "can_manage": can_manage_balance(request.user, employee),
             "years": balance_by_year(employee, today),
             "leaves": LeaveRequestSerializer(leaves, many=True).data,
         })
@@ -166,13 +171,28 @@ class BalanceViewSet(viewsets.GenericViewSet):
     def right(self, request, pk=None):
         """POST /api/leaves/balances/<employee>/right/ {"annual_days": 30, "effective_from": "2026-09-01",
         "reason": "Promotion manager"} -> P1 step 2 : le nouveau droit, à partir de cette date. Répond le panneau à jour."""
-        employee = Employee.objects.filter(pk=pk, pk__in=self.visible_ids()).first() if str(pk).isdigit() else None
-        if employee is None:
-            raise NotFound("Collaborateur introuvable.")
+        employee = self.visible_employee(pk)
         data = RightChangeInputSerializer(data=request.data)
         data.is_valid(raise_exception=True)
         run(lambda: change_annual_right(employee, user=request.user, **data.validated_data))
         return self.retrieve(request, pk=pk)
+
+    @action(detail=True, methods=["post"])
+    def adjustment(self, request, pk=None):
+        """POST /api/leaves/balances/<employee>/adjustment/ {"days": -10, "date": "2025-12-31",
+        "reason": "Congés 2025 pris avant l'application"} -> P1 step 3 : une correction du solde. Répond le panneau à jour."""
+        employee = self.visible_employee(pk)
+        data = AdjustmentInputSerializer(data=request.data)
+        data.is_valid(raise_exception=True)
+        run(lambda: add_adjustment(employee, user=request.user, **data.validated_data))
+        return self.retrieve(request, pk=pk)
+
+    def visible_employee(self, pk):
+        """Le collaborateur, s'il est dans le pôle de ce RH ; sinon 404 (comme s'il n'existait pas)."""
+        employee = Employee.objects.filter(pk=pk, pk__in=self.visible_ids()).first() if str(pk).isdigit() else None
+        if employee is None:
+            raise NotFound("Collaborateur introuvable.")
+        return employee
 
     def visible_ids(self):
         """Les collaborateurs que ce RH peut ouvrir : son pôle (Admin RH, IT : tous), "Sorti" compris."""

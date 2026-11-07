@@ -3,7 +3,9 @@ from django.db import transaction
 
 from employees.admin import ReferenceAdmin
 
-from .models import AnnualRightChange, LeaveRecount, LeaveRequest, LeaveSettings, LeaveType, PublicHoliday
+from .models import (
+    AnnualRightChange, BalanceAdjustment, LeaveRecount, LeaveRequest, LeaveSettings, LeaveType, PublicHoliday,
+)
 from .recount import holiday_changed
 
 
@@ -54,6 +56,21 @@ class AnnualRightChangeAdmin(admin.ModelAdmin):
     search_fields = ("employee__last_name", "employee__first_name")
     readonly_fields = list_display
     list_select_related = ("employee", "changed_by")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(BalanceAdjustment)
+class BalanceAdjustmentAdmin(admin.ModelAdmin):
+    """P1 step 3 : les corrections du solde, en lecture seule (elles se font depuis la page Leave balances)."""
+    list_display = ("employee", "date", "days", "reason", "created_by", "created_at")
+    search_fields = ("employee__last_name", "employee__first_name")
+    readonly_fields = list_display
+    list_select_related = ("employee", "created_by")
 
     def has_add_permission(self, request):
         return False

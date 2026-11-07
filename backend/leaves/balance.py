@@ -9,6 +9,8 @@ Une TIRELIRE PAR ANNÉE (décision du 2026-11-02) :
   Après, ce qui reste est PERDU ("expired").
 - Un congé (seulement les types "décomptés du solde") se paie avec la tirelire la plus ANCIENNE encore valable
   à sa date : on utilise d'abord les jours qui vont bientôt être perdus.
+- Les corrections des RH (BalanceAdjustment, P1 step 3 : ex. les congés pris avant l'application) :
+  un PLUS entre dans la tirelire de l'année de sa date ; un MOINS se paie comme un congé pris ce jour-là.
 - Disponible = ce qui reste dans les tirelires encore valables aujourd'hui.
 Rien n'est stocké : le solde est recalculé à chaque fois (pas de chiffre qui se désynchronise).
 """
@@ -20,7 +22,7 @@ from django.utils import timezone
 
 from workflows.models import Request
 
-from .models import AnnualRightChange, LeaveRequest, LeaveSettings
+from .models import AnnualRightChange, BalanceAdjustment, LeaveRequest, LeaveSettings
 
 ZERO, CENT = Decimal("0"), Decimal("0.01")
 
@@ -95,55 +97,74 @@ def acquired(employee, today=None, settings=None):
     return money(sum((days for _, days in monthly_earnings(employee, today or timezone.localdate(), settings)), ZERO))
 
 
+ADJUSTMENT = "ADJUSTMENT"  # une correction en moins, payée comme un congé (voir fill_and_pay)
+
+
 def fill_and_pay(employee, today, settings, exclude=None):
     """Le cœur du calcul (utilisé par balance() et balance_by_year()) :
-    1. remplir les tirelires : année -> jours gagnés cette année-là ;
-    2. payer les congés, du plus ancien au plus récent, avec la tirelire valable la plus ancienne.
-    Renvoie (gagné par année, reste par année, pris, en attente, manquant)."""
+    1. remplir les tirelires : année -> jours gagnés cette année-là (les mois)
+       + les corrections RH en PLUS, dans la tirelire de l'année de leur date (P1 step 3) ;
+    2. payer, du plus ancien au plus récent, avec la tirelire valable la plus ancienne :
+       les congés ET les corrections RH en MOINS (comme un congé pris ce jour-là).
+    Ainsi le solde se comporte comme si l'application avait toujours existé."""
     earned = {}
     for month_end, days in monthly_earnings(employee, today, settings):
         earned[month_end.year] = earned.get(month_end.year, ZERO) + days
-    pools = dict(earned)
+    adjustments = (list(BalanceAdjustment.objects.filter(employee=employee).values_list("date", "days"))
+                   if employee.pk else [])
+    added = {}
+    for day, days in adjustments:
+        if days > 0:
+            added[day.year] = added.get(day.year, ZERO) + days
+    pools = {year: earned.get(year, ZERO) + added.get(year, ZERO) for year in set(earned) | set(added)}
 
     leaves = (LeaveRequest.objects.filter(employee=employee, leave_type__deducts_balance=True,
                                           request__status__in=LeaveRequest.ACTIVE)
-              .exclude(pk=exclude).order_by("start_date").values_list("start_date", "days", "request__status"))
-    taken = pending = missing = ZERO
-    for start, days, status in leaves:
-        if status == Request.Status.APPROVED:
+              .exclude(pk=exclude).values_list("start_date", "days", "request__status"))
+    spending = sorted([*leaves, *((day, -days, ADJUSTMENT) for day, days in adjustments if days < 0)],
+                      key=lambda item: item[0])
+    taken = pending = removed = missing = ZERO
+    for start, days, kind in spending:
+        if kind == Request.Status.APPROVED:
             taken += days
+        elif kind == ADJUSTMENT:
+            removed += days
         else:
             pending += days
         rest = days
         for year in sorted(pools):
             if rest <= 0:
                 break
-            if expiry(year, settings) >= start:  # encore valable à la date du congé
+            if expiry(year, settings) >= start:  # encore valable à cette date
                 used = min(rest, pools[year])
                 pools[year] -= used
                 rest -= used
         missing += rest  # pas assez dans les tirelires (ex. le RH a baissé le droit) : le disponible devient négatif
-    return earned, pools, taken, pending, missing
+    return {"earned": earned, "added": added, "pools": pools, "taken": taken, "pending": pending,
+            "removed": removed, "missing": missing}
 
 
 def balance(employee, today=None, exclude=None):
-    """Le solde complet, ex. {"acquired": 40.5, "taken": 5, "pending": 2.5, "expired": 3, "available": 30,
-    "expiring": {"days": 4, "on": date(2026, 12, 31)}}. acquired = taken + pending + expired + available.
+    """Le solde complet, ex. {"acquired": 40.5, "adjusted": -10, "taken": 5, "pending": 2.5, "expired": 3,
+    "available": 20, "expiring": {"days": 4, "on": date(2026, 12, 31)}}.
+    acquired (les mois) + adjusted (les corrections RH) = taken + pending + expired + available.
     `exclude` : un congé à ne pas compter (celui qu'on est en train de vérifier)."""
     settings = LeaveSettings.load()
     today = today or timezone.localdate()
-    _, pools, taken, pending, missing = fill_and_pay(employee, today, settings, exclude)
+    paid = fill_and_pay(employee, today, settings, exclude)
+    pools = paid["pools"]
 
     # 3. Ce qui reste : perdu (tirelire périmée aujourd'hui) ou disponible.
     valid = [year for year in sorted(pools) if expiry(year, settings) >= today]
     expired = sum((left for year, left in pools.items() if year not in valid), ZERO)
-    available = sum((pools[year] for year in valid), ZERO) - missing
+    available = sum((pools[year] for year in valid), ZERO) - paid["missing"]
     # Les jours qui seront perdus à la fin de CETTE année, pour prévenir le collaborateur.
     soon = [year for year in valid if expiry(year, settings).year == today.year and pools[year] > 0]
     return {
-        "acquired": money(sum(pools.values(), ZERO) + taken + pending - missing),
-        "taken": money(taken),
-        "pending": money(pending),
+        "acquired": money(sum(paid["earned"].values(), ZERO)),
+        "adjusted": money(sum(paid["added"].values(), ZERO) - paid["removed"]),
+        "taken": money(paid["taken"]),
+        "pending": money(paid["pending"]),
         "expired": money(expired),
         "available": money(available),
         "expiring": {"days": money(pools[soon[0]]), "on": expiry(soon[0], settings)} if soon else None,
@@ -152,15 +173,17 @@ def balance(employee, today=None, exclude=None):
 
 def balance_by_year(employee, today=None):
     """Le détail des tirelires, pour le panneau RH (comme les grands logiciels RH) :
-    [{"year": 2025, "earned": 16.5, "used": 16.5, "left": 0, "valid_until": date(2026, 12, 31), "state": "VALID"}, ...]
+    [{"year": 2025, "earned": 16.5, "added": 0, "used": 16.5, "left": 0, "valid_until": date(2026, 12, 31),
+      "state": "VALID"}, ...]. added = les corrections RH en plus ; used = les congés + les corrections en moins.
     state : VALID (se dépense encore), EXPIRING (perdue le 31/12 de cette année), EXPIRED (déjà perdue)."""
     settings = LeaveSettings.load()
     today = today or timezone.localdate()
-    earned, pools, *_ = fill_and_pay(employee, today, settings)
+    paid = fill_and_pay(employee, today, settings)
     rows = []
-    for year in sorted(earned):
+    for year in sorted(paid["pools"]):
         until = expiry(year, settings)
         state = "EXPIRED" if until < today else "EXPIRING" if until.year == today.year else "VALID"
-        rows.append({"year": year, "earned": money(earned[year]), "used": money(earned[year] - pools[year]),
-                     "left": money(pools[year]), "valid_until": until, "state": state})
+        earned, added, left = paid["earned"].get(year, ZERO), paid["added"].get(year, ZERO), paid["pools"][year]
+        rows.append({"year": year, "earned": money(earned), "added": money(added), "used": money(earned + added - left),
+                     "left": money(left), "valid_until": until, "state": state})
     return rows

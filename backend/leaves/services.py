@@ -68,10 +68,36 @@ def request_leave(employee, leave_type, start_date, end_date, starts_afternoon=F
     return leave
 
 
-def can_change_right(user, employee):
-    """P1 step 2 : qui change le droit annuel : les RH du pôle et Admin RH (comme pour valider : jamais le sien),
-    et l'IT (support)."""
+def can_manage_balance(user, employee):
+    """P1 steps 2-3 : qui change le droit annuel et corrige le solde : les RH du pôle et Admin RH
+    (comme pour valider : jamais pour soi-même), et l'IT (support)."""
     return user.is_superuser or engine.hr_validators(employee).filter(pk=user.pk).exists()
+
+
+@transaction.atomic
+def add_adjustment(employee, days, date, reason, user):
+    """P1 step 3 : une correction du solde, ex. add_adjustment(youssef, -10, date(2025, 12, 31),
+    "Congés 2025 pris avant l'application (Excel RH)", nadia.user). Le solde change tout seul (voir balance.py).
+    Une ligne aussi dans l'historique de la fiche (onglet History et Audit log)."""
+    from employees import history
+    from employees.models import EmployeeHistory
+
+    from .models import BalanceAdjustment
+
+    if not can_manage_balance(user, employee):
+        raise PermissionDenied("Seuls les RH du pôle (et Admin RH) corrigent le solde.")
+    if not (reason or "").strip():
+        raise ValidationError({"reason": "Indiquez le motif (ex. « Congés pris avant l'application »)."})
+    adjustment = BalanceAdjustment(employee=employee, days=days, date=date, reason=reason.strip(), created_by=user)
+    adjustment.full_clean()
+    adjustment.save()
+    sign = "+" if adjustment.days > 0 else "-"
+    history.record(employee, user, EmployeeHistory.Action.UPDATED, [{
+        "field": "Correction du solde de congé",
+        "old": "",
+        "new": f"{sign}{days_label(abs(adjustment.days))} j au {date:%d/%m/%Y} ({adjustment.reason})",
+    }])
+    return adjustment
 
 
 @transaction.atomic
@@ -85,7 +111,7 @@ def change_annual_right(employee, annual_days, effective_from, reason, user):
     from .balance import right_on
     from .models import AnnualRightChange
 
-    if not can_change_right(user, employee):
+    if not can_manage_balance(user, employee):
         raise PermissionDenied("Seuls les RH du pôle (et Admin RH) changent le droit annuel.")
     if not (reason or "").strip():
         raise ValidationError({"reason": "Indiquez le motif (ex. « Promotion manager »)."})

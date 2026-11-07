@@ -29,6 +29,14 @@ const STATE: Record<YearPool['state'], { label: string; className: string }> = {
 }
 
 const days = (value: number) => (Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/0$/, ''))
+// Une correction, avec son signe : "+1", "-10", "0".
+const signed = (value: number) => (value > 0 ? `+${days(value)}` : days(value))
+
+/** Le premier message d'erreur de Django : {"detail": "..."} ou {"champ": ["..."]}. */
+function firstError(data: Record<string, unknown>) {
+  const first = data.detail ?? Object.values(data)[0]
+  return Array.isArray(first) ? String(first[0]) : String(first ?? 'Something went wrong. Please try again.')
+}
 
 export function BalancePanel({ employeeId, onClose, onChanged }: {
   employeeId: number | null; onClose: () => void; onChanged: () => void
@@ -76,21 +84,25 @@ function PanelContent({ employeeId, onClose, onChanged }: { employeeId: number; 
     {!detail
       ? <p className="px-5 py-12 text-center text-sm text-slate-500">{failed ? 'Could not load this balance. Please try again later.' : 'Loading...'}</p>
       : <div className="flex flex-col gap-4 p-5">
-          {/* Le solde, en 4 chiffres (le plus important en premier). */}
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {/* Le solde, en 5 chiffres (le plus important en premier) : Earned + Corrections - Taken - Pending - Expired = Available. */}
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
             {[
               { label: 'Available', value: detail.available, strong: true },
               { label: 'Earned', value: detail.acquired },
+              { label: 'Corrections', value: detail.adjusted, signed: true },
               { label: 'Taken', value: detail.taken },
               { label: 'Pending', value: detail.pending },
             ].map((tile) => <div key={tile.label} className={cn('rounded-lg border px-3 py-2.5', tile.strong ? 'border-[#192646] bg-[#192646] text-white' : 'border-slate-200 bg-white')}>
               <p className={cn('text-[10px] font-semibold uppercase tracking-wide', tile.strong ? 'text-slate-300' : 'text-slate-500')}>{tile.label}</p>
-              <p className={cn('text-lg font-semibold tabular-nums', !tile.strong && 'text-[#192646]', tile.strong && tile.value < 0 && 'text-red-300')}>{days(tile.value)}</p>
+              <p className={cn('text-lg font-semibold tabular-nums', !tile.strong && 'text-[#192646]', tile.strong && tile.value < 0 && 'text-red-300')}>
+                {tile.signed ? signed(tile.value) : days(tile.value)}
+              </p>
             </div>)}
           </div>
 
           <YearsCard years={detail.years} />
           <RightCard detail={detail} onSaved={(next) => { setDetail(next); onChanged() }} />
+          <CorrectionsCard detail={detail} onSaved={(next) => { setDetail(next); onChanged() }} />
           <LeavesCard detail={detail} />
         </div>}
   </div>
@@ -103,7 +115,7 @@ function YearsCard({ years }: { years: YearPool[] }) {
   return <section className={cardClass}>
     <header className="border-b border-slate-100 px-4 py-3">
       <h3 className="text-sm font-semibold text-[#192646]">Days by year</h3>
-      <p className="text-[11px] text-slate-500">Days earned in a year can be taken until December 31 of the next year. The oldest days are used first.</p>
+      <p className="text-[11px] text-slate-500">Days earned in a year can be taken until December 31 of the next year. The oldest days are used first (leaves and minus corrections).</p>
     </header>
     {years.length === 0
       ? <p className="px-4 py-6 text-center text-xs text-slate-500">No full month worked yet.</p>
@@ -117,7 +129,10 @@ function YearsCard({ years }: { years: YearPool[] }) {
           <tbody>
             {years.map((pool) => <tr key={pool.year} className="border-t border-slate-100">
               <td className="px-4 py-2 font-semibold text-[#192646]">{pool.year}</td>
-              <td className="px-2 py-2 text-right tabular-nums text-slate-600">{days(pool.earned)}</td>
+              {/* Les corrections en plus entrent dans la tirelire de leur année : "15 +1". */}
+              <td className="px-2 py-2 text-right tabular-nums text-slate-600">
+                {days(pool.earned)}{pool.added > 0 && <span className="ml-1 text-emerald-600" title="HR corrections">+{days(pool.added)}</span>}
+              </td>
               <td className="px-2 py-2 text-right tabular-nums text-slate-600">{days(pool.used)}</td>
               <td className="px-2 py-2 text-right font-semibold tabular-nums text-[#192646]">{days(pool.left)}</td>
               <td className="px-4 py-2">
@@ -156,8 +171,7 @@ function RightCard({ detail, onSaved }: { detail: BalanceDetail; onSaved: (detai
         setReason('')
       } else {
         // 400 : {"detail": "La date est avant l'embauche."} ou {"reason": ["..."]} ; 403 : pas le droit.
-        const first = data.detail ?? Object.values(data)[0]
-        setError(Array.isArray(first) ? String(first[0]) : String(first ?? 'Something went wrong. Please try again.'))
+        setError(firstError(data))
       }
     } catch {
       setError('Cannot reach the server. Please try again later.')
@@ -171,7 +185,7 @@ function RightCard({ detail, onSaved }: { detail: BalanceDetail; onSaved: (detai
         <h3 className="text-sm font-semibold text-[#192646]">Annual right</h3>
         <p className="text-[11px] text-slate-500">Today: <b className="font-semibold text-slate-700">{days(detail.yearly_right)} days / year</b> (with seniority). A change counts from its date only, never back.</p>
       </div>
-      {detail.can_change_right && !open && <button type="button" onClick={() => setOpen(true)}
+      {detail.can_manage && !open && <button type="button" onClick={() => setOpen(true)}
         className="flex items-center gap-1.5 rounded-lg bg-[#23355d] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#192646]">
         <Plus className="size-3.5" /> Change
       </button>}
@@ -203,6 +217,86 @@ function RightCard({ detail, onSaved }: { detail: BalanceDetail; onSaved: (detai
       <div className="sm:col-span-2">
         <label htmlFor="right-reason" className="block text-xs font-semibold text-slate-700">Reason <span className="text-red-500" aria-hidden>*</span></label>
         <input id="right-reason" required maxLength={200} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Promotion to manager" className={controlClass} />
+      </div>
+      {error && <p role="alert" className="text-xs font-medium text-red-600 sm:col-span-2">{error}</p>}
+      <div className="flex justify-end gap-2 sm:col-span-2">
+        <button type="button" onClick={() => { setOpen(false); setError('') }} className="rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100">Cancel</button>
+        <button type="submit" disabled={busy} className="flex items-center gap-1.5 rounded-lg bg-[#23355d] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#192646] disabled:opacity-60">
+          {busy && <Loader2 className="size-3.5 animate-spin" />} Save
+        </button>
+      </div>
+    </form>}
+  </section>
+}
+
+// Les corrections du solde par les RH (P1 step 3) : la liste (jamais modifiée ni supprimée) et "Add a correction".
+// Ex. -10 au 31/12/2025 "Congés pris avant l'application" : la date choisit la tirelire (son année).
+function CorrectionsCard({ detail, onSaved }: { detail: BalanceDetail; onSaved: (detail: BalanceDetail) => void }) {
+  const [open, setOpen] = useState(false)
+  const [amount, setAmount] = useState('')
+  const [date, setDate] = useState(() => isoDate(new Date()))
+  const [reason, setReason] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const today = isoDate(new Date())
+
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setBusy(true)
+    setError('')
+    try {
+      const response = await apiFetch(`/api/leaves/balances/${detail.employee_id}/adjustment/`, {
+        method: 'POST', body: JSON.stringify({ days: amount, date, reason }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (response.ok) {
+        onSaved(data)
+        setOpen(false)
+        setAmount('')
+        setReason('')
+      } else {
+        setError(firstError(data))  // ex. "Pas de correction dans le futur."
+      }
+    } catch {
+      setError('Cannot reach the server. Please try again later.')
+    }
+    setBusy(false)
+  }
+
+  return <section className={cardClass}>
+    <header className="flex flex-wrap items-start gap-3 border-b border-slate-100 px-4 py-3">
+      <div className="min-w-0 flex-1">
+        <h3 className="text-sm font-semibold text-[#192646]">Corrections</h3>
+        <p className="text-[11px] text-slate-500">Days added or removed by HR, e.g. the leaves taken before the app. The date chooses the year of the days.</p>
+      </div>
+      {detail.can_manage && !open && <button type="button" onClick={() => setOpen(true)}
+        className="flex items-center gap-1.5 rounded-lg bg-[#23355d] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#192646]">
+        <Plus className="size-3.5" /> Add a correction
+      </button>}
+    </header>
+
+    {detail.adjustments.length === 0
+      ? !open && <p className="px-4 py-4 text-center text-xs text-slate-500">No correction.</p>
+      : <ul className="divide-y divide-slate-100 text-xs">
+          {detail.adjustments.map((item) => <li key={item.id} className="flex items-baseline gap-2 px-4 py-2">
+            <span className="w-24 shrink-0 text-slate-500">{formatDate(item.date)}</span>
+            <span className={cn('w-12 shrink-0 font-semibold tabular-nums', item.days > 0 ? 'text-emerald-700' : 'text-red-600')}>{signed(item.days)}</span>
+            <span className="min-w-0 text-slate-600">{item.reason}{item.created_by && <span className="text-slate-400"> · by {item.created_by}</span>}</span>
+          </li>)}
+        </ul>}
+
+    {open && <form onSubmit={save} className="grid gap-3 border-t border-slate-100 bg-slate-50/60 px-4 py-3 sm:grid-cols-2">
+      <div>
+        <label htmlFor="adjust-days" className="block text-xs font-semibold text-slate-700">Days (+ to add, - to remove) <span className="text-red-500" aria-hidden>*</span></label>
+        <input id="adjust-days" type="number" required step="0.5" min="-100" max="100" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="e.g. -10" className={controlClass} />
+      </div>
+      <div>
+        <label htmlFor="adjust-date" className="block text-xs font-semibold text-slate-700">Date <span className="text-red-500" aria-hidden>*</span></label>
+        <input id="adjust-date" type="date" required min={detail.hire_date} max={today} value={date} onChange={(e) => setDate(e.target.value)} className={controlClass} />
+      </div>
+      <div className="sm:col-span-2">
+        <label htmlFor="adjust-reason" className="block text-xs font-semibold text-slate-700">Reason <span className="text-red-500" aria-hidden>*</span></label>
+        <input id="adjust-reason" required maxLength={200} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Leaves taken before the app (HR Excel)" className={controlClass} />
       </div>
       {error && <p role="alert" className="text-xs font-medium text-red-600 sm:col-span-2">{error}</p>}
       <div className="flex justify-end gap-2 sm:col-span-2">
