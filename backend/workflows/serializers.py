@@ -125,11 +125,12 @@ class RequestSerializer(serializers.ModelSerializer):
     requester = serializers.SerializerMethodField()
     status_label = serializers.CharField(source="get_status_display")
     steps = RequestStepSerializer(many=True)
+    cancelled_by = serializers.StringRelatedField()  # le compte qui a annulé (le demandeur, ou un RH), ou null
 
     class Meta:
         model = Request
         fields = ["id", "workflow", "workflow_code", "title", "requester", "status", "status_label",
-                  "created_at", "closed_at", "steps"]
+                  "created_at", "closed_at", "cancelled_by", "cancel_reason", "steps"]
 
     def get_requester(self, request):
         return person(request.requester)

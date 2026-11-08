@@ -120,6 +120,7 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
 
     leave_type_label = serializers.StringRelatedField(source="leave_type")
     recounts = RecountSerializer(many=True, read_only=True)  # vide la plupart du temps
+    recorded_by = serializers.StringRelatedField()  # le RH qui l'a enregistré pour le collaborateur, ou null
     days = serializers.DecimalField(max_digits=5, decimal_places=1, coerce_to_string=False)  # 2.5, pas "2.5"
     status = serializers.CharField(source="request.status")
     status_label = serializers.CharField(source="request.get_status_display")
@@ -130,7 +131,7 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
         # request = le numéro de la demande du moteur : pour l'annuler (/api/workflows/requests/<id>/cancel/)
         # et ouvrir son historique (/requests/<id>).
         fields = ["id", "request", "leave_type", "leave_type_label", "start_date", "end_date", "starts_afternoon",
-                  "ends_noon", "days", "reason", "status", "status_label", "created_at", "recounts"]
+                  "ends_noon", "days", "reason", "status", "status_label", "created_at", "recounts", "recorded_by"]
         read_only_fields = fields
 
 

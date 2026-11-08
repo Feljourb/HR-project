@@ -6,6 +6,7 @@ Step 1 : les deux listes de référence du module, gérées par Admin RH :
 Step 3 : LeaveRequest, une demande de congé (les dates) attachée à une demande du moteur (le circuit).
 Step 4 : LeaveSettings, les règles du solde (ancienneté, maximum par an, jours perdus après 2 ans...).
 """
+import datetime
 from decimal import Decimal
 
 from django.conf import settings
@@ -29,6 +30,10 @@ class LeaveType(ReferenceItem):
         "Durée maximale (jours)", max_digits=5, decimal_places=1, null=True, blank=True,
         validators=[MinValueValidator(Decimal("0.5"))],
     )
+    # P1 step 4 : combien de jours dans le PASSÉ le collaborateur peut faire commencer ce congé (standard) :
+    # annuel / sans solde 0 (ils se planifient avant) ; maladie 2 (prévenir en 48 h) ; exceptionnels 7.
+    # Au-delà : les RH l'enregistrent pour lui ("Record a leave"). Admin RH change ces valeurs (page Lists).
+    max_days_back = models.PositiveSmallIntegerField("Jours dans le passé autorisés", default=0)
 
     class Meta(ReferenceItem.Meta):
         verbose_name = "Type de congé"
@@ -128,6 +133,10 @@ class LeaveRequest(models.Model):
     # il est RECALCULÉ (leaves/recount.py) et le changement est noté dans LeaveRecount (décision du 2026-11-03).
     days = models.DecimalField("Jours", max_digits=5, decimal_places=1)
     reason = models.TextField("Motif", blank=True)
+    # P1 step 4b : le RH qui a enregistré ce congé À LA PLACE du collaborateur (vide : demandé par lui-même).
+    # Un congé enregistré par les RH peut commencer loin dans le passé (la règle 2b ne s'applique pas).
+    recorded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                                    related_name="+", verbose_name="Enregistré par (RH)")
 
     class Meta:
         ordering = ["-start_date"]
@@ -164,6 +173,19 @@ class LeaveRequest(models.Model):
         # Règle 2 : un type désactivé par Admin RH ne se demande plus.
         if not self.leave_type.is_active:
             raise ValidationError({"leave_type": "Ce type de congé n'est plus proposé."})
+        # Règle 2a (P1 step 4b) : jamais avant l'embauche (même enregistré par les RH).
+        if self.employee_id and self.start_date < self.employee.hire_date:
+            raise ValidationError({"start_date": f"Le congé commence avant l'embauche ({self.employee.hire_date:%d/%m/%Y})."})
+        # Règle 2b (P1 step 4) : pas trop loin dans le PASSÉ, selon le type (annuel : 0 jour ; maladie : 2...).
+        # Au-delà, ce sont les RH qui l'enregistrent pour le collaborateur (recorded_by : la règle ne s'applique pas).
+        days_back = self.leave_type.max_days_back
+        earliest = timezone.localdate() - datetime.timedelta(days=days_back)
+        if self.start_date < earliest and not self.recorded_by_id:
+            if days_back == 0:
+                raise ValidationError({"start_date": f"« {self.leave_type} » se demande à l'avance : "
+                                                     "il ne peut pas commencer avant aujourd'hui. Demandez aux RH."})
+            raise ValidationError({"start_date": f"« {self.leave_type} » : au plus {days_back} jour(s) dans le passé "
+                                                 f"(à partir du {earliest:%d/%m/%Y}). Demandez aux RH."})
         # Règle 3 : au moins une demi-journée (ex. un dimanche seul, ou un jour férié seul : 0 jour).
         self.days = count_days(self.start_date, self.end_date, self.starts_afternoon, self.ends_noon)
         if self.days <= 0:

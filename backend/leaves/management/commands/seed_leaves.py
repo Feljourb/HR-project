@@ -27,7 +27,9 @@ from ...services import request_leave
 DEMOS = [
     ("collab.test", "Congé annuel", 0, 4, "Vacances en famille (démo)", "approve"),
     ("collab.test", "Congé annuel", 21, 2, "Pont de fin d'année (démo)", None),
-    ("collab.test", "Congé maladie", -14, 1, "Rendez-vous médical (démo)", "approve"),
+    # Un rendez-vous médical planifié (dans le futur) : depuis P1 step 4, une maladie ne commence pas plus de
+    # 2 jours dans le passé (au-delà, ce sont les RH qui l'enregistrent).
+    ("collab.test", "Congé maladie", 10, 1, "Rendez-vous médical (démo)", "approve"),
     ("collab.test", "Congé annuel", 35, 4, "Voyage (démo)", "reject"),
     ("manager.test", "Congé annuel", 7, 4, "Congé du manager (démo)", None),
     # hr.test n'a pas de N+1 : c'est une AUTRE RH du pôle (ou une Admin RH) qui valide, dans "Team approvals".

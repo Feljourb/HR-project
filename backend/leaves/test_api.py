@@ -10,12 +10,14 @@ from django.urls import reverse
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from employees.models import Department, Employee
+from employees.models import Department, Employee, Notification
+from employees.notifications import message as bell_message
+from workflows import engine
 from workflows.test_engine import EngineTestCase
 
 from .balance import balance
 from .models import LeaveRequest, LeaveType, PublicHoliday
-from .tests import frozen_localdate
+from .tests import freeze_today, frozen_localdate
 from .services import request_leave
 
 User = get_user_model()
@@ -33,6 +35,9 @@ def form(leave_type, start, end, **extra):
 
 class LeaveApiTests(EngineTestCase):
     def setUp(self):
+        # "Aujourd'hui" figé au 02/11/2026 (comme les autres tests des congés) : les dates de novembre restent dans
+        # le futur quel que soit le jour où on lance les tests (sinon la règle "pas dans le passé" les refuserait).
+        freeze_today(self)
         super().setUp()
         self.annual = LeaveType.objects.get(name="Congé annuel")
         self.client = APIClient()
@@ -138,6 +143,7 @@ class HrLeaveApiTests(EngineTestCase):
     """Step 8 : les absences (RH) et les deux listes du module (Admin RH)."""
 
     def setUp(self):
+        freeze_today(self)  # voir LeaveApiTests
         super().setUp()
         self.annual = LeaveType.objects.get(name="Congé annuel")
         self.client = APIClient()
@@ -247,6 +253,63 @@ class HrLeaveApiTests(EngineTestCase):
         self.assertEqual(self.client.post(reverse("leaves:balances-adjustment", args=[self.nadia.pk]),
                                           {"days": "5", "date": "2026-10-01", "reason": "x"}).status_code, 403)
 
+    def test_hr_records_a_leave_for_an_employee(self):
+        # P1 step 4b : Sara était malade le mardi 20/10 (13 jours avant "aujourd'hui") et n'a pas pu le demander.
+        sick = LeaveType.objects.get(name="Congé maladie")
+        record = reverse("leaves:balances-leave", args=[self.sara.pk])
+        self.as_role(self.sara, User.Role.COLLABORATOR)
+        self.assertEqual(self.client.post(record, {"leave_type": sick.pk, "start_date": "2026-10-20", "end_date": "2026-10-20"}).status_code, 403)
+        self.as_role(self.nadia, User.Role.HR)
+        response = self.client.post(record, {"leave_type": sick.pk, "start_date": "2026-10-20", "end_date": "2026-10-20",
+                                             "reason": "Certificat reçu"})
+        self.assertEqual(response.status_code, 200, response.json())
+        leave = LeaveRequest.objects.get(employee=self.sara, leave_type=sick)
+        # Déjà acceptée, une seule étape validée par Nadia, avec la trace ; personne n'est sonné pour valider.
+        self.assertEqual((leave.request.status, leave.recorded_by, leave.days), ("APPROVED", self.nadia.user, 1))
+        step = leave.request.steps.get()
+        self.assertEqual((step.status, step.decided_by, step.comment), ("APPROVED", self.nadia.user, "Enregistré par les RH : Certificat reçu"))
+        self.assertTrue(Notification.objects.filter(recipient=self.sara.user, kind="APPROVED", request=leave.request).exists())
+        self.assertFalse(Notification.objects.filter(kind="TO_VALIDATE", request=leave.request).exists())
+        recorded = next(item for item in response.json()["leaves"] if item["id"] == leave.pk)
+        self.assertEqual(recorded["recorded_by"], "nadia.rh")
+        # Les autres règles restent : pas avant l'embauche (05/01/2026), pas sur un congé déjà là.
+        before_hire = self.client.post(record, {"leave_type": sick.pk, "start_date": "2025-12-30", "end_date": "2025-12-31"})
+        self.assertIn("avant l'embauche", before_hire.json()["detail"])
+        overlap = self.client.post(record, {"leave_type": sick.pk, "start_date": "2026-11-24", "end_date": "2026-11-24"})
+        self.assertIn("déjà un congé", overlap.json()["detail"])
+
+    def test_cancel_an_approved_leave_before_it_starts(self):
+        # P1 step 5 ("aujourd'hui" = 02/11/2026). Le congé de Sara du 23 au 27/11, accepté par Youssef.
+        leave = LeaveRequest.objects.get(employee=self.sara, start_date=datetime.date(2026, 11, 23))
+        engine.approve(leave.request.steps.get(status="PENDING"), self.youssef.user)
+        cancel = reverse("leaves:mine-cancel", args=[leave.pk])
+        # Un autre collaborateur : ce n'est pas SON congé (404).
+        self.as_role(self.youssef, User.Role.COLLABORATOR)
+        self.assertEqual(self.client.post(cancel, {"reason": "x"}).status_code, 404)
+        # Sara : un motif est obligatoire, puis le congé est annulé et ses 5 jours reviennent.
+        self.as_role(self.sara, User.Role.COLLABORATOR)
+        self.assertIn("motif est obligatoire", self.client.post(cancel, {"reason": " "}).json()["detail"])
+        response = self.client.post(cancel, {"reason": "Projet urgent, je reporte"})
+        self.assertEqual((response.status_code, response.json()["status"]), (200, "CANCELLED"))
+        self.assertEqual(balance(self.sara)["taken"], 0)
+        # Youssef (qui l'avait validé) est prévenu ; l'historique dit qui a annulé et pourquoi.
+        bell = Notification.objects.get(recipient=self.youssef.user, kind="CANCELLED")
+        self.assertIn("Projet urgent", bell_message(bell))
+        history = self.client.get(reverse("workflows:history-detail", args=[leave.request_id])).json()
+        self.assertEqual((history["cancelled_by"], history["cancel_reason"]), ("sara.collab", "Projet urgent, je reporte"))
+        # Un congé qui a déjà commencé (aujourd'hui) : non. Les RH peuvent annuler un congé à venir.
+        today = request_leave(self.sara, self.annual, datetime.date(2026, 11, 2), datetime.date(2026, 11, 2))
+        engine.approve(today.request.steps.get(status="PENDING"), self.youssef.user)
+        self.assertIn("déjà commencé", self.client.post(reverse("leaves:mine-cancel", args=[today.pk]), {"reason": "x"}).json()["detail"])
+        later = request_leave(self.sara, self.annual, datetime.date(2026, 11, 30), datetime.date(2026, 11, 30))
+        engine.approve(later.request.steps.get(status="PENDING"), self.youssef.user)
+        self.as_role(self.nadia, User.Role.HR)
+        response = self.client.post(reverse("leaves:balances-cancel-leave", args=[self.sara.pk]), {"leave": later.pk, "reason": "Erreur de saisie"})
+        self.assertEqual(response.status_code, 200, response.json())
+        later.request.refresh_from_db()
+        self.assertEqual((later.request.status, later.request.cancelled_by), ("CANCELLED", self.nadia.user))
+        self.assertTrue(Notification.objects.filter(recipient=self.sara.user, kind="CANCELLED", request=later.request).exists())
+
     def test_admin_rh_sees_both_poles_and_the_period_filters(self):
         self.as_role(self.nadia, User.Role.HR_ADMIN)
         self.assertEqual(len(self.absences().json()), 2)
@@ -262,6 +325,9 @@ class HrLeaveApiTests(EngineTestCase):
 
     def test_the_numbers_of_the_month(self):
         # Youssef : du mercredi 28/10 au jeudi 05/11. En novembre, seulement lundi 2 -> jeudi 5 = 4 jours.
+        # Il commence AVANT aujourd'hui (02/11) : comme si Admin RH autorisait 10 jours dans le passé (P1 step 4).
+        self.annual.max_days_back = 10
+        self.annual.save()
         request_leave(self.youssef, self.annual, datetime.date(2026, 10, 28), datetime.date(2026, 11, 5))
         self.as_role(self.nadia, User.Role.HR)  # RH de SBD : Sara et Youssef (pas Salma, de Riaya ; pas l'annulé)
         response = self.client.get(url("absence-summary"), {"date_from": "2026-11-01", "date_to": "2026-11-30"})

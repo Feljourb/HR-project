@@ -109,6 +109,28 @@ def submit(code, requester, title):
     return request
 
 
+@transaction.atomic
+def record_approved(code, requester, title, user, comment):
+    """Une demande enregistrée par les RH À LA PLACE du demandeur, déjà ACCEPTÉE (standard des logiciels RH :
+    les RH sont l'autorité). Ex. un congé maladie passé que le collaborateur n'a pas pu demander lui-même.
+    Pas de circuit à suivre (personne n'est sonné pour valider) : une seule étape "RH du pôle", validée par CE RH,
+    avec son commentaire : l'historique dit qui l'a fait et quand. Le demandeur est prévenu (🔔 acceptée).
+    Le module (celui qui appelle) vérifie avant que ce RH en a le droit."""
+    workflow = Workflow.objects.get(code=code)
+    if not workflow.is_active:
+        raise ValidationError("Ce type de demande est désactivé.")
+    now = timezone.now()
+    request = Request.objects.create(workflow=workflow, requester=requester, title=title,
+                                     status=Request.Status.APPROVED, closed_at=now)
+    RequestStep.objects.create(request=request, order=1, approver=Approver.HR, mode=Mode.VALIDATE,
+                               status=Status.APPROVED, decided_by=user, decided_at=now, comment=comment)
+    notify.send([requester.user], notify.Kind.APPROVED, request)  # 🔔 au demandeur
+    handler = HANDLERS.get(code)
+    if handler:
+        handler(request)
+    return request
+
+
 def advance(request):
     """Passe aux étapes suivantes, dans l'ordre :
     - "Informer" : marquée "informée", et on continue (elle n'attend personne) ;
@@ -252,7 +274,28 @@ def cancel(request, user):
         raise PermissionDenied("Seul le demandeur peut annuler sa demande.")
     if request.status != Request.Status.IN_PROGRESS:
         raise ValidationError("Cette demande est déjà terminée.")
-    request.status, request.closed_at = Request.Status.CANCELLED, timezone.now()
-    request.save(update_fields=["status", "closed_at"])
+    request.status, request.closed_at, request.cancelled_by = Request.Status.CANCELLED, timezone.now(), user
+    request.save(update_fields=["status", "closed_at", "cancelled_by"])
     notify.clear_waiting(request)  # 🔔 plus rien à valider : les "Demande à valider" pas lues partent
+    return request
+
+
+@transaction.atomic
+def cancel_approved(request, user, reason):
+    """Annule une demande DÉJÀ ACCEPTÉE (ex. un congé qui n'a pas encore commencé), avec un motif obligatoire.
+    Le moteur ne sait pas QUI peut ni QUAND : le module le vérifie avant (Congés : le demandeur ou les RH du pôle,
+    avant le premier jour). Prévenus (🔔 "Demande annulée") : ceux qui l'avaient validée, et le demandeur si
+    quelqu'un d'autre annule pour lui."""
+    request = Request.objects.select_for_update().select_related("requester").get(pk=request.pk)
+    if request.status != Request.Status.APPROVED:
+        raise ValidationError("Seule une demande acceptée peut être annulée ici.")
+    reason = (reason or "").strip()
+    if not reason:
+        raise ValidationError("Un motif est obligatoire pour annuler une demande acceptée.")
+    request.status, request.closed_at = Request.Status.CANCELLED, timezone.now()
+    request.cancelled_by, request.cancel_reason = user, reason
+    request.save(update_fields=["status", "closed_at", "cancelled_by", "cancel_reason"])
+    deciders = get_user_model().objects.filter(pk__in=request.steps.exclude(decided_by=None).values("decided_by"))
+    people = [*deciders, *([request.requester.user] if request.requester.user_id != user.pk else [])]
+    notify.send([person for person in dict.fromkeys(people) if person.pk != user.pk], notify.Kind.CANCELLED, request)
     return request

@@ -82,7 +82,9 @@ function stepEvents(request: WorkflowRequest): Event[] {
 
   if (request.status === 'APPROVED') events.push({ icon: CheckCheck, tone: 'text-emerald-600', title: 'Request approved', at: request.closed_at })
   if (request.status === 'REJECTED') events.push({ icon: XCircle, tone: 'text-red-600', title: 'Request rejected', at: request.closed_at })
-  if (request.status === 'CANCELLED') events.push({ icon: Ban, tone: 'text-slate-500', title: `Cancelled by ${request.requester}`, at: request.closed_at })
+  // Annulée : par le demandeur, ou par un RH (une demande déjà acceptée), avec le motif.
+  if (request.status === 'CANCELLED') events.push({ icon: Ban, tone: 'text-slate-500', title: `Cancelled by ${request.cancelled_by ?? request.requester}`,
+    comment: request.cancel_reason || undefined, at: request.closed_at })
   return events
 }
 

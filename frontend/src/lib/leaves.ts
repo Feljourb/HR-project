@@ -43,6 +43,7 @@ export type Leave = {
   status_label: string
   created_at: string
   recounts: Recount[]        // vide la plupart du temps : les recalculs après un changement de jour férié
+  recorded_by: string | null // le RH qui l'a enregistré pour le collaborateur (P1 step 4b), ou null
 }
 
 // Un recalcul (backend leaves/recount.py) : un jour férié a changé, le congé a été recompté.

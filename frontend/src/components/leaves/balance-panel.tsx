@@ -11,9 +11,10 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import Link from 'next/link'
 import { Loader2, Plus, X } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
-import { formatDate, formatDays, isoDate, type BalanceDetail, type YearPool } from '@/lib/leaves'
+import { formatDate, formatDays, isoDate, type BalanceDetail, type LeaveType, type YearPool } from '@/lib/leaves'
 import { cn } from '@/lib/utils'
 import { controlClass } from '@/components/employees/form-fields'
+import { CancelApprovedButton } from './my-leaves'
 
 const BADGE: Record<string, string> = {
   IN_PROGRESS: 'bg-amber-50 text-amber-700',
@@ -103,7 +104,7 @@ function PanelContent({ employeeId, onClose, onChanged }: { employeeId: number; 
           <YearsCard years={detail.years} />
           <RightCard detail={detail} onSaved={(next) => { setDetail(next); onChanged() }} />
           <CorrectionsCard detail={detail} onSaved={(next) => { setDetail(next); onChanged() }} />
-          <LeavesCard detail={detail} />
+          <LeavesCard detail={detail} onSaved={(next) => { setDetail(next); onChanged() }} />
         </div>}
   </div>
 }
@@ -309,13 +310,97 @@ function CorrectionsCard({ detail, onSaved }: { detail: BalanceDetail; onSaved: 
   </section>
 }
 
+// Le formulaire "Record a leave" (RH) : type, dates (le passé est permis pour les RH), demi-journées, motif.
+// Django garde les autres règles (pas avant l'embauche, pas de chevauchement, maximum, solde) et répond le panneau à jour.
+function RecordLeaveForm({ detail, onClose, onSaved }: {
+  detail: BalanceDetail; onClose: () => void; onSaved: (detail: BalanceDetail) => void
+}) {
+  const [types, setTypes] = useState<LeaveType[]>([])
+  const [leaveType, setLeaveType] = useState('')
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
+  const [afternoon, setAfternoon] = useState(false)
+  const [noon, setNoon] = useState(false)
+  const [reason, setReason] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    apiFetch('/api/leaves/types/').then((response) => (response.ok ? response.json() : [])).then(setTypes).catch(() => setTypes([]))
+  }, [])
+
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setBusy(true)
+    setError('')
+    try {
+      const response = await apiFetch(`/api/leaves/balances/${detail.employee_id}/leave/`, {
+        method: 'POST',
+        body: JSON.stringify({ leave_type: leaveType, start_date: from, end_date: to, starts_afternoon: afternoon, ends_noon: noon, reason }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (response.ok) onSaved(data)
+      else setError(firstError(data))  // ex. "Vous avez déjà un congé sur ces dates..."
+    } catch {
+      setError('Cannot reach the server. Please try again later.')
+    }
+    setBusy(false)
+  }
+
+  return <form onSubmit={save} className="grid gap-3 border-b border-slate-100 bg-slate-50/60 px-4 py-3 sm:grid-cols-2">
+    <p className="text-[11px] text-slate-500 sm:col-span-2">The leave is <b className="font-semibold text-slate-700">approved at once</b> and the employee is notified. Past dates are allowed for HR.</p>
+    <div className="sm:col-span-2">
+      <label htmlFor="record-type" className="block text-xs font-semibold text-slate-700">Type <span className="text-red-500" aria-hidden>*</span></label>
+      <select id="record-type" required value={leaveType} onChange={(e) => setLeaveType(e.target.value)} className={cn(controlClass, 'px-2.5')}>
+        <option value="">Choose...</option>
+        {types.map((type) => <option key={type.id} value={String(type.id)}>{type.name}</option>)}
+      </select>
+    </div>
+    <div>
+      <label htmlFor="record-from" className="block text-xs font-semibold text-slate-700">From <span className="text-red-500" aria-hidden>*</span></label>
+      <input id="record-from" type="date" required min={detail.hire_date} value={from}
+        onChange={(e) => { setFrom(e.target.value); if (!to || to < e.target.value) setTo(e.target.value) }} className={controlClass} />
+      <label className="mt-1.5 flex items-center gap-1.5 text-[11px] text-slate-600">
+        <input type="checkbox" checked={afternoon} onChange={(e) => setAfternoon(e.target.checked)} className="size-3.5 accent-[#192646]" /> Starts in the afternoon
+      </label>
+    </div>
+    <div>
+      <label htmlFor="record-to" className="block text-xs font-semibold text-slate-700">To <span className="text-red-500" aria-hidden>*</span></label>
+      <input id="record-to" type="date" required min={from || detail.hire_date} value={to} onChange={(e) => setTo(e.target.value)} className={controlClass} />
+      <label className="mt-1.5 flex items-center gap-1.5 text-[11px] text-slate-600">
+        <input type="checkbox" checked={noon} onChange={(e) => setNoon(e.target.checked)} className="size-3.5 accent-[#192646]" /> Ends at noon
+      </label>
+    </div>
+    <div className="sm:col-span-2">
+      <label htmlFor="record-reason" className="block text-xs font-semibold text-slate-700">Reason</label>
+      <input id="record-reason" maxLength={1000} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Medical certificate received" className={controlClass} />
+    </div>
+    {error && <p role="alert" className="text-xs font-medium text-red-600 sm:col-span-2">{error}</p>}
+    <div className="flex justify-end gap-2 sm:col-span-2">
+      <button type="button" onClick={onClose} className="rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100">Cancel</button>
+      <button type="submit" disabled={busy} className="flex items-center gap-1.5 rounded-lg bg-[#23355d] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#192646] disabled:opacity-60">
+        {busy && <Loader2 className="size-3.5 animate-spin" />} Record
+      </button>
+    </div>
+  </form>
+}
+
 // Tous ses congés (tous les types et statuts) : chaque ligne ouvre l'historique de la demande.
-function LeavesCard({ detail }: { detail: BalanceDetail }) {
+// P1 step 4b : "Record a leave" : les RH enregistrent un congé pour lui (même dans le passé), déjà accepté.
+function LeavesCard({ detail, onSaved }: { detail: BalanceDetail; onSaved: (detail: BalanceDetail) => void }) {
+  const [open, setOpen] = useState(false)
   return <section className={cardClass}>
-    <header className="border-b border-slate-100 px-4 py-3">
-      <h3 className="text-sm font-semibold text-[#192646]">Leaves</h3>
-      <p className="text-[11px] text-slate-500">Every request, the most recent first. Only the annual leave is taken from the balance.</p>
+    <header className="flex flex-wrap items-start gap-3 border-b border-slate-100 px-4 py-3">
+      <div className="min-w-0 flex-1">
+        <h3 className="text-sm font-semibold text-[#192646]">Leaves</h3>
+        <p className="text-[11px] text-slate-500">Every request, the most recent first. Only the annual leave is taken from the balance.</p>
+      </div>
+      {detail.can_manage && !open && <button type="button" onClick={() => setOpen(true)}
+        className="flex items-center gap-1.5 rounded-lg bg-[#23355d] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#192646]">
+        <Plus className="size-3.5" /> Record a leave
+      </button>}
     </header>
+    {open && <RecordLeaveForm detail={detail} onClose={() => setOpen(false)} onSaved={(next) => { onSaved(next); setOpen(false) }} />}
     {detail.leaves.length === 0
       ? <p className="px-4 py-6 text-center text-xs text-slate-500">No leave yet.</p>
       : <ul className="divide-y divide-slate-100">
@@ -323,8 +408,15 @@ function LeavesCard({ detail }: { detail: BalanceDetail }) {
             <div className="min-w-0 flex-1">
               <Link href={`/requests/${leave.request}`} className="font-semibold text-[#192646] hover:underline">{leave.leave_type_label}</Link>
               <p className="text-slate-500">{formatDate(leave.start_date)} → {formatDate(leave.end_date)} · {formatDays(leave.days)}</p>
+              {leave.recorded_by && <p className="text-[11px] text-slate-400">Recorded by HR ({leave.recorded_by})</p>}
             </div>
-            <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold', BADGE[leave.status])}>{leave.status_label}</span>
+            <div className="flex flex-col items-end gap-1">
+              <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold', BADGE[leave.status])}>{leave.status_label}</span>
+              {/* P1 step 5 : les RH annulent un congé accepté qui n'a pas encore commencé (avec un motif). */}
+              {detail.can_manage && leave.status === 'APPROVED' && leave.start_date > isoDate(new Date()) &&
+                <CancelApprovedButton url={`/api/leaves/balances/${detail.employee_id}/cancel-leave/`} body={{ leave: leave.id }}
+                  onCancelled={(data) => onSaved(data as BalanceDetail)} />}
+            </div>
           </li>)}
         </ul>}
   </section>

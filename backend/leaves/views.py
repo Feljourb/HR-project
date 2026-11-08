@@ -41,7 +41,9 @@ from .serializers import (
     AbsenceSerializer, AdjustmentInputSerializer, AdjustmentSerializer, LeaveInputSerializer, LeaveRequestSerializer,
     LeaveTypeSerializer, PublicHolidaySerializer, RecountSerializer, RightChangeInputSerializer, RightChangeSerializer,
 )
-from .services import add_adjustment, can_manage_balance, change_annual_right, preview_leave, request_leave
+from .services import (
+    add_adjustment, can_manage_balance, cancel_leave, change_annual_right, preview_leave, record_leave, request_leave,
+)
 
 
 class LeaveTypeViewSet(viewsets.ReadOnlyModelViewSet):
@@ -99,6 +101,14 @@ class MyLeaveViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.Cr
         fields = self.read_input()
         fields.pop("reason")  # le motif ne change pas le calcul
         return Response(preview_leave(self.employee(), **fields))
+
+    @action(detail=True, methods=["post"])
+    def cancel(self, request, pk=None):
+        """POST /api/leaves/mine/<id>/cancel/ {"reason": "..."} -> P1 step 5 : j'annule MON congé déjà accepté,
+        avant son premier jour (un congé encore en cours s'annule par le moteur, comme avant)."""
+        leave = self.get_object()  # seulement MES congés (sinon 404)
+        run(lambda: cancel_leave(leave, request.user, request.data.get("reason", "")))
+        return Response(LeaveRequestSerializer(self.get_queryset().get(pk=leave.pk)).data)
 
     # Pas "def balance" : ce nom cacherait la fonction balance() importée en haut.
     @action(detail=False, methods=["get"], url_path="balance", url_name="balance")
@@ -185,6 +195,29 @@ class BalanceViewSet(viewsets.GenericViewSet):
         data = AdjustmentInputSerializer(data=request.data)
         data.is_valid(raise_exception=True)
         run(lambda: add_adjustment(employee, user=request.user, **data.validated_data))
+        return self.retrieve(request, pk=pk)
+
+    @action(detail=True, methods=["post"])
+    def leave(self, request, pk=None):
+        """POST /api/leaves/balances/<employee>/leave/ {"leave_type", "start_date", "end_date", "starts_afternoon",
+        "ends_noon", "reason"} -> P1 step 4b : les RH enregistrent un congé pour ce collaborateur (déjà accepté).
+        Répond le panneau à jour."""
+        employee = self.visible_employee(pk)
+        data = LeaveInputSerializer(data=request.data)
+        data.is_valid(raise_exception=True)  # la forme (dates lisibles, année possible...)
+        run(lambda: record_leave(employee, user=request.user, **data.validated_data))
+        return self.retrieve(request, pk=pk)
+
+    @action(detail=True, methods=["post"], url_path="cancel-leave", url_name="cancel-leave")
+    def cancel_leave(self, request, pk=None):
+        """POST /api/leaves/balances/<employee>/cancel-leave/ {"leave": 12, "reason": "..."} -> P1 step 5 :
+        les RH annulent un congé accepté de ce collaborateur, avant son premier jour. Répond le panneau à jour."""
+        employee = self.visible_employee(pk)
+        leave_id = str(request.data.get("leave", ""))
+        leave = LeaveRequest.objects.filter(pk=leave_id, employee=employee).select_related("request").first() if leave_id.isdigit() else None
+        if leave is None:
+            raise NotFound("Congé introuvable.")
+        run(lambda: cancel_leave(leave, request.user, request.data.get("reason", "")))  # la fonction du service
         return self.retrieve(request, pk=pk)
 
     def visible_employee(self, pk):

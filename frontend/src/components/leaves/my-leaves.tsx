@@ -9,7 +9,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { CalendarDays, Loader2, RefreshCw } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
-import { formatDate, formatDays, type Leave } from '@/lib/leaves'
+import { formatDate, formatDays, isoDate, type Leave } from '@/lib/leaves'
 import { cn } from '@/lib/utils'
 import { sendChange } from '@/lib/workflows'
 
@@ -46,11 +46,16 @@ function LeaveLine({ leave, onCancelled }: { leave: Leave; onCancelled: () => vo
         <span className="font-semibold text-slate-700"> · {formatDays(leave.days)}</span>
       </p>
       {leave.reason && <p className="mt-0.5 text-[11px] italic text-slate-500">“{leave.reason}”</p>}
+      {/* Enregistré par les RH à ma place (ex. une maladie que je n'ai pas pu demander) : déjà accepté. */}
+      {leave.recorded_by && <p className="mt-0.5 text-[11px] text-slate-500">Recorded by HR ({leave.recorded_by})</p>}
       <RecountNote leave={leave} />
     </div>
     <div className="flex flex-col items-end gap-1.5">
       <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold', BADGE[leave.status])}>{leave.status_label}</span>
       {leave.status === 'IN_PROGRESS' && <CancelButton leave={leave} onCancelled={onCancelled} />}
+      {/* Déjà accepté mais pas encore commencé : annulable avec un motif (Django vérifie aussi la date). */}
+      {leave.status === 'APPROVED' && leave.start_date > isoDate(new Date()) &&
+        <CancelApprovedButton url={`/api/leaves/mine/${leave.id}/cancel/`} onCancelled={onCancelled} />}
     </div>
   </li>
 }
@@ -67,6 +72,53 @@ export function RecountNote({ leave }: { leave: Leave }) {
       {' · '}{last.reason}{earlier > 0 && ` (+${earlier} earlier)`}
     </span>
   </p>
+}
+
+/**
+ * P1 step 5 : annuler un congé DÉJÀ ACCEPTÉ, avant son premier jour. Un motif est obligatoire : il est écrit
+ * dans l'historique, et ceux qui l'avaient validé sont prévenus. Utilisé dans "My leaves" (le collaborateur)
+ * et dans le panneau "Leave balances" (les RH : `body` dit quel congé).
+ */
+export function CancelApprovedButton({ url, body = {}, onCancelled }: {
+  url: string; body?: Record<string, unknown>; onCancelled: (data: unknown) => void
+}) {
+  const [asking, setAsking] = useState(false)
+  const [reason, setReason] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  async function cancel() {
+    setBusy(true)
+    setError('')
+    try {
+      const response = await apiFetch(url, { method: 'POST', body: JSON.stringify({ ...body, reason }) })
+      const data = await response.json().catch(() => ({}))
+      if (response.ok) {
+        setAsking(false)
+        onCancelled(data)  // la page relit la liste et le solde (les jours sont rendus)
+      } else {
+        setError(data.detail ?? 'Something went wrong. Please try again.')  // ex. "Ce congé a déjà commencé..."
+      }
+    } catch {
+      setError('Cannot reach the server. Please try again later.')
+    }
+    setBusy(false)
+  }
+
+  if (!asking) {
+    return <button type="button" onClick={() => setAsking(true)} className="rounded-md px-2 py-1 text-[11px] font-semibold text-red-600 hover:bg-red-50">Cancel</button>
+  }
+  return <div className="flex w-full flex-wrap items-center justify-end gap-1.5">
+    <label htmlFor={`cancel-reason-${url}`} className="sr-only">Reason of the cancellation</label>
+    <input id={`cancel-reason-${url}`} autoFocus value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason (required)"
+      maxLength={500} className="h-7 w-44 rounded-md border border-slate-200 bg-white px-2 text-[11px] outline-none focus:border-[#23355d]" />
+    <button type="button" onClick={() => { setAsking(false); setError('') }} className="rounded-md px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100">No</button>
+    <button type="button" disabled={busy || !reason.trim()} onClick={cancel}
+      className="flex items-center gap-1 rounded-md bg-red-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-red-700 disabled:opacity-60">
+      {busy && <Loader2 className="size-3 animate-spin" />} Cancel the leave
+    </button>
+    {error && <p role="alert" className="w-full text-right text-[11px] font-medium text-red-600">{error}</p>}
+  </div>
 }
 
 // Annuler en deux clics ("Cancel" puis "Yes, cancel") pour ne pas annuler par erreur.

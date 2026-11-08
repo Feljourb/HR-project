@@ -28,6 +28,8 @@ export type WorkflowRequest = {
   status_label: string
   created_at: string
   closed_at: string | null
+  cancelled_by: string | null  // le compte qui a annulé (le demandeur, ou un RH pour une demande acceptée)
+  cancel_reason: string        // le motif (obligatoire pour annuler une demande déjà acceptée)
   steps: RequestStep[]
 }
 

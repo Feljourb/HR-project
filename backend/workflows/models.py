@@ -98,6 +98,10 @@ class Request(models.Model):
     status = models.CharField("Statut", max_length=20, choices=Status.choices, default=Status.IN_PROGRESS)
     created_at = models.DateTimeField("Envoyée le", auto_now_add=True)
     closed_at = models.DateTimeField("Terminée le", null=True, blank=True)
+    # Qui a annulé, et pourquoi (une demande ACCEPTÉE peut être annulée par le demandeur ou les RH, avec un motif).
+    cancelled_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                                     related_name="+", verbose_name="Annulée par")
+    cancel_reason = models.TextField("Motif de l'annulation", blank=True)
 
     class Meta:
         ordering = ["-created_at"]  # la plus récente d'abord

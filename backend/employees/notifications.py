@@ -91,6 +91,11 @@ def message(notification):
     # Les demandes (app workflows, step 7).
     if notification.kind != Kind.TRIAL_END:
         title = notification.request.title
+        if notification.kind == Kind.CANCELLED:
+            request = notification.request
+            who = request.cancelled_by.username if request.cancelled_by else "?"
+            reason = f" Motif : {request.cancel_reason}" if request.cancel_reason else ""
+            return f"Demande annulée par {who} : {title} ({name}).{reason}"
         if notification.kind == Kind.TO_VALIDATE:
             return f"{name} attend votre réponse : {title}."
         if notification.kind == Kind.INFORMED:

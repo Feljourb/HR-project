@@ -6,16 +6,20 @@ import type { ReferenceItem } from '@/lib/employees'
 // + le responsable pour les directions et les services, + les champs des listes du module Congés).
 export type ListValue = ReferenceItem & {
   code?: string; head?: number | null; head_label?: string | null
-  deducts_balance?: boolean; max_days?: string | null; date?: string; estimated?: boolean; fixed?: boolean
+  deducts_balance?: boolean; max_days?: string | null; max_days_back?: number; date?: string; estimated?: boolean; fixed?: boolean
   ceiling?: string; receipt_required?: boolean
 }
 
 // Un champ en plus du nom (listes des modules Congés et Notes de frais) : affiché en colonne, modifiable avec le nom.
 export type ExtraField = {
-  name: 'deducts_balance' | 'max_days' | 'date' | 'estimated' | 'ceiling' | 'receipt_required'
+  name: 'deducts_balance' | 'max_days' | 'max_days_back' | 'date' | 'estimated' | 'ceiling' | 'receipt_required'
   label: string
   type: 'checkbox' | 'number' | 'date' | 'select'
   required?: boolean
+  // Un nombre : par défaut des demi-journées à partir de 0,5 (ex. le maximum légal) ; sinon on le dit ici.
+  min?: number
+  step?: number
+  placeholder?: string
   options?: { id: string; name: string }[]  // pour type "select"
 }
 
@@ -42,6 +46,8 @@ export const LEAVE_LISTS: ListConfig[] = [
   { name: 'leave-types', api: '/api/leaves/lists', title: 'Types de congé', singular: 'Type de congé', extra: [
     { name: 'deducts_balance', label: 'Taken from the balance', type: 'checkbox' },
     { name: 'max_days', label: 'Legal maximum (days)', type: 'number' },
+    // P1 step 4 : jusqu'où dans le passé le collaborateur peut commencer ce congé (0 = seulement à partir d'aujourd'hui).
+    { name: 'max_days_back', label: 'Days in the past allowed', type: 'number', required: true, min: 0, step: 1, placeholder: '0' },
   ] },
   // Créés tout seuls chaque année (backend leaves/holidays.py) ; chaque année garde SES lignes (jamais remplacées).
   // Page à part (holidays-panel.tsx) : une année à la fois, onglets "fixes" / "variables" (décision du 2026-11-03).

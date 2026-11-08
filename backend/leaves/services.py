@@ -128,6 +128,42 @@ def change_annual_right(employee, annual_days, effective_from, reason, user):
     return change
 
 
+@transaction.atomic
+def record_leave(employee, leave_type, start_date, end_date, user, starts_afternoon=False, ends_noon=False, reason=""):
+    """P1 step 4b : les RH enregistrent un congé À LA PLACE du collaborateur (ex. une maladie qu'il n'a pas pu
+    demander à temps). Les mêmes règles que request_leave (chevauchement, maximum, solde, 6 mois, pas avant
+    l'embauche), SAUF "pas trop loin dans le passé". Déjà ACCEPTÉ (standard : les RH sont l'autorité) :
+    pas de circuit, l'historique dit "Validée par <RH> : Enregistré par les RH", le collaborateur est prévenu."""
+    if not can_manage_balance(user, employee):
+        raise PermissionDenied("Seuls les RH du pôle (et Admin RH) enregistrent un congé pour un collaborateur.")
+    Employee.objects.select_for_update().get(pk=employee.pk)  # comme request_leave : deux envois l'un après l'autre
+    leave = LeaveRequest(
+        employee=employee, leave_type=leave_type, start_date=start_date, end_date=end_date,
+        starts_afternoon=starts_afternoon, ends_noon=ends_noon, reason=reason.strip(), recorded_by=user,
+    )
+    leave.full_clean(exclude=["request", "days"])
+    comment = "Enregistré par les RH" + (f" : {leave.reason}" if leave.reason else "")
+    leave.request = engine.record_approved(Workflow.Code.LEAVE, employee, leave_title(leave), user, comment)
+    leave.save()
+    return leave
+
+
+@transaction.atomic
+def cancel_leave(leave, user, reason):
+    """P1 step 5 : annuler un congé DÉJÀ ACCEPTÉ, avant son premier jour, avec un motif (standard).
+    Qui : le collaborateur lui-même, ou les RH du pôle / Admin RH. Un congé déjà commencé ne s'annule pas
+    (les RH corrigent le solde à la place). Les jours reviennent tout seuls dans le solde (un congé annulé
+    ne compte plus) ; ceux qui l'avaient validé sont prévenus (engine.cancel_approved)."""
+    from django.utils import timezone
+
+    if user.pk != leave.employee.user_id and not can_manage_balance(user, leave.employee):
+        raise PermissionDenied("Seuls le collaborateur et les RH du pôle peuvent annuler ce congé.")
+    if leave.start_date <= timezone.localdate():
+        raise ValidationError("Ce congé a déjà commencé : il ne peut plus être annulé (les RH peuvent corriger le solde).")
+    engine.cancel_approved(leave.request, user, reason)
+    return leave
+
+
 def leave_title(leave):
     """Le titre de la demande, ex. "Congé annuel du 23/11/2026 au 27/11/2026 (5 j)".
     Refait après un recalcul (recount.py) : le nombre de jours du titre reste juste."""

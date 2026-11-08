@@ -99,7 +99,7 @@ class LeaveRequestAdmin(admin.ModelAdmin):
     list_filter = ("leave_type", "request__status")
     search_fields = ("employee__last_name", "employee__first_name")
     readonly_fields = ("request", "employee", "leave_type", "start_date", "end_date",
-                       "starts_afternoon", "ends_noon", "days", "reason")
+                       "starts_afternoon", "ends_noon", "days", "reason", "recorded_by")
     date_hierarchy = "start_date"
     list_select_related = ("request", "employee", "leave_type")  # une seule requête SQL pour toute la liste
 

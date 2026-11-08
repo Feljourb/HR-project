@@ -31,8 +31,8 @@ export function ExtraInput({ id, field, value, onChange, compact }: {
   return <>
     <label htmlFor={id} className={compact ? 'sr-only' : 'block text-xs font-semibold text-slate-700'}>{field.label}</label>
     <input id={id} type={field.type} required={field.required} value={value} onChange={(e) => onChange(e.target.value)}
-      min={field.type === 'number' ? 0.5 : undefined} step={field.type === 'number' ? 0.5 : undefined}
-      placeholder={field.type === 'number' ? 'No maximum' : undefined}
+      min={field.type === 'number' ? field.min ?? 0.5 : undefined} step={field.type === 'number' ? field.step ?? 0.5 : undefined}
+      placeholder={field.type === 'number' ? field.placeholder ?? 'No maximum' : undefined}
       className={cn(controlClass, compact && 'mt-0 h-8 w-36')} />
   </>
 }

@@ -153,6 +153,14 @@ def frozen_localdate(value=None, timezone=None):
     return TODAY if value is None else real_localdate(value, timezone)
 
 
+def freeze_today(test):
+    """Fige "aujourd'hui" dès setUp (un @mock.patch sur la classe ne couvre que les méthodes test_...,
+    pas setUp : les congés créés dans setUp verraient la vraie date)."""
+    patcher = mock.patch("django.utils.timezone.localdate", frozen_localdate)
+    patcher.start()
+    test.addCleanup(patcher.stop)
+
+
 @mock.patch("django.utils.timezone.localdate", frozen_localdate)
 class RequestLeaveTests(EngineTestCase):
     """Sara (Ventes) demande un congé ; son N+1 est Youssef (voir EngineTestCase)."""
@@ -204,6 +212,20 @@ class RequestLeaveTests(EngineTestCase):
         LeaveType.objects.filter(pk=self.wedding.pk).update(is_active=False)
         self.wedding.refresh_from_db()
         self.assertIn("n'est plus proposé", self.error_of(23, 24, leave_type=self.wedding))
+
+    def test_how_far_in_the_past_depends_on_the_type(self):
+        # P1 step 4 ("aujourd'hui" = lundi 02/11/2026). Congé annuel : 0 jour, il se demande à l'avance.
+        self.assertIn("se demande à l'avance", self.error_of(1, 1))
+        self.ask(3, 3)  # demain : permis
+        # Maladie : 2 jours (prévenir en 48 h) : depuis samedi 31/10 oui (31/10 férié + dimanche + lundi = 1 jour),
+        # depuis vendredi 30/10 non.
+        october = lambda day: datetime.date(2026, 10, day)  # noqa: E731
+        request_leave(self.sara, self.sick, october(31), nov(2))
+        with self.assertRaises(ValidationError) as error:
+            request_leave(self.sara, self.sick, october(30), october(30))
+        self.assertIn("au plus 2 jour(s) dans le passé (à partir du 31/10/2026)", " ".join(error.exception.messages))
+        # Exceptionnel (mariage) : 7 jours.
+        request_leave(self.sara, self.wedding, october(27), october(27))
 
     def test_the_legal_maximum_of_the_type(self):
         self.ask(23, 26, leave_type=self.wedding)  # 4 jours : permis
