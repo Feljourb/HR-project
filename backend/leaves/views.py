@@ -16,6 +16,7 @@ GET/POST/PATCH /api/leaves/lists/leave-types/ et /lists/public-holidays/ -> les 
 """
 import datetime
 
+from django.db.models import Q
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 from rest_framework import mixins, status, viewsets
@@ -250,6 +251,84 @@ class BalanceViewSet(viewsets.GenericViewSet):
 TEAM_CALENDAR_MAX_DAYS = 31  # un congé plus long : le calendrier montre son premier mois
 
 
+def team_grid(team, start, end, this_leave=None):
+    """La grille "qui est absent quand" d'une équipe, entre deux dates (P2 steps 2 et 2b, les deux calendriers) :
+    - days : chaque jour, "off" s'il n'est pas travaillé (dimanche, férié : personne n'y manque) ;
+    - people : chaque personne et ses absences, jour par jour : THIS (le congé qu'on valide), APPROVED, IN_PROGRESS,
+      + half (une demi-journée) ;
+    - busy : les jours travaillés où PLUS DE LA MOITIÉ de l'équipe serait absente (un avertissement seulement).
+    Vie privée (standard) : seulement "absent", JAMAIS le type de congé."""
+    team = list(team)
+    holidays = dict(PublicHoliday.objects.filter(date__range=(start, end), is_active=True).values_list("date", "name"))
+    days, day = [], start
+    while day <= end:
+        days.append({"date": day, "off": day.weekday() == 6 or day in holidays, "holiday": holidays.get(day)})
+        day += datetime.timedelta(days=1)
+
+    leaves = (LeaveRequest.objects.filter(employee__in=team, request__status__in=LeaveRequest.ACTIVE,
+                                          start_date__lte=end, end_date__gte=start).select_related("request"))
+    if this_leave is not None:
+        leaves = leaves.exclude(pk=this_leave.pk)
+    leaves = [*([this_leave] if this_leave is not None else []), *leaves]
+    people = []
+    for member in team:
+        cells = {}
+        for item in (leave for leave in leaves if leave.employee_id == member.pk):
+            state = "THIS" if this_leave is not None and item.pk == this_leave.pk else item.request.status
+            for value in days:
+                if not value["off"] and item.start_date <= value["date"] <= item.end_date:
+                    half = (value["date"] == item.start_date and item.starts_afternoon) or (value["date"] == item.end_date and item.ends_noon)
+                    cells[value["date"].isoformat()] = {"state": state, "half": half}
+        people.append({"id": member.pk, "name": person(member), "cells": cells})
+
+    size = len(people)
+    busy = []
+    for value in days:
+        if value["off"]:
+            continue
+        away = sum(1 for member in people if value["date"].isoformat() in member["cells"])
+        if size > 1 and away * 2 > size:
+            busy.append({"date": value["date"], "away": away, "team": size})
+    return days, people, busy
+
+
+def my_team(employee):
+    """P2 step 2b : MON équipe = les personnes dont JE suis le N+1 (la même règle que le moteur des validations :
+    le responsable du service, sinon de la direction, sinon le DG). Cherchées là où je peux être leur N+1 :
+    les services et la direction que je dirige, ou tout le pôle si je suis le DG. Les "Sorti" ne comptent pas."""
+    if employee is None:
+        return []
+    places = Q(department__head=employee) | Q(department__direction__head=employee)
+    if employee.pole.director_id == employee.pk:
+        places |= Q(department__direction__entity__pole=employee.pole)
+    candidates = (Employee.objects.filter(places).exclude(pk=employee.pk).exclude(status=Employee.Status.LEFT)
+                  .select_related("department__direction__entity__pole", "department__head", "department__direction__head")
+                  .order_by("last_name", "first_name").distinct())
+    return [member for member in candidates if member.n_plus_1 and member.n_plus_1.pk == employee.pk]
+
+
+class TeamMonthView(APIView):
+    """P2 step 2b : la page "Team calendar" (managers) : MON équipe sur un mois, à tout moment (pas seulement quand
+    une demande arrive) : pour prévoir (qui est absent ? quel jour pour une réunion ?).
+    GET /api/leaves/team-calendar/month/?month=2026-11 (par défaut : ce mois-ci). Moi en premier, puis mon équipe.
+    Vie privée : seulement "absent", jamais le type de congé. Pas d'équipe : une liste vide (la page le dit)."""
+
+    def get(self, request):
+        text = request.query_params.get("month", "")
+        try:
+            first = datetime.date(int(text[:4]), int(text[5:7]), 1) if len(text) == 7 else timezone.localdate().replace(day=1)
+        except ValueError:
+            raise ValidationError({"detail": "month : AAAA-MM."})
+        last = (first + datetime.timedelta(days=32)).replace(day=1) - datetime.timedelta(days=1)
+        me = Employee.objects.filter(user=request.user).select_related("department__direction__entity__pole").first()
+        team = my_team(me)
+        days, people, busy = team_grid([me, *team] if team else [], first, last)
+        if people:
+            people[0]["is_me"] = True
+        return Response({"month": first.strftime("%Y-%m"), "start": first, "end": last, "team_size": len(team),
+                         "days": days, "people": people, "busy": busy})
+
+
 class TeamCalendarView(APIView):
     """P2 step 2 : le calendrier de l'équipe, pour le valideur d'un congé (Team approvals).
     GET /api/leaves/team-calendar/?request=12 -> pour les jours de CE congé : chaque personne du service du
@@ -266,39 +345,11 @@ class TeamCalendarView(APIView):
             raise NotFound("Congé introuvable.")
         start = leave.start_date
         end = min(leave.end_date, start + datetime.timedelta(days=TEAM_CALENDAR_MAX_DAYS - 1))
-        holidays = dict(PublicHoliday.objects.filter(date__range=(start, end), is_active=True).values_list("date", "name"))
-        days, day = [], start
-        while day <= end:
-            # Un jour non travaillé (dimanche, férié) : personne n'y "manque", il ne compte pas dans l'avertissement.
-            days.append({"date": day, "off": day.weekday() == 6 or day in holidays, "holiday": holidays.get(day)})
-            day += datetime.timedelta(days=1)
-
         team = (Employee.objects.filter(department=leave.employee.department).exclude(status=Employee.Status.LEFT)
                 .order_by("last_name", "first_name"))
-        others = (LeaveRequest.objects.filter(employee__in=team, request__status__in=LeaveRequest.ACTIVE,
-                                              start_date__lte=end, end_date__gte=start)
-                  .exclude(pk=leave.pk).select_related("request"))
-        people = []
-        for member in team:
-            cells = {}
-            mine = [leave] if member.pk == leave.employee_id else []
-            for item in [*mine, *(other for other in others if other.employee_id == member.pk)]:
-                state = "THIS" if item.pk == leave.pk else item.request.status  # THIS, APPROVED ou IN_PROGRESS
-                for value in days:
-                    if not value["off"] and item.start_date <= value["date"] <= item.end_date:
-                        half = (value["date"] == item.start_date and item.starts_afternoon) or (value["date"] == item.end_date and item.ends_noon)
-                        cells[value["date"].isoformat()] = {"state": state, "half": half}
-            people.append({"id": member.pk, "name": person(member), "is_requester": member.pk == leave.employee_id, "cells": cells})
-
-        # L'avertissement : les jours où PLUS DE LA MOITIÉ de l'équipe serait absente (ce congé compris).
-        size = len(people)
-        busy = []
-        for value in days:
-            if value["off"]:
-                continue
-            away = sum(1 for member in people if value["date"].isoformat() in member["cells"])
-            if size > 1 and away * 2 > size:
-                busy.append({"date": value["date"], "away": away, "team": size})
+        days, people, busy = team_grid(team, start, end, this_leave=leave)
+        for member in people:
+            member["is_requester"] = member["id"] == leave.employee_id
         return Response({"department": leave.employee.department.name, "start": start, "end": end,
                          "cut": end < leave.end_date, "days": days, "people": people, "busy": busy})
 

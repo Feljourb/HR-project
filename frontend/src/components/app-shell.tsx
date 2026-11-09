@@ -10,7 +10,7 @@ import { Suspense, useState, type FormEvent, type ReactNode } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import {
-  BookOpen, BriefcaseBusiness, Building2, CalendarDays, Check, ChevronDown, ChevronRight, ChevronsUpDown,
+  BookOpen, BriefcaseBusiness, Building2, CalendarDays, CalendarRange, Check, ChevronDown, ChevronRight, ChevronsUpDown,
   CircleHelp, ClipboardCheck, FolderOpen, Headphones, Inbox, LayoutDashboard, ListChecks, LockKeyhole, type LucideIcon,
   LogOut, Menu, PiggyBank, Plane, ReceiptText, ScrollText, Search, ShieldCheck, UserRound, UserRoundCog, UsersRound, Workflow, X,
 } from 'lucide-react'
@@ -60,6 +60,8 @@ const navGroups: NavGroup[] = [
   ] },
   { label: 'Management & HR', icon: ShieldCheck, restricted: true, items: [
     { label: 'Team Approvals', icon: Check, href: '/approvals' },
+    // P2 step 2b : mon équipe (les personnes dont je suis le N+1), qui est absent, mois par mois.
+    { label: 'Team Calendar', icon: CalendarRange, href: '/team-calendar' },
     { label: 'Employees', icon: UserRoundCog, href: '/employees', hrOnly: true },
     { label: 'Absences', icon: CalendarDays, href: '/absences', hrOnly: true },
     { label: 'Leave balances', icon: PiggyBank, href: '/leave-balances', hrOnly: true },

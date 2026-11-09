@@ -14,7 +14,7 @@ from .recount import holiday_changed
 from .serializers import HolidayListSerializer
 from .views import (
     AbsenceViewSet, BalanceViewSet, LeaveTypeViewSet, MyLeaveViewSet, PublicHolidayViewSet, RecountViewSet,
-    TeamCalendarView, ensure_coming_years,
+    TeamCalendarView, TeamMonthView, ensure_coming_years,
 )
 
 
@@ -79,5 +79,10 @@ router.register("mine", MyLeaveViewSet, basename="mine")  # "leaves:mine-list", 
 # Les recalculs d'un congé (un jour férié a changé), pour l'historique de la demande.
 router.register("recounts", RecountViewSet, basename="recount")
 
-# P2 step 2 : le calendrier de l'équipe pour le valideur d'un congé : "leaves:team-calendar".
-urlpatterns = [*router.urls, path("team-calendar/", TeamCalendarView.as_view(), name="team-calendar")]
+# P2 step 2 : le calendrier de l'équipe pour le valideur d'un congé : "leaves:team-calendar" ;
+# P2 step 2b : la page "Team calendar" (mon équipe, un mois) : "leaves:team-month".
+urlpatterns = [
+    *router.urls,
+    path("team-calendar/", TeamCalendarView.as_view(), name="team-calendar"),
+    path("team-calendar/month/", TeamMonthView.as_view(), name="team-month"),
+]

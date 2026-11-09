@@ -354,6 +354,23 @@ class HrLeaveApiTests(EngineTestCase):
         self.as_role(omar, User.Role.COLLABORATOR)
         self.assertEqual(self.client.get(url("team-calendar"), {"request": leave.request_id}).status_code, 404)
 
+    def test_the_team_calendar_page_of_a_manager(self):
+        # P2 step 2b. Youssef est le N+1 de Sara (responsable de Ventes) : son équipe = Sara, + lui en premier.
+        self.as_role(self.youssef, User.Role.MANAGER)
+        data = self.client.get(url("team-month"), {"month": "2026-11"}).json()
+        self.assertEqual((data["month"], len(data["days"]), data["team_size"]), ("2026-11", 30, 1))
+        self.assertEqual([row["id"] for row in data["people"]], [self.youssef.pk, self.sara.pk])
+        self.assertTrue(data["people"][0]["is_me"])
+        sara = data["people"][1]
+        self.assertEqual(sara["cells"]["2026-11-23"]["state"], "IN_PROGRESS")  # son congé du 23 au 27, en attente
+        self.assertNotIn("2026-11-09", sara["cells"])  # le congé annulé ne compte pas
+        # Karim (directeur) : Youssef a un responsable de service (lui-même) -> le N+1 de Youssef est Karim.
+        self.as_role(self.karim, User.Role.MANAGER)
+        self.assertEqual([row["id"] for row in self.client.get(url("team-month")).json()["people"]], [self.karim.pk, self.youssef.pk])
+        # Sara n'est le N+1 de personne : pas d'équipe.
+        self.as_role(self.sara, User.Role.COLLABORATOR)
+        self.assertEqual(self.client.get(url("team-month")).json()["people"], [])
+
     def test_admin_rh_sees_both_poles_and_the_period_filters(self):
         self.as_role(self.nadia, User.Role.HR_ADMIN)
         self.assertEqual(len(self.absences().json()), 2)
