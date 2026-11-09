@@ -90,6 +90,13 @@ def message(notification):
     # Les RH ont changé MON solde (une correction, ou mon droit annuel) : le changement de CE moment-là.
     if notification.kind in (Kind.BALANCE_ADJUSTED, Kind.RIGHT_CHANGED):
         return balance_change_message(notification)
+    if notification.kind == Kind.DELEGATED:
+        # Importé ici : l'app workflows importe déjà employees (sinon une boucle d'imports).
+        from workflows.models import Delegation
+        delegation = (Delegation.objects.filter(delegator=employee, delegate__user=notification.recipient_id,
+                                                created_at__lte=notification.created_at).order_by("-created_at").first())
+        period = f" du {delegation.start_date:%d/%m/%Y} au {delegation.end_date:%d/%m/%Y}" if delegation else ""
+        return f"Vous remplacez {name}{period} : ses demandes à valider arrivent aussi dans votre Team approvals."
 
     # Les demandes (app workflows, step 7).
     if notification.kind != Kind.TRIAL_END:

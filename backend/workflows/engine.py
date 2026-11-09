@@ -22,7 +22,7 @@ from employees.models import Employee
 from employees.services import user_pole
 
 from . import notify
-from .models import Request, RequestStep, Workflow, WorkflowStep
+from .models import Delegation, Request, RequestStep, Workflow, WorkflowStep
 
 Approver = WorkflowStep.Approver
 Mode = WorkflowStep.Mode
@@ -67,11 +67,78 @@ def find_validator(approver, requester):
 
 
 def people_of(step):
-    """Les comptes concernés par cette étape (ceux qui répondent, ou qu'on informe) : pour la cloche."""
+    """Les comptes concernés par cette étape (ceux qui répondent, ou qu'on informe) : pour la cloche.
+    P2 step 1 : + ceux qui répondent À LA PLACE d'un valideur absent (son délégué, son responsable, ou les RH)."""
     requester = step.request.requester
     if step.assignee_id:
-        return [step.assignee.user]  # N+1, N+2 ou DG
+        people = [step.assignee.user]  # N+1, N+2 ou DG
+        kind, stand = stand_in(step)
+        if kind == "person":
+            people.append(stand.user)
+        elif kind == "hr":
+            people += list(hr_validators(requester))
+        return list(dict.fromkeys(people))
     return list(hr_validators(requester))  # RH du pôle + Admin RH
+
+
+# --- P2 step 1 : un valideur absent (délégation, puis son responsable, puis les RH) ---------------
+
+# Les modules disent au moteur "cette personne est absente ce jour-là" (ex. le module Congés : un congé
+# accepté). Le moteur ne sait rien des congés : il demande seulement aux fonctions de cette liste.
+ABSENCE_CHECKS = []
+
+
+def on_absence_check(check):
+    """Pour un module : @on_absence_check sur une fonction (employee, day) -> True si absent ce jour-là."""
+    ABSENCE_CHECKS.append(check)
+    return check
+
+
+def is_absent(employee, day=None):
+    day = day or timezone.localdate()
+    return any(check(employee, day) for check in ABSENCE_CHECKS)
+
+
+def delegate_of(employee, day=None):
+    """Le délégué choisi pour cette personne ce jour-là (Délégation en cours), ou None."""
+    day = day or timezone.localdate()
+    delegation = (Delegation.objects.filter(delegator=employee, ended_at__isnull=True, start_date__lte=day, end_date__gte=day)
+                  .select_related("delegate__user").first())
+    return still_here(delegation.delegate) if delegation else None
+
+
+def stand_in(step):
+    """QUI répond À LA PLACE de la personne attendue par cette étape (N+1, N+2 ou DG), aujourd'hui.
+    Le standard des logiciels RH, en 3 niveaux (décision du 2026-11-09) :
+    1. elle a choisi un délégué pour ces dates            -> ("person", le délégué) ;
+    2. sinon, elle est absente (en congé accepté aujourd'hui) -> ("person", SON responsable),
+       sauf si ce responsable est le DG du pôle (il ne connaît pas le travail de chaque équipe), absent lui aussi,
+       ou s'il n'y en a pas                              -> ("hr", None) : les RH du pôle (le filet de sécurité) ;
+    3. sinon (présente, pas de délégué)                  -> (None, None) : personne ne la remplace.
+    Jamais le demandeur lui-même (personne ne valide sa propre demande)."""
+    if not step.assignee_id:
+        return None, None
+    requester = step.request.requester
+    delegate = delegate_of(step.assignee)
+    if delegate and delegate.pk != requester.pk:
+        return "person", delegate
+    if not is_absent(step.assignee):
+        return None, None
+    above = still_here(step.assignee.n_plus_1)
+    director = requester.pole.director
+    if above and above.pk != requester.pk and (director is None or above.pk != director.pk) and not is_absent(above):
+        return "person", above
+    return "hr", None
+
+
+def answers_for_absent(user, step):
+    """True si CET utilisateur répond à la place de la personne absente (voir stand_in)."""
+    kind, stand = stand_in(step)
+    if kind == "person":
+        return stand.user_id == user.pk
+    if kind == "hr":
+        return hr_validators(step.request.requester).filter(pk=user.pk).exists()
+    return False
 
 
 @transaction.atomic
@@ -183,9 +250,9 @@ def can_decide(user, step):
     """Est-ce que CET utilisateur peut répondre à CETTE étape ?"""
     if step.status != Status.PENDING or step.request.status != Request.Status.IN_PROGRESS:
         return False
-    # N+1 / N+2 / DG : seulement la personne trouvée à l'envoi.
+    # N+1 / N+2 / DG : la personne trouvée à l'envoi, ou celle qui la remplace si elle est absente (P2 step 1).
     if step.assignee_id:
-        return step.assignee.user_id == user.pk
+        return step.assignee.user_id == user.pk or answers_for_absent(user, step)
     # RH du pôle : un RH du pôle du demandeur, ou une Admin RH ; jamais le demandeur lui-même.
     return hr_validators(step.request.requester).filter(pk=user.pk).exists()
 
@@ -202,10 +269,16 @@ def steps_waiting_for(user):
     if user.role == Role.HR_ADMIN:
         # Admin RH : une RH des deux pôles -> toutes les étapes "RH du pôle".
         mine |= Q(approver=Approver.HR)
-    return (
-        RequestStep.objects.filter(mine, status=Status.PENDING, request__status=Request.Status.IN_PROGRESS)
-        .exclude(request__requester__user=user)  # jamais ma propre demande
-    )
+    waiting = (RequestStep.objects.filter(status=Status.PENDING, request__status=Request.Status.IN_PROGRESS)
+               .exclude(request__requester__user=user))  # jamais ma propre demande
+    ids = set(waiting.filter(mine).values_list("pk", flat=True))
+    # P2 step 1 : + les étapes d'un valideur absent que JE remplace (délégué, responsable, ou RH).
+    # Vérifiées une par une (la règle dépend des congés du jour) : il y a peu d'étapes en attente à la fois.
+    others = waiting.filter(assignee__isnull=False).exclude(assignee__user=user).exclude(pk__in=ids)
+    for step in others.select_related("assignee", "request__requester__department__direction__entity__pole"):
+        if answers_for_absent(user, step):
+            ids.add(step.pk)
+    return RequestStep.objects.filter(pk__in=ids)
 
 
 def requests_visible_to(user):
@@ -220,6 +293,8 @@ def requests_visible_to(user):
     pole = user_pole(user)
     if user.role == Role.HR and pole is not None:
         mine |= Q(requester__department__direction__entity__pole=pole)
+    # P2 step 1 : celui qui remplace un absent ouvre aussi l'historique des demandes qu'il doit traiter.
+    mine |= Q(pk__in=steps_waiting_for(user).values("request"))
     return Request.objects.filter(mine).distinct()
 
 
@@ -237,7 +312,10 @@ def decide(step, user, status, comment):
     if not can_decide(user, step):
         raise PermissionDenied("Vous ne pouvez pas répondre à cette étape.")
     step.status, step.decided_by, step.decided_at, step.comment = status, user, timezone.now(), comment.strip()
-    step.save(update_fields=["status", "decided_by", "decided_at", "comment"])
+    # P2 step 1 : quelqu'un d'autre que la personne attendue a répondu (elle était absente) : on le note.
+    if step.assignee_id and step.assignee.user_id != user.pk:
+        step.on_behalf_of = step.assignee
+    step.save(update_fields=["status", "decided_by", "decided_at", "comment", "on_behalf_of"])
     # 🔔 L'étape a sa réponse : les autres (ex. les autres RH du pôle) n'ont plus à la valider.
     notify.clear_waiting(step.request)
 

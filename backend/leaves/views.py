@@ -22,6 +22,7 @@ from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from accounts.permissions import IsHR
 from employees.models import Employee
@@ -244,6 +245,62 @@ class BalanceViewSet(viewsets.GenericViewSet):
             pole = user_pole(user)
             employees = employees.filter(department__direction__entity__pole=pole) if pole else employees.none()
         return employees.values("pk")
+
+
+TEAM_CALENDAR_MAX_DAYS = 31  # un congé plus long : le calendrier montre son premier mois
+
+
+class TeamCalendarView(APIView):
+    """P2 step 2 : le calendrier de l'équipe, pour le valideur d'un congé (Team approvals).
+    GET /api/leaves/team-calendar/?request=12 -> pour les jours de CE congé : chaque personne du service du
+    demandeur, et qui est absent chaque jour (accepté, ou en attente), + les jours où plus de la moitié de
+    l'équipe serait absente (un avertissement : le valideur décide quand même).
+    Vie privée (standard) : seulement "absent", JAMAIS le type de congé (une maladie ne regarde pas l'équipe).
+    Mêmes droits que l'historique de la demande (sinon 404)."""
+
+    def get(self, request):
+        request_id = request.query_params.get("request", "")
+        leave = (LeaveRequest.objects.filter(request=int(request_id), request__in=engine.requests_visible_to(request.user))
+                 .select_related("employee__department").first()) if request_id.isdigit() else None
+        if leave is None:
+            raise NotFound("Congé introuvable.")
+        start = leave.start_date
+        end = min(leave.end_date, start + datetime.timedelta(days=TEAM_CALENDAR_MAX_DAYS - 1))
+        holidays = dict(PublicHoliday.objects.filter(date__range=(start, end), is_active=True).values_list("date", "name"))
+        days, day = [], start
+        while day <= end:
+            # Un jour non travaillé (dimanche, férié) : personne n'y "manque", il ne compte pas dans l'avertissement.
+            days.append({"date": day, "off": day.weekday() == 6 or day in holidays, "holiday": holidays.get(day)})
+            day += datetime.timedelta(days=1)
+
+        team = (Employee.objects.filter(department=leave.employee.department).exclude(status=Employee.Status.LEFT)
+                .order_by("last_name", "first_name"))
+        others = (LeaveRequest.objects.filter(employee__in=team, request__status__in=LeaveRequest.ACTIVE,
+                                              start_date__lte=end, end_date__gte=start)
+                  .exclude(pk=leave.pk).select_related("request"))
+        people = []
+        for member in team:
+            cells = {}
+            mine = [leave] if member.pk == leave.employee_id else []
+            for item in [*mine, *(other for other in others if other.employee_id == member.pk)]:
+                state = "THIS" if item.pk == leave.pk else item.request.status  # THIS, APPROVED ou IN_PROGRESS
+                for value in days:
+                    if not value["off"] and item.start_date <= value["date"] <= item.end_date:
+                        half = (value["date"] == item.start_date and item.starts_afternoon) or (value["date"] == item.end_date and item.ends_noon)
+                        cells[value["date"].isoformat()] = {"state": state, "half": half}
+            people.append({"id": member.pk, "name": person(member), "is_requester": member.pk == leave.employee_id, "cells": cells})
+
+        # L'avertissement : les jours où PLUS DE LA MOITIÉ de l'équipe serait absente (ce congé compris).
+        size = len(people)
+        busy = []
+        for value in days:
+            if value["off"]:
+                continue
+            away = sum(1 for member in people if value["date"].isoformat() in member["cells"])
+            if size > 1 and away * 2 > size:
+                busy.append({"date": value["date"], "away": away, "team": size})
+        return Response({"department": leave.employee.department.name, "start": start, "end": end,
+                         "cut": end < leave.end_date, "days": days, "people": people, "busy": busy})
 
 
 class RecountViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):

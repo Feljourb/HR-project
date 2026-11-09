@@ -59,12 +59,14 @@ function stepEvents(request: WorkflowRequest): Event[] {
 
   for (const step of request.steps) {
     const who = step.validator === step.approver_label ? step.validator : `${step.validator} (${step.approver_label})`
+    // P2 step 1 : répondu à la place d'un valideur absent ("on behalf of Youssef Bennani").
+    const behalf = step.on_behalf_of ? ` on behalf of ${step.on_behalf_of}` : ''
     switch (step.status) {
       case 'APPROVED':
-        events.push({ icon: Check, tone: 'text-emerald-600', title: `Approved by ${step.decided_by ?? who}`, detail: `Step ${step.order}: ${who}`, comment: step.comment, at: step.decided_at })
+        events.push({ icon: Check, tone: 'text-emerald-600', title: `Approved by ${step.decided_by ?? who}${behalf}`, detail: `Step ${step.order}: ${who}`, comment: step.comment, at: step.decided_at })
         break
       case 'REJECTED':
-        events.push({ icon: X, tone: 'text-red-600', title: `Rejected by ${step.decided_by ?? who}`, detail: `Step ${step.order}: ${who}`, comment: step.comment, at: step.decided_at })
+        events.push({ icon: X, tone: 'text-red-600', title: `Rejected by ${step.decided_by ?? who}${behalf}`, detail: `Step ${step.order}: ${who}`, comment: step.comment, at: step.decided_at })
         break
       case 'INFORMED':
         events.push({ icon: Info, tone: 'text-sky-600', title: `${who} informed`, detail: `Step ${step.order}`, at: step.decided_at })

@@ -1,11 +1,12 @@
 """Les circuits en JSON, pour l'écran "Workflows" d'Admin RH."""
 from django.db import transaction
+from django.utils import timezone
 from rest_framework import serializers
 
-from employees.models import Pole
+from employees.models import Employee, Pole
 from employees.serializers import ReferenceSerializer, check_model_rules, preview
 
-from .models import Request, RequestStep, Workflow, WorkflowStep
+from .models import Delegation, Request, RequestStep, Workflow, WorkflowStep
 
 
 class StepSerializer(serializers.ModelSerializer):
@@ -100,11 +101,16 @@ class RequestStepSerializer(serializers.ModelSerializer):
     status_label = serializers.CharField(source="get_status_display")
     validator = serializers.SerializerMethodField()
     decided_by = serializers.SerializerMethodField()
+    # P2 step 1 : l'absent pour qui quelqu'un a répondu ("Validée par karim pour Youssef Bennani"), ou null.
+    on_behalf_of = serializers.SerializerMethodField()
 
     class Meta:
         model = RequestStep
         fields = ["order", "approver", "approver_label", "mode", "mode_label", "status", "status_label",
-                  "validator", "decided_by", "decided_at", "comment"]
+                  "validator", "decided_by", "decided_at", "comment", "on_behalf_of"]
+
+    def get_on_behalf_of(self, step):
+        return person(step.on_behalf_of) if step.on_behalf_of_id else None
 
     def get_validator(self, step):
         # Qui doit répondre : "Youssef Bennani" (N+1, N+2 ou DG), ou "RH du pôle" (n'importe quel RH).
@@ -142,10 +148,61 @@ class ApprovalSerializer(serializers.ModelSerializer):
 
     request = RequestSerializer()
     approver_label = serializers.CharField(source="get_approver_display")
+    # P2 step 1 : je réponds À LA PLACE de quelqu'un d'absent ("On behalf of Youssef Bennani"), ou null.
+    on_behalf_of = serializers.SerializerMethodField()
 
     class Meta:
         model = RequestStep
-        fields = ["id", "approver", "approver_label", "request"]
+        fields = ["id", "approver", "approver_label", "request", "on_behalf_of"]
+
+    def get_on_behalf_of(self, step):
+        user = self.context["request"].user
+        return person(step.assignee) if step.assignee_id and step.assignee.user_id != user.pk else None
+
+
+class DelegationSerializer(serializers.ModelSerializer):
+    """P2 step 1 : une délégation ("absent du bureau"), avec les noms et si elle est en cours aujourd'hui."""
+
+    delegator_label = serializers.SerializerMethodField()
+    delegate_label = serializers.SerializerMethodField()
+    created_by = serializers.StringRelatedField()
+    state = serializers.SerializerMethodField()
+    direction = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Delegation
+        fields = ["id", "delegator", "delegator_label", "delegate", "delegate_label", "start_date", "end_date",
+                  "created_by", "created_at", "ended_at", "state", "direction"]
+
+    def get_direction(self, delegation):
+        """Pour la personne connectée : GIVEN (je suis l'absent), RECEIVED (je remplace), OTHER (un RH la regarde)."""
+        request = self.context.get("request")
+        user_id = request.user.pk if request else None
+        if delegation.delegator.user_id == user_id:
+            return "GIVEN"
+        return "RECEIVED" if delegation.delegate.user_id == user_id else "OTHER"
+
+    def get_delegator_label(self, delegation):
+        return person(delegation.delegator)
+
+    def get_delegate_label(self, delegation):
+        return person(delegation.delegate)
+
+    def get_state(self, delegation):
+        """ACTIVE (en cours aujourd'hui), PLANNED (à venir) ou ENDED (finie, ou arrêtée avec "End now")."""
+        today = timezone.localdate()
+        if delegation.ended_at or delegation.end_date < today:
+            return "ENDED"
+        return "ACTIVE" if delegation.start_date <= today else "PLANNED"
+
+
+class DelegationInputSerializer(serializers.Serializer):
+    """Ce que le formulaire envoie : le délégué, les dates ; `delegator` seulement pour les RH (sinon : moi)."""
+
+    delegator = serializers.PrimaryKeyRelatedField(queryset=Employee.objects.all(), required=False)
+    delegate = serializers.PrimaryKeyRelatedField(queryset=Employee.objects.all())
+    start_date = serializers.DateField()
+    end_date = serializers.DateField()
 
 
 class DecisionSerializer(serializers.Serializer):

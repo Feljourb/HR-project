@@ -301,7 +301,7 @@ class NotificationSerializer(serializers.ModelSerializer):
         Kind = notification.Kind
         if notification.kind == Kind.TRIAL_END:
             return f"/employees/{notification.employee_id}"
-        if notification.kind == Kind.TO_VALIDATE:
+        if notification.kind in (Kind.TO_VALIDATE, Kind.DELEGATED):
             return "/approvals"
         if notification.kind in (Kind.BALANCE_ADJUSTED, Kind.RIGHT_CHANGED):
             return "/leaves"  # ma page Congés : mon solde et la section "Balance changes"

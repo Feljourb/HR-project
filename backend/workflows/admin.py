@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Request, RequestStep, Workflow, WorkflowStep
+from .models import Delegation, Request, RequestStep, Workflow, WorkflowStep
 
 
 class WorkflowStepInline(admin.TabularInline):
@@ -43,6 +43,20 @@ class RequestStepInline(admin.TabularInline):
     can_delete = False
 
     def has_add_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(Delegation)
+class DelegationAdmin(admin.ModelAdmin):
+    """P2 step 1 : les délégations, en lecture seule (elles se font depuis Team approvals)."""
+    list_display = ("delegator", "delegate", "start_date", "end_date", "ended_at", "created_by")
+    readonly_fields = ("delegator", "delegate", "start_date", "end_date", "ended_at", "created_by", "created_at")
+    list_select_related = ("delegator", "delegate", "created_by")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
         return False
 
 

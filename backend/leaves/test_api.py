@@ -320,6 +320,40 @@ class HrLeaveApiTests(EngineTestCase):
         self.assertEqual((later.request.status, later.request.cancelled_by), ("CANCELLED", self.nadia.user))
         self.assertTrue(Notification.objects.filter(recipient=self.sara.user, kind="CANCELLED", request=later.request).exists())
 
+    def test_an_approved_leave_makes_the_validator_absent(self):
+        # P2 step 1 : le module Congés dit au moteur "Youssef est absent ce jour-là" (un congé ACCEPTÉ).
+        leave = request_leave(self.youssef, self.annual, datetime.date(2026, 11, 9), datetime.date(2026, 11, 10))
+        self.assertFalse(engine.is_absent(self.youssef, datetime.date(2026, 11, 9)))  # encore en cours : pas absent
+        engine.approve(leave.request.steps.get(status="PENDING"), self.karim.user)
+        self.assertTrue(engine.is_absent(self.youssef, datetime.date(2026, 11, 9)))
+        self.assertFalse(engine.is_absent(self.youssef, datetime.date(2026, 11, 11)))
+
+    def test_the_team_calendar_for_the_validator(self):
+        # P2 step 2. Ventes = Sara, Youssef (le N+1), Omar. Sara demande du lun 23 au ven 27/11 (en attente) ;
+        # Omar a un congé MALADIE accepté les 23 et 24/11.
+        # Relu : l'objet créé garde en mémoire un service SANS responsable (Youssef l'est devenu dans setUp).
+        omar = Employee.objects.get(pk=self.make_employee("omar.sales", "AA100040").pk)
+        sick = LeaveType.objects.get(name="Congé maladie")
+        other = request_leave(omar, sick, datetime.date(2026, 11, 23), datetime.date(2026, 11, 24))
+        engine.approve(other.request.steps.get(status="PENDING"), self.youssef.user)
+        leave = LeaveRequest.objects.get(employee=self.sara, start_date=datetime.date(2026, 11, 23))
+        self.as_role(self.youssef, User.Role.MANAGER)
+        data = self.client.get(url("team-calendar"), {"request": leave.request_id}).json()
+        self.assertEqual(data["department"], "Ventes")
+        rows = {row["id"]: row for row in data["people"]}  # par id : dans les tests, tout le monde a le même nom
+        sara, omar_row = rows[self.sara.pk], rows[omar.pk]
+        self.assertTrue(sara["is_requester"])
+        self.assertEqual(sara["cells"]["2026-11-23"]["state"], "THIS")
+        self.assertEqual(omar_row["cells"]["2026-11-23"]["state"], "APPROVED")
+        self.assertNotIn("2026-11-25", omar_row["cells"])
+        # Lundi et mardi : 2 absents sur 3 -> l'avertissement ; mercredi : 1 sur 3 -> rien.
+        self.assertEqual([day["date"] for day in data["busy"]], ["2026-11-23", "2026-11-24"])
+        # Vie privée : jamais le type de congé (Omar est malade : ça ne regarde pas l'équipe).
+        self.assertNotIn("maladie", str(data).lower())
+        # Un collègue qui ne valide pas cette demande : 404.
+        self.as_role(omar, User.Role.COLLABORATOR)
+        self.assertEqual(self.client.get(url("team-calendar"), {"request": leave.request_id}).status_code, 404)
+
     def test_admin_rh_sees_both_poles_and_the_period_filters(self):
         self.as_role(self.nadia, User.Role.HR_ADMIN)
         self.assertEqual(len(self.absences().json()), 2)

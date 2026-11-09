@@ -6,13 +6,15 @@
  * Lu dans /api/workflows/approvals/ : Django ne renvoie que les étapes qui m'attendent.
  */
 import { useEffect, useState, type ReactNode } from 'react'
-import { Check, CheckCheck, Loader2, X } from 'lucide-react'
-import { apiFetch } from '@/lib/api'
+import { Check, CheckCheck, Loader2, Plane, X } from 'lucide-react'
+import { apiFetch, type Me } from '@/lib/api'
 import type { Approval, WorkflowRequest } from '@/lib/requests'
 import { sendChange } from '@/lib/workflows'
+import { OutOfOffice } from './out-of-office'
 import { RequestCard } from './request-card'
+import { TeamCalendar } from './team-calendar'
 
-export function TeamApprovals() {
+export function TeamApprovals({ me }: { me: Me }) {
   const [approvals, setApprovals] = useState<Approval[] | null>(null)
   const [failed, setFailed] = useState(false)
   // La dernière réponse donnée, affichée en haut : "Approved: Congé du 10 au 14 novembre".
@@ -39,6 +41,9 @@ export function TeamApprovals() {
       <p className="text-xs text-slate-500">The requests waiting for your answer, oldest first.</p>
     </div>
 
+    {/* P2 step 1 : mon "absent du bureau" (qui valide à ma place), et ceux que je remplace. */}
+    <OutOfOffice me={me} />
+
     {done && <p role="status" className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800">
       <CheckCheck className="size-4" /> {done}
     </p>}
@@ -49,6 +54,12 @@ export function TeamApprovals() {
         ? <Message><CheckCheck className="mx-auto mb-2 size-6 text-emerald-600" />Nothing is waiting for you.</Message>
         : approvals.map((approval) => (
             <RequestCard key={approval.id} request={approval.request} showRequester>
+              {/* Je réponds à la place d'un valideur absent (son délégué, son responsable, ou les RH). */}
+              {approval.on_behalf_of && <p className="mb-2 flex items-center gap-1.5 rounded-md bg-amber-50 px-2.5 py-1.5 text-[11px] font-medium text-amber-800">
+                <Plane className="size-3.5" aria-hidden /> On behalf of {approval.on_behalf_of} (away)
+              </p>}
+              {/* P2 step 2 : un congé -> qui d'autre de l'équipe est absent ces jours-là, avant de décider. */}
+              {approval.request.workflow_code === 'LEAVE' && <TeamCalendar requestId={approval.request.id} />}
               <Decision approval={approval} onAnswered={(verb) => answered(approval, verb)} />
             </RequestCard>
           ))}

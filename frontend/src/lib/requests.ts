@@ -16,6 +16,22 @@ export type RequestStep = {
   decided_by: string | null  // le compte qui a répondu
   decided_at: string | null
   comment: string
+  on_behalf_of: string | null  // P2 : l'absent pour qui quelqu'un a répondu, ou null
+}
+
+// P2 step 1 : une délégation ("absent du bureau"). direction : GIVEN = je suis l'absent ; RECEIVED = je remplace.
+export type Delegation = {
+  id: number
+  delegator: number
+  delegator_label: string
+  delegate: number
+  delegate_label: string
+  start_date: string
+  end_date: string
+  created_by: string | null
+  ended_at: string | null
+  state: 'ACTIVE' | 'PLANNED' | 'ENDED'
+  direction: 'GIVEN' | 'RECEIVED' | 'OTHER'
 }
 
 export type WorkflowRequest = {
@@ -39,4 +55,5 @@ export type Approval = {
   approver: string
   approver_label: string
   request: WorkflowRequest
+  on_behalf_of: string | null  // P2 : je réponds à la place de cette personne (absente), ou null
 }

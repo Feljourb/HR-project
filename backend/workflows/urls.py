@@ -1,7 +1,9 @@
 """Adresses de l'app workflows (incluses sous /api/workflows/ dans core/urls.py)."""
 from rest_framework.routers import SimpleRouter
 
-from .views import ApprovalViewSet, MyRequestViewSet, PoleDirectorViewSet, RequestHistoryViewSet, WorkflowViewSet
+from .views import (
+    ApprovalViewSet, DelegationViewSet, MyRequestViewSet, PoleDirectorViewSet, RequestHistoryViewSet, WorkflowViewSet,
+)
 
 app_name = "workflows"
 
@@ -14,6 +16,8 @@ router.register("requests", MyRequestViewSet, basename="request")
 router.register("approvals", ApprovalViewSet, basename="approval")
 # L'historique d'une demande, pour tous ceux qu'elle concerne : history/<id>/ -> "workflows:history-detail"
 router.register("history", RequestHistoryViewSet, basename="history")
+# P2 step 1 : les délégations ("absent du bureau") : delegations/ -> "workflows:delegation-list"
+router.register("delegations", DelegationViewSet, basename="delegation")
 
 # Les circuits, directement sous /api/workflows/ :
 #   ""      -> "workflows:workflow-list"    (GET)

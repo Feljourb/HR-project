@@ -644,6 +644,8 @@ class Notification(models.Model):
         # Les RH ont changé MON solde de congé (app leaves) : une correction +/- ou mon droit annuel, avec le motif.
         BALANCE_ADJUSTED = "BALANCE_ADJUSTED", "Solde de congé corrigé"
         RIGHT_CHANGED = "RIGHT_CHANGED", "Droit annuel modifié"
+        # P2 step 1 : je remplace un valideur absent pour une période (`employee` = l'absent).
+        DELEGATED = "DELEGATED", "Délégation reçue"
 
     recipient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notifications",
                                   verbose_name="Destinataire")

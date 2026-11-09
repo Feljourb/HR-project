@@ -83,7 +83,7 @@ function StepLine({ step }: { step: RequestStep }) {
       </p>
       {step.decided_at && step.status !== 'SKIPPED' && (
         <p className="text-[11px] text-slate-500">
-          {step.decided_by ? `${step.decided_by}, ` : ''}{formatDateTime(step.decided_at)}
+          {step.decided_by ? `${step.decided_by}${step.on_behalf_of ? ` on behalf of ${step.on_behalf_of}` : ''}, ` : ''}{formatDateTime(step.decided_at)}
         </p>
       )}
       {step.comment && <p className="mt-0.5 rounded-md bg-slate-50 px-2 py-1 text-[11px] italic text-slate-600">“{step.comment}”</p>}

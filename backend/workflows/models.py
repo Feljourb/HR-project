@@ -140,6 +140,10 @@ class RequestStep(models.Model):
     decided_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+", verbose_name="Décidé par")
     decided_at = models.DateTimeField("Décidé le", null=True, blank=True)
     comment = models.TextField("Commentaire", blank=True)
+    # P2 step 1 : la personne attendue (assignee) était absente, quelqu'un a répondu À SA PLACE (son délégué,
+    # son responsable, ou un RH) : l'historique dit "Validée par Karim pour Youssef".
+    on_behalf_of = models.ForeignKey(Employee, on_delete=models.PROTECT, null=True, blank=True, related_name="+",
+                                     verbose_name="Pour (absent)")
 
     class Meta:
         ordering = ["request", "order"]
@@ -150,3 +154,64 @@ class RequestStep(models.Model):
 
     def __str__(self):
         return f"{self.request} - {self.order}. {self.get_approver_display()} ({self.get_status_display()})"
+
+
+DELEGATE_ROLES = ("MANAGER", "HR", "HR_ADMIN")
+
+
+def can_be_delegate(delegate, delegator):
+    """P2 step 1 : qui peut remplacer un valideur absent : un Manager, un RH ou une Admin RH (qui a déjà
+    l'autorité de valider), du même pôle que l'absent (une Admin RH : les deux pôles)."""
+    role = delegate.user.role
+    return role in DELEGATE_ROLES and (role == "HR_ADMIN" or delegate.pole == delegator.pole)
+
+
+class Delegation(models.Model):
+    """P2 step 1 : une absence PRÉVUE d'un valideur, comme un message "absent du bureau" (standard des logiciels RH).
+    Ex. "Du 10/11 au 20/11, les demandes de Youssef vont aussi à Karim." Pendant la période, Karim répond à la place
+    de Youssef (et Youssef peut toujours répondre). Choisie par Youssef lui-même, ou par les RH pour lui
+    (ex. une hospitalisation). Jamais supprimée : "End now" la termine (ended_at), elle reste dans l'historique."""
+
+    delegator = models.ForeignKey(Employee, on_delete=models.PROTECT, related_name="delegations_given", verbose_name="Absent")
+    delegate = models.ForeignKey(Employee, on_delete=models.PROTECT, related_name="delegations_received", verbose_name="Remplaçant")
+    start_date = models.DateField("Du")
+    end_date = models.DateField("Au")
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name="+", verbose_name="Créée par")
+    created_at = models.DateTimeField("Créée le", auto_now_add=True)
+    ended_at = models.DateTimeField("Terminée le", null=True, blank=True)  # "End now" : plus valable
+
+    class Meta:
+        ordering = ["-start_date", "-id"]
+        verbose_name = "Délégation"
+
+    def __str__(self):
+        return f"{self.delegator} -> {self.delegate} ({self.start_date:%d/%m/%Y} - {self.end_date:%d/%m/%Y})"
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        from django.utils import timezone
+
+        if not (self.delegator_id and self.delegate_id and self.start_date and self.end_date):
+            return
+        if self.delegate_id == self.delegator_id:
+            raise ValidationError({"delegate": "Choisissez une autre personne que l'absent."})
+        if self.delegate.status == Employee.Status.LEFT or not self.delegate.user.is_active:
+            raise ValidationError({"delegate": "Ce collaborateur n'est plus actif."})
+        # Le standard : le délégué a DÉJÀ l'autorité de valider (Manager, RH ou Admin RH), et il est du même pôle
+        # (Admin RH : les deux pôles). Jamais un collaborateur : il validerait les congés de ses collègues.
+        if not can_be_delegate(self.delegate, self.delegator):
+            raise ValidationError({"delegate": "Choisissez un manager ou un RH du même pôle (pas un collaborateur)."})
+        if self.end_date < self.start_date:
+            raise ValidationError({"end_date": "La fin est avant le début."})
+        if self.end_date < timezone.localdate():
+            raise ValidationError({"end_date": "Cette période est déjà passée."})
+        if (self.end_date - self.start_date).days > 366:
+            raise ValidationError({"end_date": "Au plus un an."})
+        # Une seule délégation à la fois pour un même absent (sinon : à qui vont ses demandes ?).
+        overlap = (Delegation.objects.filter(delegator=self.delegator_id, ended_at__isnull=True,
+                                             start_date__lte=self.end_date, end_date__gte=self.start_date)
+                   .exclude(pk=self.pk).first())
+        if overlap:
+            raise ValidationError(f"Une délégation existe déjà sur ces dates ({overlap.start_date:%d/%m/%Y} - "
+                                  f"{overlap.end_date:%d/%m/%Y}, vers {overlap.delegate}).")

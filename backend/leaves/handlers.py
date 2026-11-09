@@ -7,12 +7,20 @@ de la fiche). Si le congé ne rentre plus dans le solde, on bloque l'acceptation
 """
 from django.core.exceptions import ValidationError
 
-from workflows.engine import on_approved
-from workflows.models import Workflow
+from workflows.engine import on_absence_check, on_approved
+from workflows.models import Request, Workflow
 
 from .balance import balance
 from .counting import days_label
 from .models import LeaveRequest
+
+
+@on_absence_check
+def on_approved_leave(employee, day):
+    """P2 step 1 : le moteur demande "cette personne est-elle absente ce jour-là ?" (pour faire répondre quelqu'un
+    à la place d'un valideur absent). Absente = un congé ACCEPTÉ qui couvre ce jour (quel que soit le type)."""
+    return LeaveRequest.objects.filter(employee=employee, request__status=Request.Status.APPROVED,
+                                       start_date__lte=day, end_date__gte=day).exists()
 
 
 @on_approved(Workflow.Code.LEAVE)
