@@ -303,6 +303,8 @@ class NotificationSerializer(serializers.ModelSerializer):
             return f"/employees/{notification.employee_id}"
         if notification.kind == Kind.TO_VALIDATE:
             return "/approvals"
+        if notification.kind in (Kind.BALANCE_ADJUSTED, Kind.RIGHT_CHANGED):
+            return "/leaves"  # ma page Congés : mon solde et la section "Balance changes"
         return f"/requests/{notification.request_id}"  # pour information, acceptée, refusée
 
     def get_read(self, notification):

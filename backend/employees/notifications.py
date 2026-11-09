@@ -87,6 +87,9 @@ def message(notification):
     # Un congé recompté (un jour férié a changé) : le recalcul de CE moment-là (il peut y en avoir plusieurs).
     if notification.kind == Kind.RECOUNTED:
         return recount_message(notification, name)
+    # Les RH ont changé MON solde (une correction, ou mon droit annuel) : le changement de CE moment-là.
+    if notification.kind in (Kind.BALANCE_ADJUSTED, Kind.RIGHT_CHANGED):
+        return balance_change_message(notification)
 
     # Les demandes (app workflows, step 7).
     if notification.kind != Kind.TRIAL_END:
@@ -117,6 +120,28 @@ def message(notification):
     if days == 0:
         return f"La période d'essai de {name} se termine aujourd'hui."
     return f"La période d'essai de {name} s'est terminée le {end} : confirmez l'embauche ou mettez fin au contrat."
+
+
+def balance_change_message(notification):
+    """Ex. "Votre solde de congé a été corrigé : -2,5 j au 31/12/2025. Motif : Congés 2025 (Excel)." ;
+    "Votre droit annuel est de 30 j à partir du 01/09/2026. Motif : Promotion."."""
+    # Importé ici : l'app leaves importe déjà employees (sinon une boucle d'imports).
+    from leaves.counting import days_label
+    from leaves.models import AnnualRightChange, BalanceAdjustment
+
+    # Le changement qui a créé CETTE notification : le dernier enregistré avant elle, pour ce collaborateur.
+    if notification.kind == Notification.Kind.BALANCE_ADJUSTED:
+        item = (BalanceAdjustment.objects.filter(employee=notification.employee, created_at__lte=notification.created_at)
+                .order_by("-created_at", "-id").first())
+        if item is None:
+            return "Votre solde de congé a été corrigé par les RH."
+        sign = "+" if item.days > 0 else "-"
+        return f"Votre solde de congé a été corrigé : {sign}{days_label(abs(item.days))} j au {item.date:%d/%m/%Y}. Motif : {item.reason}."
+    item = (AnnualRightChange.objects.filter(employee=notification.employee, created_at__lte=notification.created_at)
+            .order_by("-created_at", "-id").first())
+    if item is None:
+        return "Votre droit annuel de congé a été modifié par les RH."
+    return f"Votre droit annuel est de {days_label(item.annual_days)} j à partir du {item.effective_from:%d/%m/%Y}. Motif : {item.reason}."
 
 
 def recount_message(notification, name):

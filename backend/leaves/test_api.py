@@ -203,6 +203,9 @@ class HrLeaveApiTests(EngineTestCase):
         # Les 7 mois d'avant restent à 1,5 ; les mois finis les 05/09 et 05/10 rapportent 2,5 : rien en arrière.
         self.assertEqual((data["acquired"], data["yearly_right"], data["base_right"]), (15.5, 30, 18))
         self.assertEqual(data["right_changes"][0]["reason"], "Promotion manager")
+        # 🔔 Sara est prévenue de son nouveau droit.
+        bell = Notification.objects.get(recipient=self.sara.user, kind="RIGHT_CHANGED")
+        self.assertEqual(bell_message(bell), "Votre droit annuel est de 30 j à partir du 01/09/2026. Motif : Promotion manager.")
         self.assertEqual(data["years"][0]["earned"], 15.5)
         # La trace dans la fiche (onglet History, Audit log).
         line = self.sara.history.latest("created_at").changes[0]
@@ -239,6 +242,13 @@ class HrLeaveApiTests(EngineTestCase):
         self.assertEqual((data["available"], data["adjusted"], data["acquired"]), (21.5, -10, 31.5))
         self.assertEqual(data["expiring"]["days"], 6.5)  # 16,5 - 10 : seulement 6,5 perdus au 31/12 (pas 16,5)
         self.assertEqual((data["years"][0]["year"], data["years"][0]["used"]), (2025, 10))
+        # 🔔 Omar est prévenu, avec le chiffre et le motif ; il retrouve la correction dans SA page.
+        bell = Notification.objects.get(recipient=omar.user, kind="BALANCE_ADJUSTED")
+        self.assertEqual(bell_message(bell), "Votre solde de congé a été corrigé : -10 j au 31/12/2025. Motif : Congés 2025 (Excel RH).")
+        self.as_role(omar, User.Role.COLLABORATOR)
+        mine = self.client.get(reverse("leaves:mine-balance-changes")).json()
+        self.assertEqual((mine["adjustments"][0]["days"], mine["adjustments"][0]["reason"]), (-10, "Congés 2025 (Excel RH)"))
+        self.as_role(self.nadia, User.Role.HR)
         # Un jour rendu (2 samedis d'inventaire) : +1 dans la tirelire 2026.
         data = self.client.post(adjust, {"days": "1", "date": "2026-10-15", "reason": "Samedis d'inventaire"}).json()
         self.assertEqual((data["available"], data["years"][1]["added"]), (22.5, 1))

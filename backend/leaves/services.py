@@ -97,6 +97,7 @@ def add_adjustment(employee, days, date, reason, user):
         "old": "",
         "new": f"{sign}{days_label(abs(adjustment.days))} j au {date:%d/%m/%Y} ({adjustment.reason})",
     }])
+    tell_employee(employee, "BALANCE_ADJUSTED")
     return adjustment
 
 
@@ -125,7 +126,17 @@ def change_annual_right(employee, annual_days, effective_from, reason, user):
         "old": days_label(old),
         "new": f"{days_label(change.annual_days)} à partir du {effective_from:%d/%m/%Y} ({change.reason})",
     }])
+    tell_employee(employee, "RIGHT_CHANGED")
     return change
+
+
+def tell_employee(employee, kind):
+    """🔔 Le collaborateur est prévenu quand les RH changent SON solde (correction ou droit annuel) :
+    il voit le chiffre et le motif (le texte est calculé à l'affichage, employees/notifications.py)."""
+    from employees.models import Notification
+
+    if employee.user_id:
+        Notification.objects.create(recipient=employee.user, employee=employee, kind=kind)
 
 
 @transaction.atomic

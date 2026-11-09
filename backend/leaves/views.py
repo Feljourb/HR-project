@@ -110,6 +110,16 @@ class MyLeaveViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.Cr
         run(lambda: cancel_leave(leave, request.user, request.data.get("reason", "")))
         return Response(LeaveRequestSerializer(self.get_queryset().get(pk=leave.pk)).data)
 
+    @action(detail=False, methods=["get"], url_path="balance-changes", url_name="balance-changes")
+    def balance_changes(self, request):
+        """GET /api/leaves/mine/balance-changes/ -> ce que les RH ont changé dans MON solde, avec le motif :
+        {"adjustments": [...], "right_changes": [...]} (la section "Balance changes" de ma page Congés)."""
+        employee = self.employee()
+        return Response({
+            "adjustments": AdjustmentSerializer(employee.balance_adjustments.select_related("created_by"), many=True).data,
+            "right_changes": RightChangeSerializer(employee.right_changes.select_related("changed_by"), many=True).data,
+        })
+
     # Pas "def balance" : ce nom cacherait la fonction balance() importée en haut.
     @action(detail=False, methods=["get"], url_path="balance", url_name="balance")
     def my_balance(self, request):
