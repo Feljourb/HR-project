@@ -646,6 +646,10 @@ class Notification(models.Model):
         RIGHT_CHANGED = "RIGHT_CHANGED", "Droit annuel modifié"
         # P2 step 1 : je remplace un valideur absent pour une période (`employee` = l'absent).
         DELEGATED = "DELEGATED", "Délégation reçue"
+        # P3 (rappels) : des jours de mon solde seront perdus le 31/12 (`due_date` = ce 31/12 : une fois par an) ;
+        # une demande attend MA réponse depuis plusieurs jours (`due_date` = le jour du rappel).
+        EXPIRING = "EXPIRING", "Jours bientôt perdus"
+        REMINDER = "REMINDER", "Rappel : demande en attente"
 
     recipient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notifications",
                                   verbose_name="Destinataire")
@@ -665,10 +669,13 @@ class Notification(models.Model):
         verbose_name = "Notification"
         ordering = ["-created_at", "-id"]
         constraints = [
-            # Une seule notification par RH, par collaborateur et par date : jamais de doublon,
-            # même si la cloche est ouverte 50 fois.
-            models.UniqueConstraint(fields=["recipient", "employee", "kind", "due_date"],
+            # Une seule notification par personne, par collaborateur et par date : jamais de doublon,
+            # même si la cloche est ouverte 50 fois (fin de période d'essai, jours bientôt perdus...).
+            models.UniqueConstraint(fields=["recipient", "employee", "kind", "due_date"], condition=models.Q(request__isnull=True),
                                     name="employees_notification_unique"),
+            # Pour une demande (P3 : le rappel) : une seule par personne, par demande et par date.
+            models.UniqueConstraint(fields=["recipient", "kind", "request", "due_date"], condition=models.Q(request__isnull=False),
+                                    name="employees_notification_unique_request"),
         ]
 
     def __str__(self):

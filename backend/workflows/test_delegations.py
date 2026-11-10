@@ -113,6 +113,23 @@ class DelegationTests(EngineTestCase):
             self.assertFalse(engine.can_decide(self.karim.user, self.step))
             self.assertIn(self.step, engine.steps_waiting_for(self.hind.user))
 
+    # --- P3 : le rappel "une demande attend ta réponse depuis 3 jours" ----------------------
+
+    def test_a_reminder_after_3_days_once(self):
+        from employees.notifications import message, refresh_for
+
+        refresh_for(self.youssef.user)  # le jour même : pas de rappel
+        self.assertFalse(Notification.objects.filter(recipient=self.youssef.user, kind="REMINDER").exists())
+        later = timezone.localdate() + datetime.timedelta(days=4)
+        with mock.patch("django.utils.timezone.localdate", lambda *args, **kwargs: later):
+            refresh_for(self.youssef.user)
+            refresh_for(self.youssef.user)  # la cloche ouverte 2 fois : un seul rappel
+            reminder = Notification.objects.get(recipient=self.youssef.user, kind="REMINDER")
+            self.assertIn("attend votre réponse depuis 4 jours", message(reminder))
+        # Youssef répond : le rappel pas encore lu s'en va.
+        engine.approve(self.step, self.youssef.user)
+        self.assertFalse(Notification.objects.filter(recipient=self.youssef.user, kind="REMINDER").exists())
+
     # --- Les règles ----------------------------------------------------------------------
 
     def test_who_can_set_a_delegation_and_the_rules(self):

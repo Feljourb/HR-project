@@ -404,6 +404,23 @@ class HrLeaveApiTests(EngineTestCase):
         self.as_role(self.nadia, User.Role.HR)
         self.assertEqual(self.client.get(document).status_code, 200)
 
+    def test_a_reminder_for_the_days_lost_on_december_31(self):
+        # P3 ("aujourd'hui" = 02/11/2026, donc novembre) : Omar (embauché le 06/01/2025) perdra ses 16,5 jours de 2025.
+        from employees.notifications import message, refresh_for
+
+        omar = self.make_employee("omar.old2", "AA100050", hire_date=datetime.date(2025, 1, 6))
+        refresh_for(omar.user)
+        refresh_for(omar.user)  # une seule fois par an
+        bell = Notification.objects.get(recipient=omar.user, kind="EXPIRING")
+        self.assertEqual(message(bell), "16,5 jour(s) de votre solde seront perdus le 31/12/2026 : pensez à les prendre.")
+        # Plus rien à perdre (ex. les congés de 2025 enregistrés par les RH) : le rappel pas encore lu s'en va.
+        from .services import add_adjustment
+        self.nadia.user.role = User.Role.HR
+        self.nadia.user.save()
+        add_adjustment(omar, -16.5, datetime.date(2025, 12, 31), "Congés 2025", self.nadia.user)
+        refresh_for(omar.user)
+        self.assertFalse(Notification.objects.filter(recipient=omar.user, kind="EXPIRING").exists())
+
     def test_admin_rh_sees_both_poles_and_the_period_filters(self):
         self.as_role(self.nadia, User.Role.HR_ADMIN)
         self.assertEqual(len(self.absences().json()), 2)

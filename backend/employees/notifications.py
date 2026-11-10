@@ -57,8 +57,28 @@ def employees_to_watch(user):
     return [employee for employee in queryset if notify_from(employee) <= today]
 
 
+# P3 (rappels) : les autres modules ajoutent ICI leurs rappels "calculés à l'ouverture de la cloche"
+# (pas de programme qui tourne chaque nuit), comme la fin de période d'essai. Ex. le module Congés :
+# "des jours seront perdus le 31/12" ; le moteur des demandes : "une demande t'attend depuis 3 jours".
+BELL_REFRESHERS = []
+
+
+def on_bell_refresh(refresher):
+    """Pour un module : @on_bell_refresh sur une fonction (user) qui crée / enlève ses rappels."""
+    BELL_REFRESHERS.append(refresher)
+    return refresher
+
+
 def refresh_for(user):
-    """Met à jour les notifications de ce RH (appelé quand il ouvre la cloche).
+    """Met à jour les notifications de cette personne (appelé quand elle ouvre la cloche) :
+    la fin de période d'essai (les RH), puis les rappels des autres modules (tout le monde)."""
+    refresh_trial(user)
+    for refresher in BELL_REFRESHERS:
+        refresher(user)
+
+
+def refresh_trial(user):
+    """La fin de période d'essai, pour un RH.
 
     1. Crée celles qui manquent. ignore_conflicts : celles qui existent déjà sont ignorées
        (la contrainte unique empêche les doublons, même avec deux onglets ouverts en même temps).
@@ -90,6 +110,17 @@ def message(notification):
     # Les RH ont changé MON solde (une correction, ou mon droit annuel) : le changement de CE moment-là.
     if notification.kind in (Kind.BALANCE_ADJUSTED, Kind.RIGHT_CHANGED):
         return balance_change_message(notification)
+    if notification.kind == Kind.EXPIRING:
+        # Le nombre est recalculé à l'affichage : s'il a pris un congé depuis, le chiffre baisse.
+        from leaves.balance import balance
+        from leaves.counting import days_label
+        expiring = balance(employee)["expiring"]
+        days = expiring["days"] if expiring else 0
+        return f"{days_label(days)} jour(s) de votre solde seront perdus le {notification.due_date:%d/%m/%Y} : pensez à les prendre."
+    if notification.kind == Kind.REMINDER:
+        request = notification.request
+        waiting = (timezone.localdate() - timezone.localtime(request.created_at).date()).days
+        return f"Rappel : {name} attend votre réponse depuis {waiting} jours : {request.title}."
     if notification.kind == Kind.DELEGATED:
         # Importé ici : l'app workflows importe déjà employees (sinon une boucle d'imports).
         from workflows.models import Delegation

@@ -6,13 +6,37 @@ entre l'envoi et la dernière validation, le solde a pu baisser (ex. le RH a cor
 de la fiche). Si le congé ne rentre plus dans le solde, on bloque l'acceptation : le valideur doit refuser.
 """
 from django.core.exceptions import ValidationError
+from django.utils import timezone
 
+from employees.models import Employee, Notification
+from employees.notifications import on_bell_refresh
 from workflows.engine import on_absence_check, on_approved
 from workflows.models import Request, Workflow
 
 from .balance import balance
 from .counting import days_label
 from .models import LeaveRequest
+
+
+EXPIRING_FROM_MONTH = 11  # le rappel "jours bientôt perdus" à partir du 1er novembre (2 mois avant le 31/12)
+
+
+@on_bell_refresh
+def remind_expiring_days(user):
+    """P3 (rappel, standard) : à partir de novembre, "X jours de votre solde seront perdus le 31/12 : pensez à les
+    prendre". Une seule fois par an (due_date = ce 31/12 + la contrainte unique). Plus rien à perdre (il a pris
+    ses congés) : le rappel pas encore lu s'en va."""
+    if timezone.localdate().month < EXPIRING_FROM_MONTH:
+        return
+    employee = Employee.objects.filter(user=user).exclude(status=Employee.Status.LEFT).first()
+    if employee is None:
+        return
+    expiring = balance(employee)["expiring"]
+    if expiring and expiring["days"] > 0:
+        Notification.objects.bulk_create([Notification(recipient=user, employee=employee, kind=Notification.Kind.EXPIRING,
+                                                       due_date=expiring["on"])], ignore_conflicts=True)
+    else:
+        Notification.objects.filter(recipient=user, kind=Notification.Kind.EXPIRING, read_at__isnull=True).delete()
 
 
 @on_absence_check
