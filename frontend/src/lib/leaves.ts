@@ -2,6 +2,7 @@
  * Les congés, comme Django les envoie (/api/leaves/...).
  */
 import { apiFetch } from './api'
+import type { Seniority } from './employees'
 
 export type LeaveType = {
   id: number
@@ -96,6 +97,7 @@ export type Adjustment = { id: number; date: string; days: number; reason: strin
 // Le panneau du clic (/api/leaves/balances/<employee>/) : la ligne + le détail.
 export type BalanceDetail = BalanceRow & {
   base_right: number           // le droit de la fiche, depuis l'embauche
+  seniority: Seniority         // le détail du droit d'aujourd'hui : droit + ancienneté (au plus le plafond)
   right_changes: RightChange[]
   adjustments: Adjustment[]
   can_manage: boolean          // "Change" et "Add a correction" : RH du pôle / Admin RH, jamais pour soi-même (Django décide)

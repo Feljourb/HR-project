@@ -16,7 +16,7 @@ import Link from 'next/link'
 import { ArrowLeft, CheckCircle2, Info, Loader2 } from 'lucide-react'
 import { apiFetch, roleLabel, seesBothPoles, type Me } from '@/lib/api'
 import {
-  FORM_FIELDS, MARITAL_LABELS, RELATIONSHIP_LABELS, STATUS_LABELS, TITLE_LABELS,
+  FORM_FIELDS, MARITAL_LABELS, RELATIONSHIP_LABELS, STATUS_LABELS, TITLE_LABELS, seniorityLabel,
   type Child, type EmployeeFiche, type FormField, type HierarchyLevel, type ReferenceItem,
 } from '@/lib/employees'
 import { formatDate } from '@/lib/leaves'
@@ -519,6 +519,15 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
       <SelectField id="status" label="Status" required value={values.status} onChange={(v) => set('status', v)} options={STATUS_OPTIONS} error={error('status')}
         hint={isLeft ? 'Their account will be blocked when you save.' : undefined} />
       <TextField id="hire_date" label="Hire date" type="date" required value={values.hire_date} onChange={(v) => set('hire_date', v)} error={error('hire_date')} />
+      {/* L'ancienneté : jamais saisie, calculée par Django depuis la date d'embauche (celle ENREGISTRÉE). */}
+      {fiche && <div>
+        <p className="text-xs font-semibold text-slate-700">Seniority</p>
+        <p className="mt-1.5 flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-slate-100 px-3 text-sm text-slate-700">
+          <b className="font-semibold">{seniorityLabel(fiche.seniority)}</b>
+          {fiche.seniority.bonus > 0 && <span className="text-xs text-slate-500">· +{fiche.seniority.bonus.toString().replace('.', ',')} days / year of leave</span>}
+        </p>
+        <p className="mt-1 text-[11px] text-slate-500">Counted from the hire date. Every {fiche.seniority.every} full years add leave days (Leave settings).</p>
+      </div>}
       {/* La date qui va avec le statut, juste après la date d'embauche. */}
       {isTrial && <TextField id="trial_end_date" label="End of trial period" type="date" value={values.trial_end_date}
         hint="HR is notified 10 days before (1 month for a Cadre)." onChange={(v) => set('trial_end_date', v)} error={error('trial_end_date')} />}

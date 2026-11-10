@@ -11,6 +11,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import Link from 'next/link'
 import { Loader2, Plus, X } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
+import { seniorityLabel, type Seniority } from '@/lib/employees'
 import { formatDate, formatDays, isoDate, type BalanceDetail, type LeaveType, type YearPool } from '@/lib/leaves'
 import { cn } from '@/lib/utils'
 import { controlClass } from '@/components/employees/form-fields'
@@ -147,6 +148,22 @@ function YearsCard({ years }: { years: YearPool[] }) {
   </section>
 }
 
+// "18 (right) + 1,5 (seniority: 6 years 8 months) = 19,5 days / year", puis le prochain palier.
+function SeniorityLine({ seniority: s }: { seniority: Seniority }) {
+  return <div className="bg-slate-50/60 px-4 py-3 text-xs text-slate-600">
+    <p>
+      <b className="font-semibold text-slate-700">{days(s.right)}</b> (right)
+      {' + '}<b className="font-semibold text-slate-700">{days(s.bonus)}</b> (seniority: {seniorityLabel(s)}
+      {s.periods > 0 ? `, ${s.periods} × ${s.every} years` : `, under ${s.every} years`})
+      {' = '}<b className="font-semibold text-[#192646]">{days(s.yearly_right)} days / year</b>
+      {s.capped && <span className="text-amber-700"> · capped at the maximum ({days(s.max)})</span>}
+    </p>
+    {s.next && <p className="mt-1 text-[11px] text-slate-500">
+      Next step on {formatDate(s.next.date)}: seniority +{days(s.next.bonus)} → {days(s.next.yearly_right)} days / year.
+    </p>}
+  </div>
+}
+
 // Le droit annuel : celui de la fiche depuis l'embauche, puis chaque changement à partir de sa date.
 function RightCard({ detail, onSaved }: { detail: BalanceDetail; onSaved: (detail: BalanceDetail) => void }) {
   const [open, setOpen] = useState(false)
@@ -185,7 +202,7 @@ function RightCard({ detail, onSaved }: { detail: BalanceDetail; onSaved: (detai
     <header className="flex flex-wrap items-start gap-3 border-b border-slate-100 px-4 py-3">
       <div className="min-w-0 flex-1">
         <h3 className="text-sm font-semibold text-[#192646]">Annual right</h3>
-        <p className="text-[11px] text-slate-500">Today: <b className="font-semibold text-slate-700">{days(detail.yearly_right)} days / year</b> (with seniority). A change counts from its date only, never back.</p>
+        <p className="text-[11px] text-slate-500">A change counts from its date only, never back.</p>
       </div>
       {detail.can_manage && !open && <button type="button" onClick={() => setOpen(true)}
         className="flex items-center gap-1.5 rounded-lg bg-[#23355d] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#192646]">
@@ -193,8 +210,11 @@ function RightCard({ detail, onSaved }: { detail: BalanceDetail; onSaved: (detai
       </button>}
     </header>
 
+    {/* Le droit d'aujourd'hui EXPLIQUÉ : droit + ancienneté = total (calculé par Django, jamais ici). */}
+    <SeniorityLine seniority={detail.seniority} />
+
     {/* L'histoire du droit : la fiche (depuis l'embauche), puis chaque changement. */}
-    <ol className="px-4 py-3 text-xs">
+    <ol className="border-t border-slate-100 px-4 py-3 text-xs">
       <li className="flex items-baseline gap-2 py-1">
         <span className="w-28 shrink-0 text-slate-500">From {formatDate(detail.hire_date)}</span>
         <span className="font-semibold text-[#192646]">{days(detail.base_right)} days</span>

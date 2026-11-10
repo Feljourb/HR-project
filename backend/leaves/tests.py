@@ -13,7 +13,7 @@ from workflows import engine
 from workflows.models import Request, RequestStep, WorkflowStep
 from workflows.test_engine import EngineTestCase
 
-from .balance import acquired, add_months, balance
+from .balance import acquired, add_months, balance, seniority
 from .counting import count_days, day_values, days_label
 from .holidays import ensure_year
 from .models import LeaveRequest, LeaveSettings, LeaveType, PublicHoliday
@@ -341,6 +341,19 @@ class BalanceTests(EngineTestCase):
         old = {"hire_date": datetime.date(2000, 1, 1), "annual_leave_days": 35}
         # Le mois de janvier 2026 (gagné le 01/02) : la différence entre les deux dates.
         self.assertEqual(self.gained(datetime.date(2026, 2, 1), **old) - self.gained(datetime.date(2026, 1, 1), **old), 3)
+
+    def test_seniority_explained(self):
+        # Embauché le 01/03/2020, le 10/11/2026 : 6 ans 8 mois -> 1 palier -> 18 + 1,5 = 19,5 ; prochain le 01/03/2030.
+        info = seniority(self.fiche("ZZ999999", hire_date=datetime.date(2020, 3, 1)), self.settings, datetime.date(2026, 11, 10))
+        self.assertEqual((info["years"], info["months"], info["periods"]), (6, 8, 1))
+        self.assertEqual((info["right"], info["bonus"], info["yearly_right"], info["capped"]), (18, 1.5, 19.5, False))
+        self.assertEqual(info["next"], {"date": datetime.date(2030, 3, 1), "bonus": 3, "yearly_right": 21})
+        # Droit 35 + 26 ans (5 paliers = 7,5) : plafonné à 36, plus de prochain palier.
+        old = seniority(self.fiche("ZZ999998", hire_date=datetime.date(2000, 1, 1), annual_leave_days=35), self.settings, datetime.date(2026, 2, 1))
+        self.assertEqual((old["yearly_right"], old["capped"], old["next"]), (36, True, None))
+        # 4 ans 10 mois : pas encore de palier (le premier le 15/12/2026).
+        young = seniority(self.fiche("ZZ999997", hire_date=datetime.date(2021, 12, 15)), self.settings, datetime.date(2026, 11, 10))
+        self.assertEqual((young["years"], young["months"], young["bonus"], young["next"]["date"]), (4, 10, 0, datetime.date(2026, 12, 15)))
 
     def test_nothing_is_gained_after_the_departure(self):
         self.assertEqual(self.gained(datetime.date(2026, 11, 5), departure_date=datetime.date(2026, 3, 5)), 3)

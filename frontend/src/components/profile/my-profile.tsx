@@ -12,7 +12,7 @@ import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { CheckCircle2, Loader2 } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 import {
-  MARITAL_LABELS, PERSONAL_FIELDS, RELATIONSHIP_LABELS, STATUS_LABELS, TITLE_LABELS,
+  MARITAL_LABELS, PERSONAL_FIELDS, RELATIONSHIP_LABELS, STATUS_LABELS, TITLE_LABELS, seniorityLabel,
   type MyFiche, type PersonalField,
 } from '@/lib/employees'
 import { FormSection, PhoneField, SelectField, TextField } from '@/components/employees/form-fields'
@@ -167,6 +167,8 @@ export function MyProfile() {
       <Info label="Grade">{fiche.grade}</Info>
       <Info label="Region">{fiche.region}</Info>
       <Info label="Hire date">{formatDate(fiche.hire_date)}</Info>
+      {/* Calculée par Django depuis la date d'embauche. */}
+      <Info label="Seniority">{seniorityLabel(fiche.seniority)}</Info>
       <Info label="Status">{STATUS_LABELS[fiche.status]}</Info>
     </FormSection>
 

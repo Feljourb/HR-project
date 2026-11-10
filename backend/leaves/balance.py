@@ -66,6 +66,41 @@ def yearly_right(employee, settings, on_day, changes=None):
     return min(right_on(employee, on_day, changes) + periods * settings.seniority_bonus, settings.max_days_per_year)
 
 
+def seniority(employee, settings, today):
+    """L'ancienneté EXPLIQUÉE, pour l'affichage (la fiche, Leave balances) : rien de nouveau n'est calculé,
+    ce sont les mêmes règles que yearly_right. Ex. embauché le 01/03/2020, le 10/11/2026 :
+    6 ans 8 mois -> 1 palier de 5 ans -> 18 + 1,5 = 19,5 jours / an ; prochain palier le 01/03/2030 (+3).
+    Un "Sorti" : compté jusqu'à sa date de sortie, sans prochain palier."""
+    hire = employee.hire_date
+    end = min(today, employee.departure_date) if employee.departure_date else today
+    # Les mois complets depuis l'embauche (01/03/2020 -> 10/11/2026 : 80 mois = 6 ans 8 mois).
+    months = max((end.year - hire.year) * 12 + end.month - hire.month - (end.day < hire.day), 0)
+    every = settings.seniority_years
+    periods = full_years(hire, end) // every if every and end >= hire else 0
+    right = right_on(employee, end)
+    bonus = periods * settings.seniority_bonus
+    total = yearly_right(employee, settings, end)
+    # Le prochain palier : pas pour un "Sorti", ni si le plafond (36) est déjà atteint, ni sans bonus.
+    upcoming = None
+    if every and settings.seniority_bonus and not employee.departure_date and right + bonus < settings.max_days_per_year:
+        next_bonus = (periods + 1) * settings.seniority_bonus
+        upcoming = {
+            "date": add_months(hire, (periods + 1) * every * 12),
+            "bonus": float(next_bonus),
+            "yearly_right": float(min(right + next_bonus, settings.max_days_per_year)),
+        }
+    return {
+        "years": months // 12, "months": months % 12,
+        "every": every, "periods": periods,
+        "right": float(right),  # le droit sans l'ancienneté (la fiche, ou le dernier changement daté)
+        "bonus": float(bonus),
+        "yearly_right": float(total),  # droit + ancienneté, au plus le plafond
+        "max": float(settings.max_days_per_year),
+        "capped": right + bonus > settings.max_days_per_year,
+        "next": upcoming,
+    }
+
+
 def monthly_earnings(employee, today, settings):
     """Ce que chaque mois complet a rapporté depuis l'embauche : [(fin du mois, jours), ...]."""
     # Un collaborateur "Sorti" ne gagne plus rien après sa date de sortie.

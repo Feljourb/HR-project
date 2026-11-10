@@ -67,7 +67,24 @@ export type EmployeeFiche = {
   number_of_children: number;   // calculé par Django à partir de la liste
   // Le droit annuel ACTUEL (annual_leave_days = celui de l'embauche ; les changements datés : Leave balances).
   current_annual_right: { days: number; since: string; planned: { days: number; from: string } | null };
+  seniority: Seniority;
 } & Record<FormField, string | number | null>;
+
+// L'ancienneté, calculée par Django depuis la date d'embauche (leaves.balance.seniority), jamais saisie.
+// Ex. 6 ans 8 mois, 1 palier de 5 ans -> right 18 + bonus 1,5 = yearly_right 19,5 ; prochain palier le 01/03/2030.
+export type Seniority = {
+  years: number; months: number; every: number; periods: number
+  right: number; bonus: number; yearly_right: number; max: number; capped: boolean
+  next: { date: string; bonus: number; yearly_right: number } | null
+}
+
+/** "6 years 8 months", "1 year", "3 months", "0 month". */
+export function seniorityLabel({ years, months }: Seniority) {
+  const parts = []
+  if (years) parts.push(`${years} ${years > 1 ? 'years' : 'year'}`)
+  if (months || !years) parts.push(`${months} ${months > 1 ? 'months' : 'month'}`)
+  return parts.join(' ')
+}
 
 // Une ligne de l'historique d'un dossier (/api/employees/<id>/history/).
 export type HistoryEntry = {
@@ -127,6 +144,7 @@ export type MyFiche = {
   work_location: string;
   hierarchy: HierarchyLevel[];
   hire_date: string;
+  seniority: Seniority;
   status: Status;
   children: Child[];
 } & Record<PersonalField, string>;

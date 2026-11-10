@@ -35,7 +35,7 @@ from workflows.models import Request
 from workflows.serializers import person
 from workflows.views import run
 
-from .balance import balance, balance_by_year, yearly_right
+from .balance import balance, balance_by_year, seniority, yearly_right
 from .counting import day_values
 from .holidays import ensure_year
 from .models import (
@@ -186,6 +186,8 @@ class BalanceViewSet(viewsets.GenericViewSet):
         return Response({
             **self.row(employee, settings, today),
             "base_right": float(employee.annual_leave_days),  # le droit de la fiche, depuis l'embauche
+            # Le détail du droit d'aujourd'hui : "18 + 1,5 (ancienneté : 6 ans 8 mois) = 19,5".
+            "seniority": seniority(employee, settings, today),
             "right_changes": RightChangeSerializer(changes, many=True).data,
             "adjustments": AdjustmentSerializer(adjustments, many=True).data,
             # Les boutons "Change" et "Add a correction" : RH du pôle / Admin RH, jamais pour soi-même.

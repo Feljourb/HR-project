@@ -132,6 +132,8 @@ class EmployeeSerializer(serializers.ModelSerializer):
     # Le droit annuel ACTUEL (annual_leave_days = celui de l'embauche ; ensuite les changements datés de
     # Leave balances) : ce que la fiche affiche, pour ne pas laisser croire que "18" est toujours vrai.
     current_annual_right = serializers.SerializerMethodField()
+    # L'ancienneté (jamais saisie : calculée depuis la date d'embauche), ex. 6 ans 8 mois -> +1,5 jour / an.
+    seniority = serializers.SerializerMethodField()
 
     class Meta:
         model = Employee
@@ -158,6 +160,14 @@ class EmployeeSerializer(serializers.ModelSerializer):
             "since": current.effective_from if current else employee.hire_date,
             "planned": {"days": float(planned.annual_days), "from": planned.effective_from} if planned else None,
         }
+
+    def get_seniority(self, employee):
+        """Le même calcul que le solde de congé (leaves.balance.seniority) : une seule règle."""
+        # Importé ici : l'app leaves importe déjà employees (sinon une boucle d'imports).
+        from leaves.balance import seniority
+        from leaves.models import LeaveSettings
+
+        return seniority(employee, LeaveSettings.load(), timezone.localdate())
 
     def get_can_reset_password(self, employee):
         request = self.context.get("request")
