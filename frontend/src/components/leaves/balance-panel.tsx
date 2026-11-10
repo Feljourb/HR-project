@@ -9,7 +9,7 @@
  */
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import Link from 'next/link'
-import { Loader2, Plus, X } from 'lucide-react'
+import { ChevronRight, Loader2, Plus, X } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 import { seniorityLabel, type Seniority } from '@/lib/employees'
 import { formatDate, formatDays, isoDate, type BalanceDetail, type LeaveType, type YearPool } from '@/lib/leaves'
@@ -65,6 +65,7 @@ export function BalancePanel({ employeeId, onClose, onChanged }: {
 function PanelContent({ employeeId, onClose, onChanged }: { employeeId: number; onClose: () => void; onChanged: () => void }) {
   const [detail, setDetail] = useState<BalanceDetail | null>(null)
   const [failed, setFailed] = useState(false)
+  const [tab, setTab] = useState<Tab>('years')
 
   useEffect(() => {
     apiFetch(`/api/leaves/balances/${employeeId}/`)
@@ -103,18 +104,43 @@ function PanelContent({ employeeId, onClose, onChanged }: { employeeId: number; 
             </div>)}
           </div>
 
-          <YearsCard years={detail.years} />
-          <RightCard detail={detail} onSaved={(next) => { setDetail(next); onChanged() }} />
-          <CorrectionsCard detail={detail} onSaved={(next) => { setDetail(next); onChanged() }} />
-          <LeavesCard detail={detail} onSaved={(next) => { setDetail(next); onChanged() }} />
+          {/* Des onglets : une partie à la fois (avant, tout était l'un sous l'autre : trop long à lire). */}
+          <div role="tablist" aria-label="Details" className="flex flex-wrap gap-1.5">
+            {TABS.map((item) => {
+              const count = item.id === 'corrections' ? detail.adjustments.length : item.id === 'leaves' ? detail.leaves.length : null
+              return <button key={item.id} type="button" role="tab" aria-selected={tab === item.id} onClick={() => setTab(item.id)}
+                className={cn('rounded-full border px-3 py-1 text-xs font-semibold',
+                  tab === item.id ? 'border-[#23355d] bg-[#23355d] text-white' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:text-[#23355d]')}>
+                {item.label}{count !== null && <span className={cn('ml-1.5 tabular-nums', tab === item.id ? 'text-slate-300' : 'text-slate-400')}>{count}</span>}
+              </button>
+            })}
+          </div>
+
+          {tab === 'years' && <YearsCard years={detail.years} />}
+          {tab === 'right' && <RightCard detail={detail} onSaved={(next) => { setDetail(next); onChanged() }} />}
+          {tab === 'corrections' && <CorrectionsCard detail={detail} onSaved={(next) => { setDetail(next); onChanged() }} />}
+          {tab === 'leaves' && <LeavesCard detail={detail} onSaved={(next) => { setDetail(next); onChanged() }} />}
         </div>}
   </div>
 }
 
+type Tab = 'years' | 'right' | 'corrections' | 'leaves'
+const TABS: { id: Tab; label: string }[] = [
+  { id: 'years', label: 'Days by year' },
+  { id: 'right', label: 'Annual right' },
+  { id: 'corrections', label: 'Corrections' },
+  { id: 'leaves', label: 'Leaves' },
+]
+
 const cardClass = 'rounded-xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]'
 
 // Les tirelires : chaque année, ce qui a été gagné, utilisé, ce qui reste et jusqu'à quand.
-function YearsCard({ years }: { years: YearPool[] }) {
+// Les années EXPIRÉES sont repliées en une ligne (un collaborateur de 2000 en a 25) : on les ouvre au besoin.
+function YearsCard({ years: all }: { years: YearPool[] }) {
+  const [showExpired, setShowExpired] = useState(false)
+  const expired = all.filter((pool) => pool.state === 'EXPIRED')
+  const lost = expired.reduce((total, pool) => total + pool.left, 0)
+  const years = showExpired ? all : all.filter((pool) => pool.state !== 'EXPIRED')
   return <section className={cardClass}>
     <header className="border-b border-slate-100 px-4 py-3">
       <h3 className="text-sm font-semibold text-[#192646]">Days by year</h3>
@@ -130,7 +156,22 @@ function YearsCard({ years }: { years: YearPool[] }) {
             </tr>
           </thead>
           <tbody>
-            {years.map((pool) => <tr key={pool.year} className="border-t border-slate-100">
+            {/* Les années expirées : une seule ligne "2000 – 2023 · 25 years expired · 512 days lost", cliquable. */}
+            {expired.length > 0 && <tr className="border-t border-slate-100">
+              <td colSpan={5} className="p-0">
+                <button type="button" onClick={() => setShowExpired((value) => !value)} aria-expanded={showExpired}
+                  className="flex w-full items-center gap-2 px-4 py-2 text-left text-slate-500 hover:bg-slate-50">
+                  <ChevronRight className={cn('size-3.5 transition-transform', showExpired && 'rotate-90')} aria-hidden />
+                  <span className="font-semibold text-slate-600">
+                    {expired.length === 1 ? expired[0].year : `${expired[0].year} – ${expired[expired.length - 1].year}`}
+                  </span>
+                  <span>· {expired.length} expired {expired.length > 1 ? 'years' : 'year'}{lost > 0 && <> · {days(lost)} days lost</>}</span>
+                  <span className="ml-auto text-[11px] font-semibold text-[#23355d]">{showExpired ? 'Hide' : 'Show'}</span>
+                </button>
+              </td>
+            </tr>}
+            {years.length === 0 && <tr className="border-t border-slate-100"><td colSpan={5} className="px-4 py-4 text-center text-slate-500">No valid days today.</td></tr>}
+            {years.map((pool) => <tr key={pool.year} className={cn('border-t border-slate-100', pool.state === 'EXPIRED' && 'bg-slate-50/60 text-slate-400 [&_td]:text-slate-400')}>
               <td className="px-4 py-2 font-semibold text-[#192646]">{pool.year}</td>
               {/* Les corrections en plus entrent dans la tirelire de leur année : "15 +1". */}
               <td className="px-2 py-2 text-right tabular-nums text-slate-600">
