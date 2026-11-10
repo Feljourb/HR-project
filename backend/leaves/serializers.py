@@ -7,7 +7,9 @@ from employees.serializers import ReferenceSerializer
 from workflows.serializers import person
 
 from .holidays import in_window, is_fixed
-from .models import AnnualRightChange, BalanceAdjustment, LeaveRecount, LeaveRequest, LeaveType, PublicHoliday
+from .models import (
+    AnnualRightChange, BalanceAdjustment, LeaveRecount, LeaveRequest, LeaveSettingsChange, LeaveType, PublicHoliday,
+)
 
 
 class LeaveTypeSerializer(serializers.ModelSerializer):
@@ -76,6 +78,27 @@ class RecountSerializer(serializers.ModelSerializer):
     class Meta:
         model = LeaveRecount
         fields = ["old_days", "new_days", "reason", "warning", "changed_by", "created_at"]
+
+
+class LeaveSettingsSerializer(serializers.Serializer):
+    """Les réglages des congés (page Reference lists, Admin RH), avec des LIMITES raisonnables : une faute de frappe
+    (ex. 0 an, 100 jours) ne doit pas changer le solde de tout le monde. Le minimum légal (18 jours par an) est gardé."""
+
+    carry_over_years = serializers.IntegerField(min_value=1, max_value=5)
+    max_days_per_year = serializers.DecimalField(max_digits=5, decimal_places=2, min_value=Decimal("18"), max_value=Decimal("60"),
+                                                 coerce_to_string=False)
+    seniority_years = serializers.IntegerField(min_value=1, max_value=10)
+    seniority_bonus = serializers.DecimalField(max_digits=4, decimal_places=2, min_value=Decimal("0"), max_value=Decimal("5"),
+                                               coerce_to_string=False)
+    months_before_first_leave = serializers.IntegerField(min_value=0, max_value=12)
+
+
+class LeaveSettingsChangeSerializer(serializers.ModelSerializer):
+    changed_by = serializers.StringRelatedField()
+
+    class Meta:
+        model = LeaveSettingsChange
+        fields = ["id", "changed_by", "changed_at", "changes"]
 
 
 class RightChangeSerializer(serializers.ModelSerializer):

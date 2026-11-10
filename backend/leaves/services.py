@@ -4,6 +4,8 @@ Le module Congés vérifie SES règles (dates, jours, maximum, chevauchement), p
 au moteur des circuits (engine.submit("LEAVE")), qui s'occupe de QUI valide.
 Step 6 : l'aperçu (preview_leave), pour le formulaire : le calcul en direct, sans rien enregistrer.
 """
+from decimal import Decimal
+
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 
@@ -200,6 +202,30 @@ def attach_document(leave, file, user):
     leave.clean_fields(exclude=[field.name for field in LeaveRequest._meta.fields if field.name != "document"])
     leave.save(update_fields=["document", "document_name", "document_at"])
     return leave
+
+
+SETTINGS_FIELDS = ["carry_over_years", "max_days_per_year", "seniority_years", "seniority_bonus", "months_before_first_leave"]
+
+
+@transaction.atomic
+def save_settings(values, user):
+    """Les réglages des congés, changés par Admin RH (page Reference lists) ou l'IT (/admin) : enregistrés AVEC une
+    ligne d'historique (champ, avant, après), dans la même transaction. Rien n'a changé : pas de ligne."""
+    from .models import LeaveSettings, LeaveSettingsChange
+
+    current = LeaveSettings.load()
+    changes = []
+    for name in SETTINGS_FIELDS:
+        if name in values and values[name] != getattr(current, name):
+            field = LeaveSettings._meta.get_field(name)
+            text = lambda value: days_label(Decimal(str(value)))  # noqa: E731 - "2", "1,5" (entier ou décimal)
+            changes.append({"field": name, "label": str(field.verbose_name),
+                            "old": text(getattr(current, name)), "new": text(values[name])})
+            setattr(current, name, values[name])
+    if changes:
+        current.save()
+        LeaveSettingsChange.objects.create(changed_by=user, changes=changes)
+    return current
 
 
 def leave_title(leave):

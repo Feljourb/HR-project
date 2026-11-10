@@ -13,7 +13,8 @@ from .models import LeaveType, PublicHoliday
 from .recount import holiday_changed
 from .serializers import HolidayListSerializer
 from .views import (
-    AbsenceViewSet, BalanceViewSet, LeaveDocumentView, LeaveTypeViewSet, MyLeaveViewSet, PublicHolidayViewSet, RecountViewSet,
+    AbsenceViewSet, BalanceViewSet, LeaveDocumentView, LeaveSettingsView, LeaveTypeViewSet, MyLeaveViewSet,
+    PublicHolidayViewSet, RecountViewSet,
     TeamCalendarView, TeamMonthView, ensure_coming_years,
 )
 
@@ -87,4 +88,6 @@ urlpatterns = [
     path("team-calendar/month/", TeamMonthView.as_view(), name="team-month"),
     # P2 step 4 : le justificatif d'un congé (le collaborateur et les RH) : "leaves:leave-document".
     path("documents/<int:leave_id>/", LeaveDocumentView.as_view(), name="leave-document"),
+    # Les réglages des congés (Admin RH, page Reference lists) : "leaves:settings".
+    path("settings/", LeaveSettingsView.as_view(), name="settings"),
 ]

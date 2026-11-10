@@ -127,6 +127,26 @@ class LeaveSettings(models.Model):
         return settings
 
 
+class LeaveSettingsChange(models.Model):
+    """L'historique des réglages des congés (2026-11-10) : qui a changé quoi, et quand. Ces réglages changent le solde
+    de TOUS les collaborateurs (il est recalculé) : en cas d'erreur, on sait ce qui a changé et on peut revenir en
+    arrière. Ex. changes = [{"field": "max_days_per_year", "label": "Maximum par an (jours)", "old": "36", "new": "30"}].
+    Jamais modifiée ni supprimée."""
+
+    changed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name="+", verbose_name="Changé par")
+    changed_at = models.DateTimeField("Le", auto_now_add=True)
+    changes = models.JSONField("Changements", default=list)
+
+    class Meta:
+        ordering = ["-changed_at", "-id"]
+        verbose_name = "Changement des réglages des congés"
+        verbose_name_plural = "Changements des réglages des congés"
+
+    def __str__(self):
+        return f"{self.changed_at:%d/%m/%Y %H:%M} ({self.changed_by})"
+
+
 MAX_DOCUMENT_SIZE = 5 * 1024 * 1024  # 5 Mo : une photo de téléphone ou un PDF scanné (comme les notes de frais)
 
 

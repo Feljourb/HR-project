@@ -27,7 +27,7 @@ from rest_framework.parsers import MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from accounts.permissions import IsHR
+from accounts.permissions import IsHR, IsHRAdmin
 from employees.models import Employee
 from employees.services import limited_to_own_pole, user_pole
 from workflows import engine
@@ -39,15 +39,17 @@ from .balance import balance, balance_by_year, yearly_right
 from .counting import day_values
 from .holidays import ensure_year
 from .models import (
-    AnnualRightChange, BalanceAdjustment, LeaveRecount, LeaveRequest, LeaveSettings, LeaveType, PublicHoliday,
+    AnnualRightChange, BalanceAdjustment, LeaveRecount, LeaveRequest, LeaveSettings, LeaveSettingsChange, LeaveType,
+    PublicHoliday,
 )
 from .serializers import (
     AbsenceSerializer, AdjustmentInputSerializer, AdjustmentSerializer, LeaveInputSerializer, LeaveRequestSerializer,
+    LeaveSettingsChangeSerializer, LeaveSettingsSerializer,
     LeaveTypeSerializer, PublicHolidaySerializer, RecountSerializer, RightChangeInputSerializer, RightChangeSerializer,
 )
 from .services import (
     add_adjustment, attach_document, can_manage_balance, can_open_document, cancel_leave, change_annual_right,
-    preview_leave, record_leave, request_leave,
+    preview_leave, record_leave, request_leave, save_settings,
 )
 
 
@@ -249,6 +251,29 @@ class BalanceViewSet(viewsets.GenericViewSet):
             pole = user_pole(user)
             employees = employees.filter(department__direction__entity__pole=pole) if pole else employees.none()
         return employees.values("pk")
+
+
+class LeaveSettingsView(APIView):
+    """Les réglages des congés (2026-11-10), page Reference lists -> "Leave settings" : SEULEMENT Admin RH (et l'IT).
+    Ce sont les règles de l'entreprise (les RH en sont responsables, pas l'IT), mais elles changent le solde de TOUS les
+    collaborateurs : des limites (serializer), un avertissement dans la page, et l'historique de chaque changement.
+    GET   /api/leaves/settings/ -> {"settings": {...}, "history": [les 20 derniers changements]}
+    PATCH /api/leaves/settings/ -> les nouvelles valeurs ; répond comme GET."""
+
+    permission_classes = [IsHRAdmin]
+
+    def get(self, request):
+        current = LeaveSettings.load()
+        return Response({
+            "settings": LeaveSettingsSerializer(current).data,
+            "history": LeaveSettingsChangeSerializer(LeaveSettingsChange.objects.select_related("changed_by")[:20], many=True).data,
+        })
+
+    def patch(self, request):
+        data = LeaveSettingsSerializer(LeaveSettings.load(), data=request.data, partial=True)
+        data.is_valid(raise_exception=True)
+        save_settings(data.validated_data, request.user)
+        return self.get(request)
 
 
 class LeaveDocumentView(APIView):

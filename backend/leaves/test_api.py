@@ -421,6 +421,25 @@ class HrLeaveApiTests(EngineTestCase):
         refresh_for(omar.user)
         self.assertFalse(Notification.objects.filter(recipient=omar.user, kind="EXPIRING").exists())
 
+    def test_admin_rh_changes_the_leave_settings_with_history(self):
+        # 2026-11-10 : les règles du solde, par Admin RH (pas un RH, pas un collaborateur), avec des limites et l'historique.
+        settings_url = url("settings")
+        self.as_role(self.nadia, User.Role.HR)
+        self.assertEqual(self.client.get(settings_url).status_code, 403)
+        self.as_role(self.nadia, User.Role.HR_ADMIN)
+        data = self.client.get(settings_url).json()
+        self.assertEqual((data["settings"]["carry_over_years"], data["settings"]["max_days_per_year"]), (2, 36))
+        # Une faute de frappe : refusée (0 an, 100 jours par an).
+        self.assertEqual(self.client.patch(settings_url, {"carry_over_years": 0}, format="json").status_code, 400)
+        self.assertEqual(self.client.patch(settings_url, {"max_days_per_year": 100}, format="json").status_code, 400)
+        # 36 -> 30 : enregistré, avec la ligne d'historique (qui, avant, après).
+        data = self.client.patch(settings_url, {"max_days_per_year": 30}, format="json").json()
+        self.assertEqual(data["settings"]["max_days_per_year"], 30)
+        change = data["history"][0]
+        self.assertEqual((change["changed_by"], change["changes"][0]["old"], change["changes"][0]["new"]), ("nadia.rh", "36", "30"))
+        # Rien de changé : pas de nouvelle ligne.
+        self.assertEqual(len(self.client.patch(settings_url, {"max_days_per_year": 30}, format="json").json()["history"]), 1)
+
     def test_admin_rh_sees_both_poles_and_the_period_filters(self):
         self.as_role(self.nadia, User.Role.HR_ADMIN)
         self.assertEqual(len(self.absences().json()), 2)

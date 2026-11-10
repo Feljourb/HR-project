@@ -38,7 +38,7 @@ export type ListConfig = {
   headFilter?: 'direction' | 'department'
   extra?: ExtraField[]  // des champs en plus du nom
   byDate?: boolean      // trier par date (jours fériés), pas par nom
-  panel?: 'holidays'    // une page à part (jours fériés : année par année, onglets fixes / variables)
+  panel?: 'holidays' | 'settings'  // une page à part (jours fériés : année par année ; réglages des congés)
 }
 
 // Les listes du module Congés (adresse /api/leaves/lists/...).
@@ -62,6 +62,8 @@ export const LEAVE_LISTS: ListConfig[] = [
     { name: 'date', label: 'Date', type: 'date', required: true },
     { name: 'estimated', label: 'Estimated (to confirm)', type: 'checkbox' },
   ] },
+  // Les règles du solde (2 ans, max 36, ancienneté, 6 mois) : Admin RH, avec avertissement et historique.
+  { name: 'leave-settings', title: 'Réglages des congés', singular: 'Réglage', panel: 'settings' },
 ]
 
 // La liste du module Notes de frais (adresse /api/expenses/lists/...). Le barème par grade : page Expense claims.

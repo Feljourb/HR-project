@@ -4,9 +4,11 @@ from django.db import transaction
 from employees.admin import ReferenceAdmin
 
 from .models import (
-    AnnualRightChange, BalanceAdjustment, LeaveRecount, LeaveRequest, LeaveSettings, LeaveType, PublicHoliday,
+    AnnualRightChange, BalanceAdjustment, LeaveRecount, LeaveRequest, LeaveSettings, LeaveSettingsChange, LeaveType,
+    PublicHoliday,
 )
 from .recount import holiday_changed
+from .services import SETTINGS_FIELDS, save_settings
 
 
 @admin.register(LeaveType)
@@ -41,9 +43,26 @@ class LeaveSettingsAdmin(admin.ModelAdmin):
         ("Ancienneté et maximum", {"fields": ("seniority_years", "seniority_bonus", "max_days_per_year")}),
     )
 
+    # Comme la page Reference lists : chaque changement est noté dans l'historique (LeaveSettingsChange).
+    def save_model(self, request, obj, form, change):
+        save_settings({name: getattr(obj, name) for name in SETTINGS_FIELDS}, request.user)
+
     # Une seule ligne : on la modifie, on ne l'ajoute pas deux fois et on ne la supprime jamais.
     def has_add_permission(self, request):
         return not LeaveSettings.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(LeaveSettingsChange)
+class LeaveSettingsChangeAdmin(admin.ModelAdmin):
+    """L'historique des réglages des congés, en lecture seule."""
+    list_display = ("changed_at", "changed_by", "changes")
+    readonly_fields = list_display
+
+    def has_add_permission(self, request):
+        return False
 
     def has_delete_permission(self, request, obj=None):
         return False
