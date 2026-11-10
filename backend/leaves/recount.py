@@ -84,7 +84,7 @@ def holiday_changed(holiday, before=None, user=None):
     for leave in leaves:
         # Un congé en jours CALENDAIRES (ex. maternité) compte déjà les fériés : son total ne change pas.
         new_days = count_days(leave.start_date, leave.end_date, leave.starts_afternoon, leave.ends_noon,
-                              calendar=leave.leave_type.in_calendar_days)
+                              calendar=leave.leave_type.in_calendar_days, full_saturday=leave.employee.works_full_saturday)
         if new_days == leave.days:
             continue  # ex. l'Aïd déplacé du 20 au 21, les deux DANS le congé : même total
         old_days, leave.days = leave.days, new_days

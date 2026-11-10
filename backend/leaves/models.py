@@ -232,7 +232,8 @@ class LeaveRequest(models.Model):
                                                  f"(à partir du {earliest:%d/%m/%Y}). Demandez aux RH."})
         # Règle 3 : au moins une demi-journée (ex. un dimanche seul, ou un jour férié seul : 0 jour).
         self.days = count_days(self.start_date, self.end_date, self.starts_afternoon, self.ends_noon,
-                               calendar=self.leave_type.in_calendar_days)
+                               calendar=self.leave_type.in_calendar_days,
+                               full_saturday=bool(self.employee_id) and self.employee.works_full_saturday)
         if self.days <= 0:
             raise ValidationError("Ces dates ne comptent aucun jour de congé (week-end ou jour férié).")
         # Règle 4 : le maximum légal du type (ex. mariage du salarié : 4 jours).

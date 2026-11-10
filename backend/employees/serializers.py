@@ -211,6 +211,12 @@ class EmployeeSerializer(serializers.ModelSerializer):
             if not can_change_role(user, self.instance.user, role):
                 raise serializers.ValidationError({"role": "Vous ne pouvez pas donner ce rôle à ce compte."})
 
+        # 3b. Le samedi dans les congés : une fiche créée SANS ce choix (ex. par l'API) le reçoit de sa catégorie :
+        #     Ouvrier -> journée entière (il travaille tout le samedi), sinon ½ journée. Le formulaire, lui, l'envoie.
+        if self.instance is None and "saturday_work" not in self.initial_data and attrs.get("category"):
+            if attrs["category"].name.lower() == "ouvrier":
+                attrs["saturday_work"] = Employee.SaturdayWork.FULL
+
         # 4. Le droit annuel de congé : saisi à la CRÉATION (valable depuis l'embauche). Ensuite il change
         #    seulement avec une date d'effet (page Leave balances, leaves.AnnualRightChange) : changé ici, il
         #    serait recompté jusqu'à l'embauche (des jours donnés en trop pour les années d'avant).

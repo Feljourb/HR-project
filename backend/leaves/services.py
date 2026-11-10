@@ -32,7 +32,8 @@ def preview_leave(employee, leave_type, start_date, end_date, starts_afternoon=F
     if end_date >= start_date:
         names = dict(PublicHoliday.objects.filter(date__range=(start_date, end_date), is_active=True).values_list("date", "name"))
         detail = [{"date": day, "days": value, "holiday": names.get(day)}
-                  for day, value in day_values(start_date, end_date, starts_afternoon, ends_noon, leave_type.in_calendar_days)]
+                  for day, value in day_values(start_date, end_date, starts_afternoon, ends_noon, leave_type.in_calendar_days,
+                                               employee.works_full_saturday)]
     days = sum((line["days"] for line in detail), ZERO)
 
     current = balance(employee)

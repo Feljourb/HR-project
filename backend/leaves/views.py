@@ -458,7 +458,8 @@ class AbsenceViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         # Toujours les absences seulement : un congé refusé ou annulé n'éloigne personne du bureau.
         for leave in self.get_queryset().filter(request__status__in=LeaveRequest.ACTIVE):
             in_period = sum(value for day, value in day_values(leave.start_date, leave.end_date, leave.starts_afternoon,
-                                                               leave.ends_noon, leave.leave_type.in_calendar_days)
+                                                               leave.ends_noon, leave.leave_type.in_calendar_days,
+                                                               leave.employee.works_full_saturday)
                             if start <= day <= end)
             approved = leave.request.status == Request.Status.APPROVED
             days["approved" if approved else "pending"] += in_period

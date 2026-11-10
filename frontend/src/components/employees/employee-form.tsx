@@ -38,6 +38,7 @@ const EMPTY: Values = {
   country: 'Maroc',
   status: 'ACTIVE',
   annual_leave_days: '18',  // le congé annuel légal au Maroc
+  saturday_work: 'HALF',    // le samedi compte ½ journée dans un congé (bureau) ; Ouvrier -> journée entière
 }
 
 /** "El Idrissi" -> "el-idrissi" (comme clean_name dans Django : sans accents, en minuscules, tirets entre les mots).
@@ -73,6 +74,8 @@ const TEXT_FIELDS = new Set<FormField>([
   'emergency_contact_name', 'emergency_contact_relationship', 'emergency_contact_phone',
 ])
 const STATUS_OPTIONS = toOptions(STATUS_LABELS)
+// Le samedi dans le décompte des congés (Employee.saturday_work).
+const SATURDAY_OPTIONS = [{ id: 'HALF', name: 'Half day (office)' }, { id: 'FULL', name: 'Full day (works the whole Saturday)' }]
 
 // Le rôle du compte créé : chacun donne des rôles EN DESSOUS du sien (Django vérifie aussi).
 // RH : Collaborateur, Manager. Admin RH : + RH. IT : + Admin RH.
@@ -243,6 +246,14 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
     setValues((current) => ({ ...current, [name]: value }))
     setErrors((current) => ({ ...current, [name]: [] }))
     setSavedMessage('')
+  }
+
+  // La catégorie propose le samedi des congés : Ouvrier -> journée entière (il travaille tout le samedi à l'usine),
+  // sinon ½ journée. Les RH peuvent ensuite le changer pour une exception.
+  function chooseCategory(value: string) {
+    set('category', value)
+    const name = categories.items.find((item) => String(item.id) === value)?.name ?? ''
+    set('saturday_work', name.toLowerCase() === 'ouvrier' ? 'FULL' : 'HALF')
   }
 
   // La cascade : changer un niveau vide les niveaux en dessous.
@@ -482,8 +493,12 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
         onAdd={adder(contractTypes, (v) => set('contract_type', v), { list: 'contract-types', title: 'Type de contrat' })} />
       {isInterim && <SelectField id="temp_agency" label="Temp agency" required value={values.temp_agency} onChange={(v) => set('temp_agency', v)} options={tempAgencies.items} error={error('temp_agency')}
         onAdd={adder(tempAgencies, (v) => set('temp_agency', v), { list: 'temp-agencies', title: "Agence d'intérim" })} />}
-      <SelectField id="category" label="Category" required value={values.category} onChange={(v) => set('category', v)} options={categories.items} error={error('category')}
-        onAdd={adder(categories, (v) => set('category', v), { list: 'categories', title: 'Catégorie' })} />
+      <SelectField id="category" label="Category" required value={values.category} onChange={(v) => chooseCategory(v)} options={categories.items} error={error('category')}
+        onAdd={adder(categories, (v) => chooseCategory(v), { list: 'categories', title: 'Catégorie' })} />
+      {/* Le samedi dans les congés : rempli tout seul avec la catégorie (Ouvrier -> journée entière), modifiable. */}
+      <SelectField id="saturday_work" label="Saturday (leave counting)" required value={values.saturday_work} onChange={(v) => set('saturday_work', v)}
+        options={SATURDAY_OPTIONS} error={error('saturday_work')}
+        hint="Office: Saturday counts ½ day in a leave. A factory worker who works the whole Saturday: a full day." />
       {/* Obligatoire : le barème des notes de frais (plafonds indemnité / transport / hôtel) dépend du grade. */}
       <SelectField id="grade" label="Grade" required value={values.grade} onChange={(v) => set('grade', v)} options={grades.items}
         placeholder="Choose a grade" hint="Sets the expense ceilings." error={error('grade')}

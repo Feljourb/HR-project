@@ -227,6 +227,13 @@ class RequestLeaveTests(EngineTestCase):
         # Exceptionnel (mariage) : 7 jours.
         request_leave(self.sara, self.wedding, october(27), october(27))
 
+    def test_a_factory_worker_counts_the_whole_saturday(self):
+        # 2026-11-10 : Sara du lundi 23 au samedi 28/11. Au bureau : 5 + samedi ½ = 5,5. Ouvrière : 5 + samedi 1 = 6.
+        self.assertEqual(self.ask(23, 28).days, Decimal("5.5"))
+        Employee.objects.filter(pk=self.youssef.pk).update(saturday_work="FULL")
+        youssef = Employee.objects.get(pk=self.youssef.pk)
+        self.assertEqual(request_leave(youssef, self.annual, nov(23), nov(28)).days, 6)
+
     def test_maternity_counts_calendar_days(self):
         # P2 step 3 : 14 semaines = 98 jours CALENDAIRES (dimanches et fériés compris), pas pris sur le solde.
         maternity = LeaveType.objects.get(name="Congé de maternité")

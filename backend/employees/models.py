@@ -359,6 +359,16 @@ class Employee(models.Model):
         validators=[MinValueValidator(Decimal("0"))],
     )
 
+    class SaturdayWork(models.TextChoices):
+        HALF = "HALF", "½ journée"
+        FULL = "FULL", "Journée entière"
+
+    # Le samedi dans le décompte des congés (2026-11-10) : le bureau compte ½ journée (règle de l'entreprise) ;
+    # un ouvrier de l'usine qui travaille tout le samedi compte une journée entière. Rempli tout seul à la création
+    # (Ouvrier -> journée entière), les RH le changent pour une exception (voir leaves/counting.py).
+    saturday_work = models.CharField("Samedi (décompte des congés)", max_length=4, choices=SaturdayWork.choices,
+                                     default=SaturdayWork.HALF)
+
     class Meta:
         verbose_name = "Collaborateur"
         ordering = ["last_name", "first_name"]
@@ -382,6 +392,11 @@ class Employee(models.Model):
     # --- Valeurs calculées (jamais stockées) ---------------------------------
     # @property : on écrit ahmed.pole comme un champ, mais la valeur est
     # recalculée à chaque fois en remontant : service -> direction -> entité -> pôle.
+
+    @property
+    def works_full_saturday(self):
+        """Le samedi compte une journée entière dans ses congés (ex. un ouvrier de l'usine)."""
+        return self.saturday_work == self.SaturdayWork.FULL
 
     @property
     def direction(self):
