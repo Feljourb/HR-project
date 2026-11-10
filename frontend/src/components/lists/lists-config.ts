@@ -6,13 +6,13 @@ import type { ReferenceItem } from '@/lib/employees'
 // + le responsable pour les directions et les services, + les champs des listes du module Congés).
 export type ListValue = ReferenceItem & {
   code?: string; head?: number | null; head_label?: string | null
-  deducts_balance?: boolean; max_days?: string | null; max_days_back?: number; date?: string; estimated?: boolean; fixed?: boolean
+  deducts_balance?: boolean; max_days?: string | null; max_days_back?: number; counting?: string; document_from_days?: number | null; date?: string; estimated?: boolean; fixed?: boolean
   ceiling?: string; receipt_required?: boolean
 }
 
 // Un champ en plus du nom (listes des modules Congés et Notes de frais) : affiché en colonne, modifiable avec le nom.
 export type ExtraField = {
-  name: 'deducts_balance' | 'max_days' | 'max_days_back' | 'date' | 'estimated' | 'ceiling' | 'receipt_required'
+  name: 'deducts_balance' | 'max_days' | 'max_days_back' | 'counting' | 'document_from_days' | 'date' | 'estimated' | 'ceiling' | 'receipt_required'
   label: string
   type: 'checkbox' | 'number' | 'date' | 'select'
   required?: boolean
@@ -48,6 +48,13 @@ export const LEAVE_LISTS: ListConfig[] = [
     { name: 'max_days', label: 'Legal maximum (days)', type: 'number' },
     // P1 step 4 : jusqu'où dans le passé le collaborateur peut commencer ce congé (0 = seulement à partir d'aujourd'hui).
     { name: 'max_days_back', label: 'Days in the past allowed', type: 'number', required: true, min: 0, step: 1, placeholder: '0' },
+    // P2 step 3 : jours ouvrables (le cas normal) ou calendaires (chaque jour compte, ex. maternité 98 jours).
+    { name: 'counting', label: 'Counting', type: 'select', required: true, options: [
+      { id: 'WORKING', name: 'Working days' },
+      { id: 'CALENDAR', name: 'Calendar days' },
+    ] },
+    // P2 step 4 : un justificatif (certificat...) demandé à partir de N jours ; vide = jamais (maladie, maternité : 1).
+    { name: 'document_from_days', label: 'Document from (days)', type: 'number', min: 1, step: 1, placeholder: 'Never' },
   ] },
   // Créés tout seuls chaque année (backend leaves/holidays.py) ; chaque année garde SES lignes (jamais remplacées).
   // Page à part (holidays-panel.tsx) : une année à la fois, onglets "fixes" / "variables" (décision du 2026-11-03).

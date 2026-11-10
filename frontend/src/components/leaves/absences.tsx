@@ -194,6 +194,11 @@ export function Absences() {
                           {toCheck && <span title={toCheck} className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
                             <AlertTriangle className="size-3" aria-hidden /> To check<span className="sr-only">: {toCheck}</span>
                           </span>}
+                          {/* P2 step 4 : un certificat demandé mais pas encore reçu (les RH relancent le collaborateur). */}
+                          {row.document_required && !row.has_document && matchesStatus(row.status, 'active') &&
+                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
+                              <AlertTriangle className="size-3" aria-hidden /> Document missing
+                            </span>}
                         </div>
                       </td>
                       {/* L'historique de la demande : chaque étape, qui a répondu, quand, et le commentaire. */}

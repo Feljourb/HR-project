@@ -9,7 +9,7 @@
  * La grille est partagée avec la page "Team calendar" (components/leaves/absence-grid.tsx).
  */
 import { useEffect, useState } from 'react'
-import { AlertTriangle, UsersRound } from 'lucide-react'
+import { AlertTriangle, Paperclip, UsersRound } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 import { formatDate } from '@/lib/leaves'
 import { AbsenceGrid, GridLegend, weekday, type GridBusy, type GridDay, type GridPerson } from '@/components/leaves/absence-grid'
@@ -22,6 +22,7 @@ type Calendar = {
   days: GridDay[]
   people: GridPerson[]
   busy: GridBusy[]
+  document: { required: boolean; received: boolean }  // P2 step 4 : le N+1 voit seulement reçu / manquant
 }
 
 export function TeamCalendar({ requestId }: { requestId: number }) {
@@ -45,6 +46,10 @@ export function TeamCalendar({ requestId }: { requestId: number }) {
       <UsersRound className="size-3.5 text-slate-400" aria-hidden />
       <p className="text-xs font-semibold text-[#192646]">Team of {calendar.department}</p>
       <p className="text-[11px] text-slate-500">· {formatDate(calendar.start)} → {formatDate(calendar.end)}{calendar.cut && ' (first month)'}</p>
+      {/* P2 step 4 : le certificat, reçu ou manquant (le N+1 ne l'ouvre pas : une donnée de santé, pour les RH). */}
+      {calendar.document.required && (calendar.document.received
+        ? <span className="flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700"><Paperclip className="size-3" aria-hidden />Document received</span>
+        : <span className="flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700"><AlertTriangle className="size-3" aria-hidden />Document missing</span>)}
       <div className="ml-auto"><GridLegend withThis /></div>
     </div>
     <div className="px-3 py-2"><AbsenceGrid days={calendar.days} people={calendar.people} busy={calendar.busy} compact /></div>

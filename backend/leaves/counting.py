@@ -25,20 +25,26 @@ def holiday_dates(start, end):
     return set(PublicHoliday.objects.filter(date__range=(start, end), is_active=True).values_list("date", flat=True))
 
 
-def day_values(start, end, starts_afternoon=False, ends_noon=False):
+def day_values(start, end, starts_afternoon=False, ends_noon=False, calendar=False):
     """Le détail, jour par jour : [(date, prix), ...]. Sert au total, et à l'écran pour expliquer le total.
 
     starts_afternoon : le congé commence l'après-midi (le MATIN du premier jour n'est pas pris) ;
     ends_noon        : il finit à midi (l'APRÈS-MIDI du dernier jour n'est pas pris).
-    Ex. samedi après-midi : le samedi vaut 0 (son 0,5, c'est le matin)."""
+    Ex. samedi après-midi : le samedi vaut 0 (son 0,5, c'est le matin).
+    calendar (P2 step 3) : un type compté en jours CALENDAIRES (ex. maternité) : chaque jour vaut 1,
+    même le samedi, le dimanche et les fériés."""
     if end < start:
         raise ValueError("La date de fin est avant la date de début.")
-    holidays = holiday_dates(start, end)  # une seule requête SQL pour toute la période
+    # Jours calendaires : les fériés ne changent rien (pas besoin de les lire).
+    holidays = set() if calendar else holiday_dates(start, end)  # une seule requête SQL pour toute la période
 
     values = []
     day = start
     while day <= end:
-        morning, afternoon = (ZERO, ZERO) if day in holidays else HALVES[day.weekday()]
+        if calendar:
+            morning, afternoon = HALF, HALF
+        else:
+            morning, afternoon = (ZERO, ZERO) if day in holidays else HALVES[day.weekday()]
         if day == start and starts_afternoon:
             morning = ZERO
         if day == end and ends_noon:
@@ -48,9 +54,9 @@ def day_values(start, end, starts_afternoon=False, ends_noon=False):
     return values
 
 
-def count_days(start, end, starts_afternoon=False, ends_noon=False):
-    """Le nombre de jours du congé (ex. Decimal("2.5"))."""
-    return sum((value for _, value in day_values(start, end, starts_afternoon, ends_noon)), ZERO)
+def count_days(start, end, starts_afternoon=False, ends_noon=False, calendar=False):
+    """Le nombre de jours du congé (ex. Decimal("2.5")). calendar : jours calendaires (voir day_values)."""
+    return sum((value for _, value in day_values(start, end, starts_afternoon, ends_noon, calendar)), ZERO)
 
 
 def days_label(value):

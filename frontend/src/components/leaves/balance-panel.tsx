@@ -14,6 +14,7 @@ import { apiFetch } from '@/lib/api'
 import { formatDate, formatDays, isoDate, type BalanceDetail, type LeaveType, type YearPool } from '@/lib/leaves'
 import { cn } from '@/lib/utils'
 import { controlClass } from '@/components/employees/form-fields'
+import { LeaveDocument } from './leave-document'
 import { CancelApprovedButton } from './my-leaves'
 
 const BADGE: Record<string, string> = {
@@ -389,6 +390,11 @@ function RecordLeaveForm({ detail, onClose, onSaved }: {
 // P1 step 4b : "Record a leave" : les RH enregistrent un congé pour lui (même dans le passé), déjà accepté.
 function LeavesCard({ detail, onSaved }: { detail: BalanceDetail; onSaved: (detail: BalanceDetail) => void }) {
   const [open, setOpen] = useState(false)
+  // Après un certificat envoyé : le panneau est relu (le congé dit maintenant "reçu").
+  async function refresh() {
+    const response = await apiFetch(`/api/leaves/balances/${detail.employee_id}/`).catch(() => null)
+    if (response?.ok) onSaved(await response.json())
+  }
   return <section className={cardClass}>
     <header className="flex flex-wrap items-start gap-3 border-b border-slate-100 px-4 py-3">
       <div className="min-w-0 flex-1">
@@ -409,6 +415,8 @@ function LeavesCard({ detail, onSaved }: { detail: BalanceDetail; onSaved: (deta
               <Link href={`/requests/${leave.request}`} className="font-semibold text-[#192646] hover:underline">{leave.leave_type_label}</Link>
               <p className="text-slate-500">{formatDate(leave.start_date)} → {formatDate(leave.end_date)} · {formatDays(leave.days)}</p>
               {leave.recorded_by && <p className="text-[11px] text-slate-400">Recorded by HR ({leave.recorded_by})</p>}
+              {/* P2 step 4 : les RH ouvrent le certificat, ou l'ajoutent (ex. reçu sur papier, scanné). */}
+              <LeaveDocument leave={leave} onChanged={refresh} />
             </div>
             <div className="flex flex-col items-end gap-1">
               <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold', BADGE[leave.status])}>{leave.status_label}</span>

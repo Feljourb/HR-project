@@ -1,12 +1,15 @@
 /*
  * Les congés, comme Django les envoie (/api/leaves/...).
  */
+import { apiFetch } from './api'
 
 export type LeaveType = {
   id: number
   name: string
   deducts_balance: boolean   // true : pris sur le solde (congé annuel)
   max_days: number | null    // le maximum légal (ex. mariage : 4), null : pas de maximum
+  counting: 'WORKING' | 'CALENDAR'  // P2 step 3 : jours ouvrables, ou calendaires (chaque jour compte, ex. maternité)
+  document_from_days: number | null  // P2 step 4 : justificatif demandé à partir de N jours (null : jamais)
 }
 
 // Un jour férié (/api/leaves/holidays/). estimated : fête religieuse calculée, la date peut bouger d'un jour.
@@ -44,6 +47,24 @@ export type Leave = {
   created_at: string
   recounts: Recount[]        // vide la plupart du temps : les recalculs après un changement de jour férié
   recorded_by: string | null // le RH qui l'a enregistré pour le collaborateur (P1 step 4b), ou null
+  document_required: boolean // P2 step 4 : un justificatif (certificat médical...) est demandé
+  has_document: boolean
+  document_name: string
+}
+
+/** P2 step 4 : envoie le justificatif d'un congé (multipart). Renvoie '' si c'est bon, sinon le message de Django. */
+export async function uploadDocument(leaveId: number, file: File): Promise<string> {
+  const body = new FormData()
+  body.append('document', file)
+  try {
+    const response = await apiFetch(`/api/leaves/documents/${leaveId}/`, { method: 'POST', body })
+    if (response.ok) return ''
+    const data = await response.json().catch(() => ({}))
+    const first = data.detail ?? Object.values(data)[0]
+    return Array.isArray(first) ? String(first[0]) : String(first ?? 'Could not send the document.')
+  } catch {
+    return 'Cannot reach the server. Please try again later.'
+  }
 }
 
 // Un recalcul (backend leaves/recount.py) : un jour férié a changé, le congé a été recompté.

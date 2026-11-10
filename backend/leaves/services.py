@@ -32,7 +32,7 @@ def preview_leave(employee, leave_type, start_date, end_date, starts_afternoon=F
     if end_date >= start_date:
         names = dict(PublicHoliday.objects.filter(date__range=(start_date, end_date), is_active=True).values_list("date", "name"))
         detail = [{"date": day, "days": value, "holiday": names.get(day)}
-                  for day, value in day_values(start_date, end_date, starts_afternoon, ends_noon)]
+                  for day, value in day_values(start_date, end_date, starts_afternoon, ends_noon, leave_type.in_calendar_days)]
     days = sum((line["days"] for line in detail), ZERO)
 
     current = balance(employee)
@@ -172,6 +172,32 @@ def cancel_leave(leave, user, reason):
     if leave.start_date <= timezone.localdate():
         raise ValidationError("Ce congé a déjà commencé : il ne peut plus être annulé (les RH peuvent corriger le solde).")
     engine.cancel_approved(leave.request, user, reason)
+    return leave
+
+
+def can_open_document(user, leave):
+    """P2 step 4 : qui ouvre / envoie le justificatif d'un congé : le collaborateur lui-même, et les RH de son pôle
+    (Admin RH, IT). PAS le N+1 : un certificat médical est une donnée de santé (il voit seulement reçu / manquant)."""
+    return user.pk == leave.employee.user_id or can_manage_balance(user, leave.employee)
+
+
+@transaction.atomic
+def attach_document(leave, file, user):
+    """P2 step 4 : joindre (ou remplacer) le justificatif d'un congé, avec la demande ou plus tard (ex. le certificat
+    arrive le lendemain). Un congé refusé ou annulé n'en a plus besoin."""
+    from django.utils import timezone
+
+    from workflows.models import Request
+
+    if not can_open_document(user, leave):
+        raise PermissionDenied("Seuls le collaborateur et les RH de son pôle envoient ce justificatif.")
+    if leave.request.status not in (Request.Status.IN_PROGRESS, Request.Status.APPROVED):
+        raise ValidationError("Ce congé est refusé ou annulé : pas de justificatif à envoyer.")
+    leave.document, leave.document_name, leave.document_at = file, file.name[:200], timezone.now()
+    # Seulement les règles du FICHIER (pdf / jpg / png, 5 Mo) : pas celles du congé (déjà vérifié à l'envoi ;
+    # ex. une maladie d'hier serait refusée aujourd'hui par la règle "dans le passé").
+    leave.clean_fields(exclude=[field.name for field in LeaveRequest._meta.fields if field.name != "document"])
+    leave.save(update_fields=["document", "document_name", "document_at"])
     return leave
 
 

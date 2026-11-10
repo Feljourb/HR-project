@@ -227,6 +227,18 @@ class RequestLeaveTests(EngineTestCase):
         # Exceptionnel (mariage) : 7 jours.
         request_leave(self.sara, self.wedding, october(27), october(27))
 
+    def test_maternity_counts_calendar_days(self):
+        # P2 step 3 : 14 semaines = 98 jours CALENDAIRES (dimanches et fériés compris), pas pris sur le solde.
+        maternity = LeaveType.objects.get(name="Congé de maternité")
+        leave = request_leave(self.sara, maternity, nov(9), nov(9) + datetime.timedelta(days=97))
+        self.assertEqual(leave.days, 98)  # du 09/11/2026 au 14/02/2027 : dimanches et fériés compris
+        with self.assertRaises(ValidationError) as error:
+            request_leave(self.sara, maternity, datetime.date(2027, 3, 1), datetime.date(2027, 6, 30))  # 122 jours
+        self.assertIn("98 jour(s) au maximum", " ".join(error.exception.messages))
+        # Un jour férié qui change ne recompte pas un congé en jours calendaires.
+        from .recount import holiday_changed
+        self.assertEqual(holiday_changed(PublicHoliday.objects.create(name="Test", date=nov(10)), None), [])
+
     def test_the_legal_maximum_of_the_type(self):
         self.ask(23, 26, leave_type=self.wedding)  # 4 jours : permis
         message = self.error_of(9, 13, leave_type=self.wedding)  # 5 jours
@@ -285,6 +297,7 @@ class BalanceTests(EngineTestCase):
     une tirelire par année, valable 2 ans ; - pris - en attente."""
 
     def setUp(self):
+        freeze_today(self)  # "aujourd'hui" = 02/11/2026 : les congés de novembre restent dans le futur
         super().setUp()
         self.settings = LeaveSettings.load()
         self.annual = LeaveType.objects.get(name="Congé annuel")

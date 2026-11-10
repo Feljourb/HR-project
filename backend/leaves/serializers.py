@@ -17,7 +17,8 @@ class LeaveTypeSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = LeaveType
-        fields = ["id", "name", "deducts_balance", "max_days"]
+        # counting : WORKING / CALENDAR (P2 step 3) ; document_from_days : justificatif à partir de N jours (P2 step 4).
+        fields = ["id", "name", "deducts_balance", "max_days", "counting", "document_from_days"]
 
 
 class PublicHolidaySerializer(serializers.ModelSerializer):
@@ -121,6 +122,12 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
     leave_type_label = serializers.StringRelatedField(source="leave_type")
     recounts = RecountSerializer(many=True, read_only=True)  # vide la plupart du temps
     recorded_by = serializers.StringRelatedField()  # le RH qui l'a enregistré pour le collaborateur, ou null
+    # P2 step 4 : le justificatif : demandé ? reçu ? (le fichier lui-même : /api/leaves/documents/<id>/).
+    document_required = serializers.BooleanField(read_only=True)
+    has_document = serializers.SerializerMethodField()
+
+    def get_has_document(self, leave):
+        return bool(leave.document)
     days = serializers.DecimalField(max_digits=5, decimal_places=1, coerce_to_string=False)  # 2.5, pas "2.5"
     status = serializers.CharField(source="request.status")
     status_label = serializers.CharField(source="request.get_status_display")
@@ -131,7 +138,8 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
         # request = le numéro de la demande du moteur : pour l'annuler (/api/workflows/requests/<id>/cancel/)
         # et ouvrir son historique (/requests/<id>).
         fields = ["id", "request", "leave_type", "leave_type_label", "start_date", "end_date", "starts_afternoon",
-                  "ends_noon", "days", "reason", "status", "status_label", "created_at", "recounts", "recorded_by"]
+                  "ends_noon", "days", "reason", "status", "status_label", "created_at", "recounts", "recorded_by",
+                  "document_required", "has_document", "document_name"]
         read_only_fields = fields
 
 

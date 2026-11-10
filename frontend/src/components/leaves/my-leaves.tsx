@@ -15,6 +15,7 @@ import { apiFetch } from '@/lib/api'
 import { formatDate, formatDays, isoDate, type Leave } from '@/lib/leaves'
 import { cn } from '@/lib/utils'
 import { sendChange } from '@/lib/workflows'
+import { LeaveDocument } from './leave-document'
 
 // Le statut en anglais (la page est en anglais), avec les mêmes couleurs que "My requests".
 const STATUS: Record<string, { label: string; badge: string }> = {
@@ -109,6 +110,8 @@ function LeaveLine({ leave, onCancelled }: { leave: Leave; onCancelled: () => vo
         {extras.join(' · ')}{leave.reason && <> · <span className="italic">“{leave.reason}”</span></>}
       </p>
       <RecountNote leave={leave} />
+      {/* P2 step 4 : le certificat (reçu : l'ouvrir ; manquant : l'ajouter, même après la demande). */}
+      <LeaveDocument leave={leave} onChanged={onCancelled} />
     </div>
 
     <div className="flex shrink-0 flex-col items-end gap-1">

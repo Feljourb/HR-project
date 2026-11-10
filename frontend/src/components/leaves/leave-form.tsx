@@ -9,7 +9,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { CheckCircle2, Loader2 } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
-import { formatDate, formatDays, type Leave, type LeavePreview, type LeaveType } from '@/lib/leaves'
+import { formatDate, formatDays, uploadDocument, type Leave, type LeavePreview, type LeaveType } from '@/lib/leaves'
 import { cn } from '@/lib/utils'
 import { firstMessage, sendChange } from '@/lib/workflows'
 import { Field, SelectField, TextField, controlClass } from '@/components/employees/form-fields'
@@ -33,6 +33,7 @@ export function LeaveForm({ onSent }: { onSent: () => void }) {
   const [draft, setDraft] = useState<Draft>(EMPTY)
   const [computed, setComputed] = useState<Computed | null>(null)
   const [busy, setBusy] = useState(false)
+  const [file, setFile] = useState<File | null>(null)  // P2 step 4 : le justificatif choisi (envoyé après la demande)
   const [error, setError] = useState('')
   const [sent, setSent] = useState<Leave | null>(null)
 
@@ -85,8 +86,13 @@ export function LeaveForm({ onSent }: { onSent: () => void }) {
       () => apiFetch('/api/leaves/mine/', { method: 'POST', body: JSON.stringify({ ...counted, reason }) }),
       'You cannot send this request.')
     if ('data' in result) {
+      // P2 step 4 : le justificatif choisi part juste après la demande (la demande est déjà envoyée, même s'il échoue :
+      // il pourra être ajouté depuis "My leaves").
+      const problem = file ? await uploadDocument(result.data.id, file) : ''
+      if (problem) setError(`Request sent, but the document was not: ${problem} Add it from My leaves.`)
       setSent(result.data)
       setDraft(EMPTY)
+      setFile(null)
       setComputed(null)
       onSent()  // la page relit le solde et "My leaves"
     } else {
@@ -116,6 +122,13 @@ export function LeaveForm({ onSent }: { onSent: () => void }) {
         <Check id="ends_noon" label="Ends at noon" checked={draft.ends_noon} onChange={(value) => set('ends_noon', value)} />
       </div>
 
+      {/* P2 step 4 : un type qui demande un justificatif (maladie, maternité) : le joindre maintenant, ou plus tard. */}
+      {selectedType?.document_from_days != null && <Field id="document" label="Supporting document (medical certificate, marriage / birth / death record...)" className="sm:col-span-2"
+        hint={`Required for this type${selectedType.document_from_days > 1 ? ` from ${selectedType.document_from_days} days` : ''}. PDF, JPG or PNG, 5 MB max. You can also add it later from My leaves (within 48 h). Only you and HR can open it.`}>
+        <input id="document" type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+          className={cn(controlClass, 'h-auto py-1.5 text-xs file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-2.5 file:py-1 file:text-xs file:font-semibold file:text-[#23355d]')} />
+      </Field>}
+
       <Field id="reason" label="Comment" hint="Optional, for your N+1 and HR." className="sm:col-span-2">
         <textarea id="reason" rows={2} maxLength={1000} value={draft.reason} onChange={(e) => set('reason', e.target.value)}
           className={cn(controlClass, 'h-auto py-2')} />
@@ -141,7 +154,9 @@ export function LeaveForm({ onSent }: { onSent: () => void }) {
 
 function typeHint(type: LeaveType) {
   const balance = type.deducts_balance ? 'Taken from your balance.' : 'Not taken from your balance.'
-  return type.max_days ? `${balance} Legal maximum: ${formatDays(type.max_days)}.` : balance
+  // P2 step 3 : un type en jours calendaires (ex. maternité) : chaque jour compte, même dimanche et fériés.
+  const counting = type.counting === 'CALENDAR' ? ' Counted in calendar days: every day counts, Sundays and holidays too.' : ''
+  return (type.max_days ? `${balance} Legal maximum: ${formatDays(type.max_days)}.` : balance) + counting
 }
 
 function Check({ id, label, checked, onChange }: { id: string; label: string; checked: boolean; onChange: (value: boolean) => void }) {

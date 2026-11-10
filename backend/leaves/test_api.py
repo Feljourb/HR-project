@@ -1,9 +1,12 @@
 """Tests de l'API des congés (step 6), des pages RH (step 8) et de la commande de démo (step 9)."""
 import datetime
+import shutil
+import tempfile
 from io import StringIO
 from unittest import mock
 
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.test import TestCase, override_settings
 from django.urls import reverse
@@ -21,6 +24,7 @@ from .tests import freeze_today, frozen_localdate
 from .services import request_leave
 
 User = get_user_model()
+MEDIA = tempfile.mkdtemp()  # les justificatifs des tests vont ici (effacé à la fin), pas dans media/
 
 
 def url(name):
@@ -141,6 +145,11 @@ class DemoCommandTests(TestCase):
 
 class HrLeaveApiTests(EngineTestCase):
     """Step 8 : les absences (RH) et les deux listes du module (Admin RH)."""
+
+    @classmethod
+    def tearDownClass(cls):
+        super().tearDownClass()
+        shutil.rmtree(MEDIA, ignore_errors=True)  # les justificatifs envoyés par les tests
 
     def setUp(self):
         freeze_today(self)  # voir LeaveApiTests
@@ -370,6 +379,30 @@ class HrLeaveApiTests(EngineTestCase):
         # Sara n'est le N+1 de personne : pas d'équipe.
         self.as_role(self.sara, User.Role.COLLABORATOR)
         self.assertEqual(self.client.get(url("team-month")).json()["people"], [])
+
+    @override_settings(MEDIA_ROOT=MEDIA)
+    def test_the_medical_certificate(self):
+        # P2 step 4. Sara est malade lun 02/11 (aujourd'hui) : le certificat est demandé (maladie : dès 1 jour).
+        sick = LeaveType.objects.get(name="Congé maladie")
+        leave = request_leave(self.sara, sick, datetime.date(2026, 11, 2), datetime.date(2026, 11, 3))
+        self.as_role(self.sara, User.Role.COLLABORATOR)
+        mine = next(item for item in self.client.get(url("mine-list")).json() if item["id"] == leave.pk)
+        self.assertEqual((mine["document_required"], mine["has_document"]), (True, False))
+        document = reverse("leaves:leave-document", args=[leave.pk])
+        # Un mauvais fichier : refusé ; un PDF : reçu (même après la demande).
+        bad = self.client.post(document, {"document": SimpleUploadedFile("virus.exe", b"x")}, format="multipart")
+        self.assertEqual(bad.status_code, 400)
+        good = self.client.post(document, {"document": SimpleUploadedFile("certificat.pdf", b"%PDF-1.4 test", content_type="application/pdf")}, format="multipart")
+        self.assertEqual((good.status_code, good.json()["has_document"], good.json()["document_name"]), (200, True, "certificat.pdf"))
+        self.assertEqual(self.client.get(document).status_code, 200)  # Sara l'ouvre
+        # Le N+1 : PAS le fichier (une donnée de santé), seulement "reçu" sur la carte de validation.
+        self.as_role(self.youssef, User.Role.MANAGER)
+        self.assertEqual(self.client.get(document).status_code, 404)
+        self.assertEqual(self.client.get(url("team-calendar"), {"request": leave.request_id}).json()["document"],
+                         {"required": True, "received": True})
+        # Les RH du pôle : oui.
+        self.as_role(self.nadia, User.Role.HR)
+        self.assertEqual(self.client.get(document).status_code, 200)
 
     def test_admin_rh_sees_both_poles_and_the_period_filters(self):
         self.as_role(self.nadia, User.Role.HR_ADMIN)

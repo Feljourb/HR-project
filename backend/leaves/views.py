@@ -17,11 +17,13 @@ GET/POST/PATCH /api/leaves/lists/leave-types/ et /lists/public-holidays/ -> les 
 import datetime
 
 from django.db.models import Q
+from django.http import FileResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.parsers import MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -44,7 +46,8 @@ from .serializers import (
     LeaveTypeSerializer, PublicHolidaySerializer, RecountSerializer, RightChangeInputSerializer, RightChangeSerializer,
 )
 from .services import (
-    add_adjustment, can_manage_balance, cancel_leave, change_annual_right, preview_leave, record_leave, request_leave,
+    add_adjustment, attach_document, can_manage_balance, can_open_document, cancel_leave, change_annual_right,
+    preview_leave, record_leave, request_leave,
 )
 
 
@@ -248,6 +251,36 @@ class BalanceViewSet(viewsets.GenericViewSet):
         return employees.values("pk")
 
 
+class LeaveDocumentView(APIView):
+    """P2 step 4 : le justificatif d'un congé (certificat médical...).
+    GET  /api/leaves/documents/<leave>/ -> le fichier (le collaborateur et les RH de son pôle ; PAS le N+1 : une donnée
+                                          de santé ; les autres : 404, comme si le congé n'existait pas)
+    POST /api/leaves/documents/<leave>/ -> multipart {"document": fichier} : joindre ou remplacer (avec la demande,
+                                          ou plus tard). Répond le congé à jour."""
+
+    parser_classes = [MultiPartParser]
+
+    def leave(self, request, leave_id):
+        leave = LeaveRequest.objects.select_related("employee", "leave_type", "request").filter(pk=leave_id).first()
+        if leave is None or not can_open_document(request.user, leave):
+            raise NotFound("Congé introuvable.")
+        return leave
+
+    def get(self, request, leave_id):
+        leave = self.leave(request, leave_id)
+        if not leave.document:
+            raise NotFound("Pas de justificatif pour ce congé.")
+        return FileResponse(leave.document.open("rb"), as_attachment=False, filename=leave.document_name or leave.document.name)
+
+    def post(self, request, leave_id):
+        leave = self.leave(request, leave_id)
+        file = request.FILES.get("document")
+        if file is None:
+            raise ValidationError({"document": ["Choisissez un fichier (PDF, JPG ou PNG)."]})
+        run(lambda: attach_document(leave, file, request.user))
+        return Response(LeaveRequestSerializer(LeaveRequest.objects.prefetch_related("recounts").get(pk=leave.pk)).data)
+
+
 TEAM_CALENDAR_MAX_DAYS = 31  # un congé plus long : le calendrier montre son premier mois
 
 
@@ -351,6 +384,8 @@ class TeamCalendarView(APIView):
         for member in people:
             member["is_requester"] = member["id"] == leave.employee_id
         return Response({"department": leave.employee.department.name, "start": start, "end": end,
+                         # P2 step 4 : le N+1 voit seulement si le justificatif est demandé et reçu (pas le fichier).
+                         "document": {"required": leave.document_required, "received": bool(leave.document)},
                          "cut": end < leave.end_date, "days": days, "people": people, "busy": busy})
 
 
@@ -423,7 +458,8 @@ class AbsenceViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         # Toujours les absences seulement : un congé refusé ou annulé n'éloigne personne du bureau.
         for leave in self.get_queryset().filter(request__status__in=LeaveRequest.ACTIVE):
             in_period = sum(value for day, value in day_values(leave.start_date, leave.end_date, leave.starts_afternoon,
-                                                               leave.ends_noon) if start <= day <= end)
+                                                               leave.ends_noon, leave.leave_type.in_calendar_days)
+                            if start <= day <= end)
             approved = leave.request.status == Request.Status.APPROVED
             days["approved" if approved else "pending"] += in_period
             people.add(leave.employee_id)

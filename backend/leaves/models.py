@@ -7,11 +7,13 @@ Step 3 : LeaveRequest, une demande de congé (les dates) attachée à une demand
 Step 4 : LeaveSettings, les règles du solde (ancienneté, maximum par an, jours perdus après 2 ans...).
 """
 import datetime
+import uuid
 from decimal import Decimal
+from pathlib import Path
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.core.validators import MinValueValidator
+from django.core.validators import FileExtensionValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
 
@@ -21,6 +23,13 @@ from workflows.models import Request
 
 class LeaveType(ReferenceItem):
     """Un type de congé. Comme les autres listes : jamais supprimé, seulement désactivé."""
+
+    class Counting(models.TextChoices):
+        # P2 step 3 : comment se comptent les jours de ce congé (standard) :
+        # - jours OUVRABLES : lundi-vendredi 1, samedi 0,5, dimanche et fériés 0 (congé annuel, mariage, maladie...) ;
+        # - jours CALENDAIRES : chaque jour compte 1, même le dimanche et les fériés (ex. maternité : 14 semaines = 98 jours).
+        WORKING = "WORKING", "Jours ouvrables"
+        CALENDAR = "CALENDAR", "Jours calendaires"
 
     # Congé annuel : oui (il "consomme" le solde). Mariage, maladie, sans solde... : non.
     deducts_balance = models.BooleanField("Décompté du solde", default=False)
@@ -34,10 +43,18 @@ class LeaveType(ReferenceItem):
     # annuel / sans solde 0 (ils se planifient avant) ; maladie 2 (prévenir en 48 h) ; exceptionnels 7.
     # Au-delà : les RH l'enregistrent pour lui ("Record a leave"). Admin RH change ces valeurs (page Lists).
     max_days_back = models.PositiveSmallIntegerField("Jours dans le passé autorisés", default=0)
+    counting = models.CharField("Décompte", max_length=10, choices=Counting.choices, default=Counting.WORKING)
+    # P2 step 4 : un justificatif (certificat médical, acte de naissance...) est demandé à partir de N jours de congé.
+    # Vide = jamais ; 1 = toujours (maladie, maternité). Il peut arriver AVEC la demande ou APRÈS (prévenir en 48 h).
+    document_from_days = models.PositiveSmallIntegerField("Justificatif à partir de (jours)", null=True, blank=True)
 
     class Meta(ReferenceItem.Meta):
         verbose_name = "Type de congé"
         verbose_name_plural = "Types de congé"
+
+    @property
+    def in_calendar_days(self):
+        return self.counting == self.Counting.CALENDAR
 
 
 class PublicHoliday(ReferenceItem):
@@ -110,6 +127,21 @@ class LeaveSettings(models.Model):
         return settings
 
 
+MAX_DOCUMENT_SIZE = 5 * 1024 * 1024  # 5 Mo : une photo de téléphone ou un PDF scanné (comme les notes de frais)
+
+
+def document_path(leave, filename):
+    """Où ranger un justificatif : leave-documents/2026/11/<nom au hasard>.pdf. Un nom au hasard (uuid) : on ne devine
+    pas l'adresse d'un certificat. Jamais servi par une adresse publique : seulement par l'API (Sara et les RH)."""
+    today = timezone.localdate()
+    return f"leave-documents/{today:%Y/%m}/{uuid.uuid4().hex}{Path(filename).suffix.lower()}"
+
+
+def document_size(file):
+    if file.size > MAX_DOCUMENT_SIZE:
+        raise ValidationError("Le justificatif dépasse 5 Mo (prenez une photo moins lourde).")
+
+
 class LeaveRequest(models.Model):
     """Une demande de congé. Deux tables qui travaillent ensemble :
     - ici, ce que seul le module Congés connaît : le type, les dates, le nombre de jours ;
@@ -137,6 +169,12 @@ class LeaveRequest(models.Model):
     # Un congé enregistré par les RH peut commencer loin dans le passé (la règle 2b ne s'applique pas).
     recorded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
                                     related_name="+", verbose_name="Enregistré par (RH)")
+    # P2 step 4 : le justificatif (certificat médical...). Données sensibles : seulement le collaborateur et les RH
+    # l'ouvrent ; le N+1 voit seulement "reçu" / "manquant".
+    document = models.FileField("Justificatif", upload_to=document_path, blank=True,
+                                validators=[FileExtensionValidator(["pdf", "jpg", "jpeg", "png"]), document_size])
+    document_name = models.CharField("Nom du fichier envoyé", max_length=200, blank=True)
+    document_at = models.DateTimeField("Justificatif reçu le", null=True, blank=True)
 
     class Meta:
         ordering = ["-start_date"]
@@ -145,6 +183,12 @@ class LeaveRequest(models.Model):
 
     def __str__(self):
         return f"{self.leave_type} du {self.start_date:%d/%m/%Y} au {self.end_date:%d/%m/%Y} ({self.employee})"
+
+    @property
+    def document_required(self):
+        """P2 step 4 : ce congé demande un justificatif (son type le veut à partir de N jours, et il les atteint)."""
+        needed_from = self.leave_type.document_from_days
+        return needed_from is not None and self.days is not None and self.days >= needed_from
 
     def overlapping(self):
         """Les autres congés (en cours ou acceptés) de ce collaborateur qui touchent les mêmes jours."""
@@ -187,7 +231,8 @@ class LeaveRequest(models.Model):
             raise ValidationError({"start_date": f"« {self.leave_type} » : au plus {days_back} jour(s) dans le passé "
                                                  f"(à partir du {earliest:%d/%m/%Y}). Demandez aux RH."})
         # Règle 3 : au moins une demi-journée (ex. un dimanche seul, ou un jour férié seul : 0 jour).
-        self.days = count_days(self.start_date, self.end_date, self.starts_afternoon, self.ends_noon)
+        self.days = count_days(self.start_date, self.end_date, self.starts_afternoon, self.ends_noon,
+                               calendar=self.leave_type.in_calendar_days)
         if self.days <= 0:
             raise ValidationError("Ces dates ne comptent aucun jour de congé (week-end ou jour férié).")
         # Règle 4 : le maximum légal du type (ex. mariage du salarié : 4 jours).
