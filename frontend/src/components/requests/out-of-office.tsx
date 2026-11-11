@@ -15,6 +15,7 @@ import { formatDate, isoDate } from '@/lib/leaves'
 import type { Delegation } from '@/lib/requests'
 import { cn } from '@/lib/utils'
 import { controlClass } from '@/components/employees/form-fields'
+import { DatePicker } from '@/components/ui/date-picker'
 
 const firstError = (data: Record<string, unknown>) => {
   const first = data.detail ?? Object.values(data)[0]
@@ -133,12 +134,12 @@ function DelegationForm({ me, onClose, onSaved }: { me: Me; onClose: () => void;
     </div>
     <div>
       <label htmlFor="delegation-from" className="block text-xs font-semibold text-slate-700">From</label>
-      <input id="delegation-from" type="date" required min={today} value={from}
-        onChange={(e) => { setFrom(e.target.value); if (to < e.target.value) setTo(e.target.value) }} className={controlClass} />
+      <DatePicker id="delegation-from" required min={today} value={from}
+        onChange={(value) => { setFrom(value); if (value && to < value) setTo(value) }} />
     </div>
     <div>
       <label htmlFor="delegation-to" className="block text-xs font-semibold text-slate-700">To</label>
-      <input id="delegation-to" type="date" required min={from} value={to} onChange={(e) => setTo(e.target.value)} className={controlClass} />
+      <DatePicker id="delegation-to" required min={from || today} value={to} onChange={setTo} />
     </div>
     {error && <p role="alert" className="text-xs font-medium text-red-600 sm:col-span-2">{error}</p>}
     <div className="flex justify-end gap-2 sm:col-span-2">

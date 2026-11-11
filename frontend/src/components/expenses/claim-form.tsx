@@ -15,6 +15,7 @@ import { MAX_RECEIPTS, ceilingOf, formatMad, type ExpenseCategory, type ExpenseC
 import { isoDate } from '@/lib/leaves'
 import { cn } from '@/lib/utils'
 import { controlClass } from '@/components/employees/form-fields'
+import { DatePicker } from '@/components/ui/date-picker'
 
 type Line = { key: number; date: string; category: string; amount: string; description: string; files: File[] }
 
@@ -103,11 +104,11 @@ export function ClaimForm({ categories, scale, onSent, inPanel = false }: {
         const lineErrors = errors[`line_${index}`]
         return <fieldset key={line.key} className={cn('rounded-lg border p-3', lineErrors ? 'border-red-200 bg-red-50/30' : 'border-slate-200')}>
           <legend className="px-1 text-[11px] font-semibold text-slate-500">Expense {index + 1}</legend>
-          <div className="grid gap-2 sm:grid-cols-[130px_minmax(0,1fr)_110px]">
+          <div className="grid gap-2 sm:grid-cols-[150px_minmax(0,1fr)_110px]">
             <div>
               <label htmlFor={`date-${line.key}`} className="sr-only">Date</label>
-              <input id={`date-${line.key}`} type="date" required max={today} value={line.date}
-                onChange={(e) => change(line.key, 'date', e.target.value)} className={cn(controlClass, 'mt-0')} />
+              <DatePicker id={`date-${line.key}`} required max={today} value={line.date}
+                onChange={(value) => change(line.key, 'date', value)} className="mt-0" />
             </div>
             <div>
               <label htmlFor={`category-${line.key}`} className="sr-only">Category</label>

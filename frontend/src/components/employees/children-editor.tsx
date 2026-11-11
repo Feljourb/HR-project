@@ -7,6 +7,7 @@
  */
 import { Plus, X } from 'lucide-react'
 import type { Child } from '@/lib/employees'
+import { DatePicker } from '@/components/ui/date-picker'
 import { controlClass } from './form-fields'
 
 type ChildrenEditorProps = {
@@ -38,8 +39,8 @@ export function ChildrenEditor({ items, onChange, errorOf }: ChildrenEditorProps
           </div>
           <div>
             <label htmlFor={`child-${index}-birth`} className="sr-only">Birth date of child {index + 1}</label>
-            <input id={`child-${index}-birth`} type="date" required value={child.birth_date}
-              onChange={(e) => update(index, 'birth_date', e.target.value)} aria-invalid={dateError ? true : undefined} className={controlClass} />
+            <DatePicker id={`child-${index}-birth`} required value={child.birth_date}
+              onChange={(value) => update(index, 'birth_date', value)} invalid={Boolean(dateError)} />
             {dateError && <p className="mt-1 text-[11px] font-medium text-red-600">{dateError}</p>}
           </div>
           <button type="button" aria-label={`Remove child ${index + 1}`} onClick={() => onChange(items.filter((_, i) => i !== index))}

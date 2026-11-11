@@ -7,8 +7,10 @@
 import { useState, type ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 import type { ReferenceItem } from '@/lib/employees'
+import { controlClass } from '@/components/ui/control-class'
+import { DatePicker } from '@/components/ui/date-picker'
 
-export const controlClass = 'mt-1.5 h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm outline-none transition-colors placeholder:text-slate-400 focus:border-[#23355d] focus:bg-white focus:ring-3 focus:ring-[#23355d]/15 disabled:cursor-not-allowed disabled:opacity-60 aria-invalid:border-red-300 aria-invalid:bg-red-50/40'
+export { controlClass }
 
 type FieldProps = {
   id: string
@@ -38,9 +40,18 @@ type TextFieldProps = Omit<FieldProps, 'children'> & {
   type?: string
   placeholder?: string
   suggestions?: string[]  // des propositions pendant la frappe (ex. les villes), avec un <datalist>
+  min?: string            // type "date" : la première / la dernière date possible ("AAAA-MM-JJ")
+  max?: string
 }
 
-export function TextField({ value, onChange, type = 'text', placeholder, suggestions, ...field }: TextFieldProps) {
+export function TextField({ value, onChange, type = 'text', placeholder, suggestions, min, max, ...field }: TextFieldProps) {
+  // Une date : le calendrier de l'application (ui/date-picker), pas celui du navigateur.
+  if (type === 'date') {
+    return <Field {...field}>
+      <DatePicker id={field.id} value={value} onChange={onChange} min={min} max={max} required={field.required}
+        invalid={Boolean(field.error)} describedBy={field.error ? `${field.id}-error` : undefined} />
+    </Field>
+  }
   return <Field {...field}>
     <input
       id={field.id} type={type} value={value} placeholder={placeholder} required={field.required}

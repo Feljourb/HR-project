@@ -15,6 +15,7 @@ import { seniorityLabel, type Seniority } from '@/lib/employees'
 import { formatDate, formatDays, isoDate, type BalanceDetail, type LeaveType, type YearPool } from '@/lib/leaves'
 import { cn } from '@/lib/utils'
 import { controlClass } from '@/components/employees/form-fields'
+import { DatePicker } from '@/components/ui/date-picker'
 import { LeaveDocument } from './leave-document'
 import { CancelApprovedButton } from './my-leaves'
 
@@ -275,7 +276,7 @@ function RightCard({ detail, onSaved }: { detail: BalanceDetail; onSaved: (detai
       </div>
       <div>
         <label htmlFor="right-from" className="block text-xs font-semibold text-slate-700">From <span className="text-red-500" aria-hidden>*</span></label>
-        <input id="right-from" type="date" required min={detail.hire_date} value={from} onChange={(e) => setFrom(e.target.value)} className={controlClass} />
+        <DatePicker id="right-from" required min={detail.hire_date} value={from} onChange={setFrom} />
       </div>
       <div className="sm:col-span-2">
         <label htmlFor="right-reason" className="block text-xs font-semibold text-slate-700">Reason <span className="text-red-500" aria-hidden>*</span></label>
@@ -355,7 +356,7 @@ function CorrectionsCard({ detail, onSaved }: { detail: BalanceDetail; onSaved: 
       </div>
       <div>
         <label htmlFor="adjust-date" className="block text-xs font-semibold text-slate-700">Date <span className="text-red-500" aria-hidden>*</span></label>
-        <input id="adjust-date" type="date" required min={detail.hire_date} max={today} value={date} onChange={(e) => setDate(e.target.value)} className={controlClass} />
+        <DatePicker id="adjust-date" required min={detail.hire_date} max={today} value={date} onChange={setDate} />
       </div>
       <div className="sm:col-span-2">
         <label htmlFor="adjust-reason" className="block text-xs font-semibold text-slate-700">Reason <span className="text-red-500" aria-hidden>*</span></label>
@@ -420,15 +421,15 @@ function RecordLeaveForm({ detail, onClose, onSaved }: {
     </div>
     <div>
       <label htmlFor="record-from" className="block text-xs font-semibold text-slate-700">From <span className="text-red-500" aria-hidden>*</span></label>
-      <input id="record-from" type="date" required min={detail.hire_date} value={from}
-        onChange={(e) => { setFrom(e.target.value); if (!to || to < e.target.value) setTo(e.target.value) }} className={controlClass} />
+      <DatePicker id="record-from" required min={detail.hire_date} value={from}
+        onChange={(value) => { setFrom(value); if (value && (!to || to < value)) setTo(value) }} />
       <label className="mt-1.5 flex items-center gap-1.5 text-[11px] text-slate-600">
         <input type="checkbox" checked={afternoon} onChange={(e) => setAfternoon(e.target.checked)} className="size-3.5 accent-[#192646]" /> Starts in the afternoon
       </label>
     </div>
     <div>
       <label htmlFor="record-to" className="block text-xs font-semibold text-slate-700">To <span className="text-red-500" aria-hidden>*</span></label>
-      <input id="record-to" type="date" required min={from || detail.hire_date} value={to} onChange={(e) => setTo(e.target.value)} className={controlClass} />
+      <DatePicker id="record-to" required min={from || detail.hire_date} value={to} onChange={setTo} />
       <label className="mt-1.5 flex items-center gap-1.5 text-[11px] text-slate-600">
         <input type="checkbox" checked={noon} onChange={(e) => setNoon(e.target.checked)} className="size-3.5 accent-[#192646]" /> Ends at noon
       </label>

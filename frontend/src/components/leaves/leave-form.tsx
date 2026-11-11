@@ -118,7 +118,8 @@ export function LeaveForm({ onSent }: { onSent: () => void }) {
         <Check id="starts_afternoon" label="Starts in the afternoon" checked={draft.starts_afternoon} onChange={(value) => set('starts_afternoon', value)} />
       </div>
       <div>
-        <TextField id="end_date" label="To" type="date" required value={draft.end_date} onChange={(value) => set('end_date', value)} />
+        {/* "To" ne propose pas de jour avant "From" (le calendrier les barre). */}
+        <TextField id="end_date" label="To" type="date" required min={draft.start_date || undefined} value={draft.end_date} onChange={(value) => set('end_date', value)} />
         <Check id="ends_noon" label="Ends at noon" checked={draft.ends_noon} onChange={(value) => set('ends_noon', value)} />
       </div>
 
