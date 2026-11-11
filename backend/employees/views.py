@@ -17,12 +17,13 @@ COLLABORATEURS : /api/employees/
   POST  /api/employees/7/reset-password/ -> RH : mot de passe temporaire (mot de passe oublié)
   GET   /api/employees/7/history/  -> RH : l'historique du dossier (qui a changé quoi, quand)
   GET   /api/employees/history/?search=&actor=&action=&date_from=&date_to= -> RH : le journal de tous les dossiers
-  GET   /api/employees/directory/?search=karim&page=1 -> tout le monde : l'annuaire (champs publics)
+  GET   /api/employees/directory/?search=karim&direction=3&department=7&page=1 -> tout le monde : l'annuaire (champs publics)
+  GET   /api/employees/directory/filters/ -> tout le monde : les directions et services des filtres de l'annuaire
   GET   /api/employees/me/     -> tout le monde : MON dossier
   PATCH /api/employees/me/     -> tout le monde : modifier MES infos personnelles
 """
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 from rest_framework import serializers, viewsets
@@ -392,12 +393,41 @@ class DirectoryViewSet(viewsets.ReadOnlyModelViewSet):
         queryset = (
             Employee.objects.exclude(status=Employee.Status.LEFT)
             .select_related("position", "department__direction")
+            .order_by("last_name", "first_name", "id")  # A -> Z, comme un annuaire
         )
+        params = self.request.query_params
         # Recherche : nom, prénom, poste, service ou direction (ex. "ventes" trouve tout le service).
-        if search := self.request.query_params.get("search", "").strip():
+        if search := params.get("search", "").strip():
             queryset = queryset.filter(
                 Q(last_name__icontains=search) | Q(first_name__icontains=search)
                 | Q(position__name__icontains=search) | Q(department__name__icontains=search)
                 | Q(department__direction__name__icontains=search)
             )
+        # Les filtres de la page (des ids choisis dans directory/filters/). Un id pas numérique : ignoré.
+        if params.get("direction", "").isdigit():
+            queryset = queryset.filter(department__direction_id=params["direction"])
+        if params.get("department", "").isdigit():
+            queryset = queryset.filter(department_id=params["department"])
         return queryset
+
+    @action(detail=False, pagination_class=None)
+    def filters(self, request):
+        """GET /api/employees/directory/filters/ -> les choix des filtres : les directions ET leurs services
+        où quelqu'un travaille (pas de filtre vide), avec l'entité pour les distinguer (deux "Direction
+        Commerciale"), et le nombre de collègues. Rien de personnel : seulement l'organigramme."""
+        directions = {}
+        rows = (Employee.objects.exclude(status=Employee.Status.LEFT)
+                .values("department_id", "department__name", "department__direction_id",
+                        "department__direction__name", "department__direction__entity__name")
+                .annotate(count=Count("id")).order_by())
+        for row in rows:
+            direction = directions.setdefault(row["department__direction_id"], {
+                "id": row["department__direction_id"], "name": row["department__direction__name"],
+                "entity": row["department__direction__entity__name"], "count": 0, "departments": [],
+            })
+            direction["count"] += row["count"]
+            direction["departments"].append({"id": row["department_id"], "name": row["department__name"], "count": row["count"]})
+        result = sorted(directions.values(), key=lambda item: (item["name"].lower(), item["entity"].lower()))
+        for direction in result:
+            direction["departments"].sort(key=lambda item: item["name"].lower())
+        return Response(result)

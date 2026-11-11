@@ -60,6 +60,21 @@ class DirectoryApiTests(EmployeeTestCase):
         self.assertEqual(self.names(self.client.get(DIRECTORY_URL, {"search": "salma"})), ["Salma"])
         self.assertEqual(self.names(self.client.get(DIRECTORY_URL, {"search": "production"})), ["Salma"])
 
+    def test_filters_by_direction_or_service_in_alphabetical_order(self):
+        self.client.force_authenticate(self.karim.user)
+        options = self.client.get(reverse("employees:directory-filters")).json()
+        # Seulement les directions où quelqu'un travaille (Youssef, sorti, ne compte pas), avec l'entité.
+        production = next(item for item in options if any(dep["name"] == "Production" for dep in item["departments"]))
+        self.assertEqual((production["entity"], production["count"]), ("Eureka", 1))
+        self.assertEqual(sum(item["count"] for item in options), 2)
+        # Filtrer : par direction, par service ; un id pas numérique est ignoré.
+        self.assertEqual(self.names(self.client.get(DIRECTORY_URL, {"direction": production["id"]})), ["Salma"])
+        self.assertEqual(self.names(self.client.get(DIRECTORY_URL, {"department": self.karim.department_id})), ["Karim"])
+        self.assertEqual(self.names(self.client.get(DIRECTORY_URL, {"department": "x"})), ["Karim", "Salma"])
+        # A -> Z par nom de famille, puis prénom.
+        rows = self.client.get(DIRECTORY_URL).json()["results"]
+        self.assertEqual(rows, sorted(rows, key=lambda row: (row["last_name"], row["first_name"])))
+
     def test_read_only(self):
         self.client.force_authenticate(self.karim.user)
         self.assertEqual(self.client.post(DIRECTORY_URL, {"first_name": "X"}).status_code, 405)

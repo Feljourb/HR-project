@@ -49,7 +49,7 @@ Frontend (Next.js in frontend/src/app, backend on http://localhost:8000):
 
 ## Module "Gestion des collaborateurs": what is left (in this order, tick when done)
 Done: reference lists, Employee, account created from the fiche, lists + employees API, employees table and form (cascade, "+ Ajouter"), password reset.
-- [x] A. Annuaire (directory): every role, both pôles, public fields only, "Sorti" employees hidden.
+- [x] A. Annuaire (directory): every role, both pôles, public fields only, "Sorti" employees hidden. Redesigned 2026-11-11 (standard of Microsoft 365 People / BambooHR, same public fields): A -> Z, filters Direction -> Service (`?direction=` / `?department=`, choices from `GET /api/employees/directory/filters/`: directions with people + entity + counts), Cards / List view (kept in localStorage), quick actions (email, call, copy, "Chat in Teams" deep link), click = side "business card" panel, skeleton while loading.
 - [x] B. "Mon profil" page: each employee sees their own fiche (/api/employees/me/) and edits only personal fields.
 - [x] C. Lists management page for Admin RH: rename, deactivate, reactivate values (no delete).
 - [x] D. Fields from the HR fiche (all optional): CNSS, CIMR, bank + RIB (24 digits), emergency contact (name, relationship, phone; the employee can edit it), marital status, children (first name + birth date; the count is computed).
