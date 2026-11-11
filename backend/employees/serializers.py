@@ -313,15 +313,7 @@ class NotificationSerializer(serializers.ModelSerializer):
         return notifications.message(notification)
 
     def get_link(self, notification):
-        # La page ouverte au clic : la fiche, "Team approvals" (pour répondre), ou l'historique de la demande.
-        Kind = notification.Kind
-        if notification.kind == Kind.TRIAL_END:
-            return f"/employees/{notification.employee_id}"
-        if notification.kind in (Kind.TO_VALIDATE, Kind.DELEGATED, Kind.REMINDER):
-            return "/approvals"
-        if notification.kind in (Kind.BALANCE_ADJUSTED, Kind.RIGHT_CHANGED, Kind.EXPIRING):
-            return "/leaves"  # ma page Congés : mon solde et la section "Balance changes"
-        return f"/requests/{notification.request_id}"  # pour information, acceptée, refusée
+        return notifications.link(notification)  # la même page que le bouton de l'email
 
     def get_read(self, notification):
         return notification.read_at is not None

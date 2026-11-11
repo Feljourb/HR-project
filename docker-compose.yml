@@ -41,6 +41,27 @@ services:
     networks:
       - app_network
 
+  # Le "facteur" des emails : toutes les 30 secondes, il envoie les notifications de la cloche qui attendent
+  # (employees/emails.py). Le même code que le backend ; après un changement de ce code : docker compose restart mailer.
+  mailer:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: app_mailer
+    restart: unless-stopped
+    command: python manage.py send_emails --loop 30
+    volumes:
+      - ./backend:/app
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+    networks:
+      - app_network
+
   # Une boîte email de TEST (développement) : elle garde tous les emails envoyés par Django, sans les
   # envoyer à personne. Les lire : http://localhost:8025. En production : le serveur email de la société
   # (Microsoft 365), réglé dans .env (EMAIL_HOST...), et ce service n'est plus utilisé.

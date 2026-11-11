@@ -679,6 +679,12 @@ class Notification(models.Model):
                                 related_name="+", verbose_name="Demande")
     created_at = models.DateTimeField("Créée le", auto_now_add=True)
     read_at = models.DateTimeField("Lue le", null=True, blank=True)  # vide = pas encore lue
+    # L'email (2026-11-11) : une COPIE de la cloche, envoyée par le "facteur" (employees/emails.py, toutes
+    # les 30 s) et pas au moment où la notification naît : un serveur email lent ou en panne ne bloque
+    # jamais une demande. Vide = pas encore traitée ; rempli = envoyée, ou pas envoyée (la raison : email_error).
+    emailed_at = models.DateTimeField("Email traité le", null=True, blank=True)
+    email_attempts = models.PositiveSmallIntegerField("Essais d'envoi", default=0)
+    email_error = models.CharField("Email : erreur ou raison", max_length=300, blank=True)
 
     class Meta:
         verbose_name = "Notification"
