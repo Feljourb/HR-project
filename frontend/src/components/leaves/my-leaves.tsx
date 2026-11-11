@@ -102,7 +102,7 @@ function LeaveLine({ leave, onCancelled }: { leave: Leave; onCancelled: () => vo
 
     <div className="min-w-0 flex-1">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-        <Link href={`/requests/${leave.request}`} className="truncate text-sm font-semibold text-[#192646] hover:underline">{leave.leave_type_label}</Link>
+        <Link href={`/requests/${leave.request}?from=leaves`} className="truncate text-sm font-semibold text-[#192646] hover:underline">{leave.leave_type_label}</Link>
         <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-slate-600">{formatDays(leave.days)}</span>
       </div>
       <p className="text-xs text-slate-600">{dateRange(leave.start_date, leave.end_date)}</p>

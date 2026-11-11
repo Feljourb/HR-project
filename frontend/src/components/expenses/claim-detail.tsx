@@ -9,13 +9,18 @@ import { useEffect, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, Paperclip } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
+import { backLink } from '@/lib/back-links'
 import { STATUS_BADGE, claimStatus, formatMad, getFile, type ExpenseClaim } from '@/lib/expenses'
 import { formatDate } from '@/lib/leaves'
 import { cn } from '@/lib/utils'
 import { Message } from '@/components/leaves/leaves-page'
 import { PdfButton, actionClass } from './claim-actions'
 
-export function ClaimDetail({ requestId }: { requestId: number }) {
+// Le lien "retour" : la page d'où l'on vient (?from=..., lib/back-links), sinon "Expense claims" (bug du
+// 2026-11-11 : depuis My requests, le retour menait toujours à Expense claims).
+const DEFAULT_BACK = { href: '/expenses', label: 'Expense claims' }
+
+export function ClaimDetail({ requestId, from = null }: { requestId: number; from?: string | null }) {
   const [claim, setClaim] = useState<ExpenseClaim | null>(null)
   const [problem, setProblem] = useState('')
 
@@ -30,9 +35,10 @@ export function ClaimDetail({ requestId }: { requestId: number }) {
   }, [requestId])
 
   if (!claim) return <Message>{problem || 'Loading...'}</Message>
+  const back = backLink(from, DEFAULT_BACK)
 
   return <div className="flex flex-col gap-4">
-    <Link href="/expenses" className="flex items-center gap-1 text-xs font-semibold text-[#23355d] hover:underline"><ArrowLeft className="size-3.5" /> Expense claims</Link>
+    <Link href={back.href} className="flex items-center gap-1 text-xs font-semibold text-[#23355d] hover:underline"><ArrowLeft className="size-3.5" /> {back.label}</Link>
     <ClaimView claim={claim} />
   </div>
 }
@@ -60,7 +66,7 @@ export function ClaimView({ claim, actions }: { claim: ExpenseClaim; actions?: R
             {actions}
             <PdfButton claim={claim} />
             {/* L'historique du circuit : qui a validé, quand, avec quel commentaire. */}
-            <Link href={`/requests/${claim.request}`} className={actionClass}>History</Link>
+            <Link href={`/requests/${claim.request}?from=claim-${claim.request}`} className={actionClass}>History</Link>
           </div>
         </div>
       </header>

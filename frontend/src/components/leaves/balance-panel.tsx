@@ -473,7 +473,7 @@ function LeavesCard({ detail, onSaved }: { detail: BalanceDetail; onSaved: (deta
       : <ul className="divide-y divide-slate-100">
           {detail.leaves.map((leave) => <li key={leave.id} className="flex items-center gap-3 px-4 py-2.5 text-xs">
             <div className="min-w-0 flex-1">
-              <Link href={`/requests/${leave.request}`} className="font-semibold text-[#192646] hover:underline">{leave.leave_type_label}</Link>
+              <Link href={`/requests/${leave.request}?from=leave-balances`} className="font-semibold text-[#192646] hover:underline">{leave.leave_type_label}</Link>
               <p className="text-slate-500">{formatDate(leave.start_date)} → {formatDate(leave.end_date)} · {formatDays(leave.days)}</p>
               {leave.recorded_by && <p className="text-[11px] text-slate-400">Recorded by HR ({leave.recorded_by})</p>}
               {/* P2 step 4 : les RH ouvrent le certificat, ou l'ajoutent (ex. reçu sur papier, scanné). */}

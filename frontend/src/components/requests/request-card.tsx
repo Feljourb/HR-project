@@ -48,13 +48,13 @@ export function RequestCard({ request, showRequester, children }: { request: Wor
         <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8C6D52]">{request.workflow}</p>
         {/* Le titre ouvre l'historique complet de la demande. */}
         <h3 className="text-sm font-semibold text-[#192646]">
-          <Link href={`/requests/${request.id}`} className="hover:underline">{request.title}</Link>
+          <Link href={`/requests/${request.id}?from=approvals`} className="hover:underline">{request.title}</Link>
         </h3>
         <p className="text-[11px] text-slate-500">
           {showRequester && <>{request.requester} · </>}Sent on {formatDateTime(request.created_at)} · {whereIsIt(request)}
         </p>
         {/* Une note de frais : ses dépenses et ses justificatifs, à regarder AVANT de valider. */}
-        {request.workflow_code === 'EXPENSE' && <Link href={`/expenses/${request.id}`} className="text-[11px] font-semibold text-[#23355d] hover:underline">
+        {request.workflow_code === 'EXPENSE' && <Link href={`/expenses/${request.id}?from=approvals`} className="text-[11px] font-semibold text-[#23355d] hover:underline">
           View the claim (expenses and receipts)
         </Link>}
       </div>

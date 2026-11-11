@@ -93,6 +93,13 @@ def person(employee):
     return f"{employee.first_name} {employee.last_name.title()}"
 
 
+def name_of(user):
+    """Le nom d'un COMPTE : celui de son dossier RH ("Manager Test", pas "manager.test") ;
+    sinon le compte lui-même (ex. un compte IT sans dossier)."""
+    employee = Employee.objects.filter(user=user).only("first_name", "last_name").first()
+    return person(employee) if employee else user.username
+
+
 class RequestStepSerializer(serializers.ModelSerializer):
     """Une étape d'une demande, pour la suivre : qui doit répondre, et ce qui s'est passé."""
 
@@ -101,13 +108,15 @@ class RequestStepSerializer(serializers.ModelSerializer):
     status_label = serializers.CharField(source="get_status_display")
     validator = serializers.SerializerMethodField()
     decided_by = serializers.SerializerMethodField()
+    # Le NOM de la personne qui a répondu ("Manager Test", pas "manager.test") : l'historique l'affiche.
+    decided_by_name = serializers.SerializerMethodField()
     # P2 step 1 : l'absent pour qui quelqu'un a répondu ("Validée par karim pour Youssef Bennani"), ou null.
     on_behalf_of = serializers.SerializerMethodField()
 
     class Meta:
         model = RequestStep
         fields = ["order", "approver", "approver_label", "mode", "mode_label", "status", "status_label",
-                  "validator", "decided_by", "decided_at", "comment", "on_behalf_of"]
+                  "validator", "decided_by", "decided_by_name", "decided_at", "comment", "on_behalf_of"]
 
     def get_on_behalf_of(self, step):
         return person(step.on_behalf_of) if step.on_behalf_of_id else None
@@ -122,6 +131,9 @@ class RequestStepSerializer(serializers.ModelSerializer):
         # Le compte qui a répondu (ex. "hind.rh"), ou null (pas encore, ou étape sautée / informée).
         return step.decided_by.username if step.decided_by else None
 
+    def get_decided_by_name(self, step):
+        return name_of(step.decided_by) if step.decided_by_id else None
+
 
 class RequestSerializer(serializers.ModelSerializer):
     """Une demande et son circuit : pour "My requests" (le demandeur) et "Team approvals" (le valideur)."""
@@ -132,14 +144,18 @@ class RequestSerializer(serializers.ModelSerializer):
     status_label = serializers.CharField(source="get_status_display")
     steps = RequestStepSerializer(many=True)
     cancelled_by = serializers.StringRelatedField()  # le compte qui a annulé (le demandeur, ou un RH), ou null
+    cancelled_by_name = serializers.SerializerMethodField()  # son nom ("Collab Test"), pour l'historique
 
     class Meta:
         model = Request
         fields = ["id", "workflow", "workflow_code", "title", "requester", "status", "status_label",
-                  "created_at", "closed_at", "cancelled_by", "cancel_reason", "steps"]
+                  "created_at", "closed_at", "cancelled_by", "cancelled_by_name", "cancel_reason", "steps"]
 
     def get_requester(self, request):
         return person(request.requester)
+
+    def get_cancelled_by_name(self, request):
+        return name_of(request.cancelled_by) if request.cancelled_by_id else None
 
 
 class ApprovalSerializer(serializers.ModelSerializer):

@@ -88,7 +88,7 @@ export function HrClaims() {
                       <td className="px-4 py-2.5"><span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold', STATUS_BADGE[status.key])}>{status.label}</span></td>
                       <td className="px-4 py-2.5">
                         <div className="flex items-center justify-end gap-1">
-                          <Link href={`/expenses/${claim.request}`} className={actionClass}>View</Link>
+                          <Link href={`/expenses/${claim.request}?from=reimbursements`} className={actionClass}>View</Link>
                           <PdfButton claim={claim} />
                           {claim.status === 'APPROVED' && !claim.reimbursed_at && <ReimburseButton claim={claim} onDone={() => setVersion((v) => v + 1)} />}
                         </div>

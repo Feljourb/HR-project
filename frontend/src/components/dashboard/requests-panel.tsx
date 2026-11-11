@@ -42,12 +42,12 @@ function rowsOf(leaveData: LeaveData | null, claims: ExpenseClaim[]): Row[] {
     key: `leave-${leave.id}`, kind: 'leave', ref: `N° ${leave.request}`,
     detail: `${leave.leave_type_label} · ${formatDate(leave.start_date)} – ${formatDate(leave.end_date)}`,
     submitted: leave.created_at.slice(0, 10), amount: formatDays(leave.days), status: leave.status,
-    reimbursed: false, waitingFor: null, href: `/requests/${leave.request}`,
+    reimbursed: false, waitingFor: null, href: `/requests/${leave.request}?from=dashboard`,
   }))
   const expenses: Row[] = claims.map((claim) => ({
     key: `expense-${claim.id}`, kind: 'expense', ref: `N° ${claim.request}`, detail: claim.title,
     submitted: claim.created_at.slice(0, 10), amount: formatMad(claim.total), status: claim.status,
-    reimbursed: Boolean(claim.reimbursed_at), waitingFor: claim.waiting_for, href: `/expenses/${claim.request}`, claim,
+    reimbursed: Boolean(claim.reimbursed_at), waitingFor: claim.waiting_for, href: `/expenses/${claim.request}?from=dashboard`, claim,
   }))
   // Les plus récentes d'abord, 6 au plus (la case reste petite ; "View all requests" pour le reste).
   return [...leaves, ...expenses].sort((a, b) => b.submitted.localeCompare(a.submitted) || b.ref.localeCompare(a.ref)).slice(0, 6)

@@ -38,7 +38,8 @@ const FILTERS = [
 ]
 
 /** Où ouvre une ligne : une note de frais ouvre la note (ses dépenses, ses justificatifs, son historique). */
-const hrefOf = (request: WorkflowRequest) => (request.workflow_code === 'EXPENSE' ? `/expenses/${request.id}` : `/requests/${request.id}`)
+// ?from=requests : la page de la note affiche "← My requests" (le retour mène ici, pas à Expense claims).
+const hrefOf = (request: WorkflowRequest) => (request.workflow_code === 'EXPENSE' ? `/expenses/${request.id}?from=requests` : `/requests/${request.id}?from=requests`)
 
 export function MyRequests() {
   const [requests, setRequests] = useState<WorkflowRequest[] | null>(null)

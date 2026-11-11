@@ -14,6 +14,7 @@ export type RequestStep = {
   status_label: string
   validator: string          // qui doit répondre : un nom, ou "RH du pôle"
   decided_by: string | null  // le compte qui a répondu
+  decided_by_name: string | null  // son nom ("Manager Test"), pour l'historique
   decided_at: string | null
   comment: string
   on_behalf_of: string | null  // P2 : l'absent pour qui quelqu'un a répondu, ou null
@@ -45,6 +46,7 @@ export type WorkflowRequest = {
   created_at: string
   closed_at: string | null
   cancelled_by: string | null  // le compte qui a annulé (le demandeur, ou un RH pour une demande acceptée)
+  cancelled_by_name: string | null  // son nom, pour l'historique
   cancel_reason: string        // le motif (obligatoire pour annuler une demande déjà acceptée)
   steps: RequestStep[]
 }

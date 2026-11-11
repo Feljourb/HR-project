@@ -179,4 +179,6 @@ class RequestHistoryApiTests(EngineTestCase):
         self.assertIsNotNone(item["closed_at"])
         first, second = item["steps"]
         self.assertEqual((first["status"], first["decided_by"], first["comment"]), ("APPROVED", self.youssef.user.username, "Bon repos"))
+        # Le NOM de la personne (son dossier RH), pas son compte : l'historique affiche "Approved by Youssef ...".
+        self.assertEqual(first["decided_by_name"], f"{self.youssef.first_name} {self.youssef.last_name.title()}")
         self.assertEqual(second["status"], "INFORMED")

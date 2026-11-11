@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { RequestHistory } from "@/components/requests/request-history";
 import { SignedIn } from "@/lib/current-user";
 
@@ -21,10 +21,12 @@ export default function RequestHistoryPage() {
 
 function RequestFromAddress() {
   const { id } = useParams<{ id: string }>();
+  // ?from=leaves : la page d'où l'on vient (pour le lien "retour" : "← Leave requests"...).
+  const from = useSearchParams().get("from");
   const requestId = Number(id);
   if (!Number.isInteger(requestId)) {
     return <p className="py-12 text-center text-sm text-slate-500">This request does not exist.</p>;
   }
   // key : en passant d'une demande à une autre, tout repart de zéro.
-  return <RequestHistory key={requestId} requestId={requestId} />;
+  return <RequestHistory key={requestId} requestId={requestId} from={from} />;
 }

@@ -176,7 +176,7 @@ export function Absences() {
                       <td className="px-4 py-2.5 text-slate-600">{row.department}{poles.size > 1 && <span className="text-slate-400"> · {row.pole}</span>}</td>
                       <td className="px-4 py-2.5 text-slate-600">{row.leave_type_label}</td>
                       <td className="px-4 py-2.5 text-slate-600">
-                        <Link href={`/requests/${row.request}`} className="hover:underline">
+                        <Link href={`/requests/${row.request}?from=absences`} className="hover:underline">
                           {formatDate(row.start_date, true)}{row.starts_afternoon && ' (pm)'} → {formatDate(row.end_date, true)}{row.ends_noon && ' (am)'}
                         </Link>
                       </td>
@@ -203,7 +203,7 @@ export function Absences() {
                       </td>
                       {/* L'historique de la demande : chaque étape, qui a répondu, quand, et le commentaire. */}
                       <td className="px-4 py-2.5 text-right">
-                        <Link href={`/requests/${row.request}`} className="font-semibold text-[#23355d] hover:underline">View</Link>
+                        <Link href={`/requests/${row.request}?from=absences`} className="font-semibold text-[#23355d] hover:underline">View</Link>
                       </td>
                     </tr>
                   })}
