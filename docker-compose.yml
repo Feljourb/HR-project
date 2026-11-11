@@ -36,6 +36,20 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      mailpit:
+        condition: service_started
+    networks:
+      - app_network
+
+  # Une boîte email de TEST (développement) : elle garde tous les emails envoyés par Django, sans les
+  # envoyer à personne. Les lire : http://localhost:8025. En production : le serveur email de la société
+  # (Microsoft 365), réglé dans .env (EMAIL_HOST...), et ce service n'est plus utilisé.
+  mailpit:
+    image: axllent/mailpit:v1.21.8
+    container_name: app_mailpit
+    restart: unless-stopped
+    ports:
+      - "8025:8025"   # la page web pour lire les emails
     networks:
       - app_network
 

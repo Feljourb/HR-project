@@ -47,6 +47,11 @@ seed-expenses:
 send-request:
 	$(DC) exec backend python manage.py send_request $(user) $(type) "$(title)"
 
+# One test email, to check the email settings (.env), e.g.: make test-email to=someone@example.com
+# In development it lands in the TEST mailbox Mailpit: http://localhost:8025
+test-email:
+	$(DC) exec backend python manage.py send_test_email $(to)
+
 migrate:
 	$(DC) exec backend python manage.py migrate
 

@@ -159,6 +159,22 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 MFA_ENCRYPTION_KEY = os.environ.get("MFA_ENCRYPTION_KEY")
 
+# Les emails (notifications). Tout vient de .env : sans rien dans .env, ils vont dans la boîte de TEST
+# Mailpit (docker-compose, lue sur http://localhost:8025) et n'arrivent chez personne.
+# En production (le compte Microsoft 365 donné par l'IT) : EMAIL_HOST=smtp.office365.com, EMAIL_PORT=587,
+# EMAIL_USE_TLS=1, EMAIL_HOST_USER / EMAIL_HOST_PASSWORD = le compte d'envoi (jamais écrit dans le code).
+# ("or" : une ligne laissée VIDE dans .env, ex. "EMAIL_PORT=", prend aussi la valeur par défaut.)
+EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+EMAIL_HOST = os.environ.get("EMAIL_HOST") or "mailpit"
+EMAIL_PORT = int(os.environ.get("EMAIL_PORT") or "1025")
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER") or ""
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD") or ""
+EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS") == "1"
+EMAIL_TIMEOUT = 10  # secondes : un serveur email lent ne bloque pas la page
+DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL") or "Intranet RH <no-reply@silent-believers.com>"
+# L'adresse de l'application, pour les liens dans les emails ("Ouvrir la demande").
+FRONTEND_URL = os.environ.get("FRONTEND_URL") or "http://localhost:3000"
+
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),

@@ -118,6 +118,17 @@ Decisions (validated by the user 2026-11-02; standard + Moroccan Code du travail
 - [ ] Later (noted by the user 2026-11-02, do NOT change now): pages feel slow to load. To look at during the optimisation: Next.js dev mode compiles each page on first visit, code read from WSL inside Docker, number of API calls per page (e.g. the dashboard).
 - [x] 9. Demo command `make seed-leaves` (after `make seed`; DEBUG only; dates from the next Monday; through `request_leave` and the engine: accepted, in progress, refused; can be run again) + final tests (361 OK; the leaves tests freeze "today" to 02/11/2026 so they give the same result later).
 
+## Email notifications (started 2026-11-11, asked by the encadrant)
+Decisions (user + encadrant, 2026-11-11; standard of Workday / SAP SuccessFactors):
+- The bell (in-app) is ALWAYS on, never a setting: a company account, the bell is the trace of the work ("to validate" must never be missed).
+- Emails = a COPY of the bell, to the employee's professional email. Each user can switch OFF, in a "Settings" page: "Results of my requests" and "Information & reminders" (ON by default). "Requests to approve" is always ON (shown locked), otherwise requests get stuck.
+- Until IT gives the Microsoft 365 sending account (each account costs money): the TEST mailbox Mailpit; then only `.env` changes (smtp.office365.com, 587, TLS, account + password; never in the code).
+- Reminders (31/12 expiry, 3 days waiting) are computed when the bell opens: an email for them needs a daily command (step 4).
+- [x] 1. Mailpit in docker-compose (`axllent/mailpit:v1.21.8`, read the emails on http://localhost:8025, nothing reaches real people); settings `EMAIL_*`, `DEFAULT_FROM_EMAIL` ("Intranet RH <no-reply@silent-believers.com>"), `FRONTEND_URL` from `.env` (empty = defaults to Mailpit; `.env.example` lists them); `make test-email to=...` (`send_test_email`). Tests use Django's in-memory email backend.
+- [ ] 2. Every bell notification -> an email (after the transaction commits, never blocking the request if the mail server is down), clean template with a link.
+- [ ] 3. "Settings" page: the 2 switches (+ "Requests to approve" locked ON).
+- [ ] 4. Daily command for the reminders by email.
+
 ## Module "Notes de frais" (app `expenses`), started 2026-11-03
 Standard proposal (to confirm with the user / HR; values HR may change are lists or settings, not code):
 - An expense claim ("note de frais", e.g. "Mission Agadir") has one or more LINES: date, category, amount (MAD), description, receipt (photo / PDF). The total is computed. It is a workflow request (`engine.submit("EXPENSE")`); the module only adds the lines, the rules and the pages.
