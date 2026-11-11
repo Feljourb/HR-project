@@ -47,9 +47,9 @@ class ClaimTestCase(EngineTestCase):
         self.fuel = ExpenseCategory.objects.get(name="Carburant")                # pas de plafond
         self.yesterday = timezone.localdate() - datetime.timedelta(days=1)
 
-    def line(self, category=None, amount="100", receipt="default", **fields):
+    def line(self, category=None, amount="100", receipts="default", **fields):
         return {"date": self.yesterday, "category": category or self.taxi, "amount": Decimal(amount),
-                "description": "", "receipt": ticket() if receipt == "default" else receipt, **fields}
+                "description": "", "receipts": [ticket()] if receipts == "default" else receipts, **fields}
 
     def errors_of(self, lines, title="Mission Agadir", employee=None):
         with self.assertRaises(ValidationError) as error:
@@ -82,7 +82,15 @@ class RulesTests(ClaimTestCase):
             (WorkflowStep.Approver.HR, WorkflowStep.Mode.INFORM, RequestStep.Status.WAITING),
         ])
         self.assertEqual(claim.request.steps.first().assignee, self.youssef)
-        self.assertTrue(claim.lines.first().receipt.name.startswith("receipts/"))
+        self.assertTrue(claim.lines.first().receipts.get().file.name.startswith("receipts/"))
+
+    def test_several_receipts_for_one_expense(self):
+        # L'hôtel : la facture + le ticket de la carte bancaire, sur la MÊME dépense.
+        claim = submit_claim(self.sara, "Mission", [self.line(self.hotel, "380", receipts=[ticket("facture.pdf"), ticket("carte.jpg")])])
+        self.assertEqual([r.name for r in claim.lines.get().receipts.all()], ["facture.pdf", "carte.jpg"])
+        # Au plus 5 ; un mauvais fichier parmi d'autres : son nom dans le message.
+        self.assertIn("Au plus 5", self.errors_of([self.line(receipts=[ticket() for _ in range(6)])])["line_0"][0])
+        self.assertIn("virus.exe", self.errors_of([self.line(receipts=[ticket(), ticket("virus.exe")])])["line_0"][0])
 
     def test_the_ceiling_of_the_grade(self):
         # Grade E : hôtel 400 MAD par nuit.
@@ -105,9 +113,9 @@ class RulesTests(ClaimTestCase):
     def test_line_rules(self):
         tomorrow = timezone.localdate() + datetime.timedelta(days=1)
         self.assertIn("futur", self.errors_of([self.line(date=tomorrow)])["line_0"][0])
-        self.assertIn("Justificatif obligatoire", self.errors_of([self.line(receipt=None)])["line_0"][0])
-        self.assertIn("5 Mo", self.errors_of([self.line(receipt=ticket(size=6 * 1024 * 1024))])["line_0"][0])
-        self.assertIn("line_0", self.errors_of([self.line(receipt=ticket("virus.exe"))]))
+        self.assertIn("Justificatif obligatoire", self.errors_of([self.line(receipts=[])])["line_0"][0])
+        self.assertIn("5 Mo", self.errors_of([self.line(receipts=[ticket(size=6 * 1024 * 1024)])])["line_0"][0])
+        self.assertIn("line_0", self.errors_of([self.line(receipts=[ticket("virus.exe")])]))
         self.assertIn("line_0", self.errors_of([self.line(amount="0")]))
         # Même sans plafond (carburant) : au plus 100 000 MAD par dépense (une faute de frappe).
         self.assertIn("trop élevé", self.errors_of([self.line(self.fuel, "100000.01")])["line_0"][0])
@@ -157,9 +165,12 @@ class ApiTests(ClaimTestCase):
         return {"date": self.yesterday.isoformat(), "category": (category or self.taxi).pk, "amount": amount, "description": "Taxi"}
 
     def test_send_and_see_my_claims(self):
-        response = self.send([self.raw(), self.raw(self.hotel, "300")])
+        # Comme le formulaire : deux fichiers sous le MÊME nom receipt_1 (la facture + le ticket de carte de l'hôtel).
+        response = self.send([self.raw(), self.raw(self.hotel, "300")],
+                             files={"receipt_0": ticket(), "receipt_1": [ticket("facture.pdf"), ticket("carte.jpg")]})
         self.assertEqual(response.status_code, 201, response.json())
         data = response.json()
+        self.assertEqual([r["name"] for r in data["lines"][1]["receipts"]], ["facture.pdf", "carte.jpg"])
         self.assertEqual((data["total"], data["status"], data["grade"]), (400, "IN_PROGRESS", "Grade E — Employé"))
         self.assertIn("(N+1)", data["waiting_for"])
         self.assertEqual(len(self.client.get(reverse("expenses:mine-list")).json()), 1)
@@ -193,7 +204,7 @@ class ApiTests(ClaimTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.content.startswith(b"%PDF"))
         # Le justificatif : moi oui, mon N+1 oui, un collègue d'un autre service non (404).
-        receipt = reverse("expenses:line-receipt", args=[claim.lines.get().pk])
+        receipt = reverse("expenses:receipt-detail", args=[claim.lines.get().receipts.get().pk])
         self.assertEqual(self.client.get(receipt).status_code, 200)
         self.login(self.youssef)
         self.assertEqual(self.client.get(receipt).status_code, 200)

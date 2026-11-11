@@ -24,6 +24,7 @@ type Event = {
   detail?: string
   comment?: string
   warning?: string      // un point à vérifier par les RH (recalcul d'un congé)
+  note?: string         // ce qui se passe maintenant (la dernière ligne d'une demande acceptée)
   at?: string | null    // la date, si l'événement a eu lieu
   muted?: boolean       // pas encore arrivé (étapes suivantes)
 }
@@ -50,6 +51,21 @@ function eventsOf(request: WorkflowRequest, recounts: Recount[]): Event[] {
     events.splice(index === -1 ? events.length : index, 0, event)
   }
   return events
+}
+
+// La dernière ligne d'une demande acceptée, selon son type : le titre, et ce qui se passe maintenant.
+// Un ton professionnel, sobre (comme les grands logiciels RH) : un statut clair, puis l'étape suivante.
+const DONE: Record<string, { title: string; next: string }> = {
+  LEAVE: { title: 'Leave approved · Request closed', next: 'The leave is confirmed and your leave balance has been updated accordingly.' },
+  EXPENSE: { title: 'Expense claim approved · Request closed', next: 'Next step: print the PDF and submit it to HR together with the original receipts.' },
+}
+
+/** "Approved by Manager Test (N+1) · RH du pôle notified" : qui a validé, qui a été prévenu. */
+function finalSummary(request: WorkflowRequest) {
+  const approved = request.steps.filter((step) => step.status === 'APPROVED')
+    .map((step) => (step.validator === step.approver_label ? step.validator : `${step.validator} (${step.approver_label})`))
+  const informed = request.steps.filter((step) => step.status === 'INFORMED').map((step) => step.approver_label)
+  return [approved.length && `Approved by ${approved.join(', ')}`, informed.length && `${informed.join(', ')} notified`].filter(Boolean).join(' · ')
 }
 
 /** La demande -> les événements de son circuit, dans l'ordre. */
@@ -82,7 +98,10 @@ function stepEvents(request: WorkflowRequest): Event[] {
     }
   }
 
-  if (request.status === 'APPROVED') events.push({ icon: CheckCheck, tone: 'text-emerald-600', title: 'Request approved', at: request.closed_at })
+  // La fin, en clair (demandé par l'utilisateur le 2026-11-11, "Request approved" ne disait pas grand-chose) :
+  // "Done: leave confirmed" + qui a validé, qui a été informé, et ce qui se passe maintenant.
+  if (request.status === 'APPROVED') events.push({ icon: CheckCheck, tone: 'text-emerald-600', title: DONE[request.workflow_code]?.title ?? 'Request approved · Request closed',
+    detail: finalSummary(request), note: DONE[request.workflow_code]?.next, at: request.closed_at })
   if (request.status === 'REJECTED') events.push({ icon: XCircle, tone: 'text-red-600', title: 'Request rejected', at: request.closed_at })
   // Annulée : par le demandeur, ou par un RH (une demande déjà acceptée), avec le motif.
   if (request.status === 'CANCELLED') events.push({ icon: Ban, tone: 'text-slate-500', title: `Cancelled by ${request.cancelled_by ?? request.requester}`,
@@ -142,6 +161,7 @@ export function RequestHistory({ requestId }: { requestId: number }) {
               {event.detail}{event.detail && event.at ? ' · ' : ''}{event.at ? formatDateTime(event.at) : ''}
             </p>}
             {event.comment && <p className="mt-1 rounded-md bg-slate-50 px-2 py-1 text-xs italic text-slate-600">“{event.comment}”</p>}
+            {event.note && <p className="mt-1 rounded-md bg-emerald-50 px-2 py-1 text-xs text-emerald-800">{event.note}</p>}
             {event.warning && <p className="mt-1 rounded-md bg-amber-50 px-2 py-1 text-xs font-medium text-amber-800">To check: {event.warning}</p>}
           </div>
         </li>

@@ -11,7 +11,7 @@ from employees.models import Employee
 from workflows import engine
 from workflows.models import Request, Workflow
 
-from .models import ExpenseClaim, ExpenseLine
+from .models import ExpenseClaim, ExpenseLine, ExpenseReceipt
 
 MAX_LINES = 50
 
@@ -23,8 +23,8 @@ def money(value):
 
 @transaction.atomic
 def submit_claim(employee, title, lines):
-    """Envoie une note de frais. `lines` : [{"date", "category", "amount", "description", "receipt"}, ...]
-    (receipt : le fichier envoyé, ou None).
+    """Envoie une note de frais. `lines` : [{"date", "category", "amount", "description", "receipts"}, ...]
+    (receipts : les fichiers envoyés pour cette dépense, de 0 à MAX_RECEIPTS).
     Une règle refusée -> ValidationError({"title": [...]} ou {"line_0": [...], "line_2": [...]}) :
     le formulaire affiche chaque message sous SA ligne. Rien n'est enregistré (transaction)."""
     # Deux clics "Envoyer" en même temps : le second attend le premier (comme pour les congés).
@@ -42,26 +42,34 @@ def submit_claim(employee, title, lines):
     claim = ExpenseClaim(employee=employee, title=title)
     built = []
     for index, data in enumerate(lines or []):
-        receipt = data.get("receipt")
+        files = list(data.get("receipts") or [])
         line = ExpenseLine(
             claim=claim, date=data.get("date"), category=data.get("category"), amount=data.get("amount"),
-            description=(data.get("description") or "").strip(), receipt=receipt,
-            receipt_name=(receipt.name[:200] if receipt else ""),
+            description=(data.get("description") or "").strip(),
         )
+        messages = []
         try:
-            line.full_clean(exclude=["claim"])  # les règles de la ligne (date, plafond, justificatif...)
+            line.full_clean(exclude=["claim"])  # les règles de la ligne (date, plafond...)
         except ValidationError as problem:
-            errors[f"line_{index}"] = problem.messages
-        built.append(line)
+            messages += problem.messages
+        try:
+            line.check_receipts(files)  # ses justificatifs (obligatoire ?, combien, format, taille)
+        except ValidationError as problem:
+            messages += problem.messages
+        if messages:
+            errors[f"line_{index}"] = messages
+        built.append((line, files))
     if errors:
         raise ValidationError(errors)
 
-    claim.total = sum(line.amount for line in built)
+    claim.total = sum(line.amount for line, _ in built)
     claim.request = engine.submit(Workflow.Code.EXPENSE, employee, f"Note de frais : {title} ({money(claim.total)} MAD)")
     claim.save()
-    for line in built:
+    for line, files in built:
         line.claim = claim
-        line.save()  # le justificatif est écrit dans media/receipts/... à ce moment-là
+        line.save()
+        for file in files:  # chaque fichier est écrit dans media/receipts/... à ce moment-là
+            ExpenseReceipt.objects.create(line=line, file=file, name=file.name[:200])
     return claim
 
 

@@ -5,28 +5,30 @@
  * un trajet, une nuit d'hôtel...), chacune avec son justificatif (photo ou PDF).
  * Le plafond du grade s'affiche sous la ligne pendant la saisie ; c'est Django qui décide à l'envoi
  * (ses messages s'affichent sous la ligne concernée : {"line_1": ["Plafond..."]}).
- * Envoi en multipart (FormData) : les lignes en JSON + un fichier par ligne (receipt_0, receipt_1...).
+ * Envoi en multipart (FormData) : les lignes en JSON + les fichiers de chaque ligne (receipt_0, receipt_0, receipt_1...).
+ * Plusieurs justificatifs par dépense (2026-11-11), ex. la facture de l'hôtel + le ticket de la carte : jusqu'à 5.
  */
 import { useState, type FormEvent } from 'react'
-import { CheckCircle2, Loader2, Paperclip, Plus, Trash2 } from 'lucide-react'
+import { CheckCircle2, FileText, Loader2, Paperclip, Plus, Trash2, X } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
-import { ceilingOf, formatMad, type ExpenseCategory, type ExpenseClaim, type Scale } from '@/lib/expenses'
+import { MAX_RECEIPTS, ceilingOf, formatMad, type ExpenseCategory, type ExpenseClaim, type Scale } from '@/lib/expenses'
 import { isoDate } from '@/lib/leaves'
 import { cn } from '@/lib/utils'
 import { controlClass } from '@/components/employees/form-fields'
 
-type Line = { key: number; date: string; category: string; amount: string; description: string; file: File | null }
+type Line = { key: number; date: string; category: string; amount: string; description: string; files: File[] }
 
 let nextKey = 1
-const emptyLine = (): Line => ({ key: nextKey++, date: '', category: '', amount: '', description: '', file: null })
+const emptyLine = (): Line => ({ key: nextKey++, date: '', category: '', amount: '', description: '', files: [] })
 const MAX_LINES = 20
 // Le même maximum que Django (MAX_LINE_AMOUNT) : une sécurité contre un zéro de trop.
 const MAX_AMOUNT = 100000
 
 const PER: Record<string, string> = { DAILY_ALLOWANCE: 'per day', TRANSPORT: 'per trip', HOTEL: 'per night' }
 
-export function ClaimForm({ categories, scale, onSent }: {
-  categories: ExpenseCategory[]; scale: Scale | null; onSent: () => void
+// inPanel : le formulaire est dans le panneau "New expense claim" (le panneau a déjà le titre et l'aide).
+export function ClaimForm({ categories, scale, onSent, inPanel = false }: {
+  categories: ExpenseCategory[]; scale: Scale | null; onSent: (claim: ExpenseClaim) => void; inPanel?: boolean
 }) {
   const [title, setTitle] = useState('')
   const [lines, setLines] = useState<Line[]>(() => [emptyLine()])
@@ -36,10 +38,15 @@ export function ClaimForm({ categories, scale, onSent }: {
   const today = isoDate(new Date())
   const total = lines.reduce((sum, line) => sum + (Number(line.amount) || 0), 0)
 
-  function change(key: number, field: keyof Line, value: string | File | null) {
+  function change(key: number, field: keyof Line, value: string | File[]) {
     setLines((old) => old.map((line) => (line.key === key ? { ...line, [field]: value } : line)))
     setErrors({})
     setSent(null)
+  }
+
+  // Les fichiers choisis s'AJOUTENT à ceux de la ligne (on peut cliquer "Add" plusieurs fois), au plus 5.
+  function addFiles(line: Line, picked: FileList | null) {
+    if (picked?.length) change(line.key, 'files', [...line.files, ...Array.from(picked)].slice(0, MAX_RECEIPTS))
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -49,7 +56,8 @@ export function ClaimForm({ categories, scale, onSent }: {
     const body = new FormData()
     body.append('title', title)
     body.append('lines', JSON.stringify(lines.map(({ date, category, amount, description }) => ({ date, category, amount, description }))))
-    lines.forEach((line, index) => { if (line.file) body.append(`receipt_${index}`, line.file) })
+    // Le même nom (receipt_<n°>) pour chaque fichier d'une ligne : Django les lit avec getlist.
+    lines.forEach((line, index) => line.files.forEach((file) => body.append(`receipt_${index}`, file)))
     try {
       const response = await apiFetch('/api/expenses/mine/', { method: 'POST', body })
       const data = await response.json().catch(() => ({}))
@@ -57,7 +65,7 @@ export function ClaimForm({ categories, scale, onSent }: {
         setSent(data)
         setTitle('')
         setLines([emptyLine()])
-        onSent()
+        onSent(data)
       } else if (response.status === 403 || response.status === 404) {
         setErrors({ detail: [data.detail ?? 'You cannot send an expense claim.'] })
       } else {
@@ -71,13 +79,13 @@ export function ClaimForm({ categories, scale, onSent }: {
   }
 
   return <form onSubmit={submit} className="rounded-xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-    <header className="border-b border-slate-100 px-4 py-3">
+    {!inPanel && <header className="border-b border-slate-100 px-4 py-3">
       <h2 className="text-sm font-semibold text-[#192646]">New expense claim</h2>
       <p className="text-[11px] text-slate-500">
-        One line per expense (one day, one trip, one night), with its receipt. Your N+1 validates, then HR is informed.
+        One line per expense (one day, one trip, one night), with its receipts (e.g. the invoice and the card slip). Your N+1 validates, then HR is informed.
         {scale && <> Your grade: <b className="font-semibold text-slate-700">{scale.grade_label}</b>.</>}
       </p>
-    </header>
+    </header>}
 
     <div className="flex flex-col gap-3 p-4">
       <div>
@@ -120,20 +128,35 @@ export function ClaimForm({ categories, scale, onSent }: {
             <input id={`description-${line.key}`} value={line.description} maxLength={200} placeholder="Detail (e.g. Taxi airport → hotel)"
               onChange={(e) => change(line.key, 'description', e.target.value)} className={cn(controlClass, 'mt-0')} />
             <div className="flex items-center gap-1">
-              {/* Le justificatif : un vrai <input type="file"> caché derrière un bouton lisible. */}
-              <label htmlFor={`receipt-${line.key}`}
-                className={cn('flex h-10 cursor-pointer items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold',
-                  line.file ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-white text-slate-600 hover:border-[#23355d]/40')}>
-                <Paperclip className="size-3.5" />
-                <span className="max-w-32 truncate">{line.file ? line.file.name : `Receipt${category?.receipt_required === false ? ' (optional)' : ''}`}</span>
+              {/* Les justificatifs : un vrai <input type="file" multiple> caché derrière un bouton lisible.
+                  Vidé après chaque choix : on peut rechoisir le même fichier après l'avoir retiré. */}
+              <label htmlFor={`receipt-${line.key}`} aria-disabled={line.files.length >= MAX_RECEIPTS || undefined}
+                className={cn('flex h-10 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold',
+                  line.files.length >= MAX_RECEIPTS ? 'cursor-not-allowed border-slate-200 text-slate-400'
+                    : 'cursor-pointer border-slate-200 bg-white text-slate-600 hover:border-[#23355d]/40 hover:text-[#23355d]')}>
+                {line.files.length ? <Plus className="size-3.5" /> : <Paperclip className="size-3.5" />}
+                {line.files.length ? 'Add a file' : `Receipt${category?.receipt_required === false ? ' (optional)' : ''}`}
               </label>
-              <input id={`receipt-${line.key}`} type="file" accept=".pdf,.jpg,.jpeg,.png" className="sr-only"
-                onChange={(e) => change(line.key, 'file', e.target.files?.[0] ?? null)} />
+              <input id={`receipt-${line.key}`} type="file" multiple accept=".pdf,.jpg,.jpeg,.png" className="sr-only"
+                disabled={line.files.length >= MAX_RECEIPTS}
+                onChange={(e) => { addFiles(line, e.target.files); e.target.value = '' }} />
               {lines.length > 1 && <button type="button" aria-label={`Remove expense ${index + 1}`}
                 onClick={() => setLines((old) => old.filter((l) => l.key !== line.key))}
                 className="rounded-md p-2 text-slate-400 hover:bg-red-50 hover:text-red-600"><Trash2 className="size-4" /></button>}
             </div>
           </div>
+          {/* Les fichiers choisis : une puce par fichier, avec une croix pour le retirer. */}
+          {line.files.length > 0 && <ul aria-label={`Receipts of expense ${index + 1}`} className="mt-2 flex flex-wrap items-center gap-1.5">
+            {line.files.map((file, position) => <li key={`${file.name}-${position}`}
+              className="flex max-w-full items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 py-1 pl-2.5 pr-1 text-[11px] font-medium text-emerald-800">
+              <FileText className="size-3 shrink-0" aria-hidden />
+              <span className="max-w-44 truncate" title={file.name}>{file.name}</span>
+              <button type="button" aria-label={`Remove ${file.name}`}
+                onClick={() => change(line.key, 'files', line.files.filter((_, other) => other !== position))}
+                className="rounded-full p-0.5 text-emerald-700 hover:bg-emerald-100"><X className="size-3" /></button>
+            </li>)}
+            <li className="text-[11px] text-slate-400">{line.files.length} / {MAX_RECEIPTS}</li>
+          </ul>}
           {/* L'aide du barème (le plafond de MON grade), puis les messages de Django pour cette ligne. */}
           {tooHigh && <p className="mt-1.5 text-[11px] font-medium text-red-600">
             Too high: at most {formatMad(MAX_AMOUNT)} per expense (check the amount).

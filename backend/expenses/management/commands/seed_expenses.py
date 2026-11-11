@@ -51,7 +51,7 @@ DEMOS = [
 ]
 
 
-def demo_receipt(text):
+def demo_receipt(text, file_name="ticket-demo.pdf"):
     """Un petit PDF "ticket de démonstration" (un vrai fichier, pour essayer l'ouverture des justificatifs)."""
     buffer = BytesIO()
     page = canvas.Canvas(buffer, pagesize=A6)
@@ -61,7 +61,16 @@ def demo_receipt(text):
     for row, line in enumerate(text.split("\n")):
         page.drawString(30, 300 - row * 16, line)
     page.save()
-    return SimpleUploadedFile("ticket-demo.pdf", buffer.getvalue(), content_type="application/pdf")
+    return SimpleUploadedFile(file_name, buffer.getvalue(), content_type="application/pdf")
+
+
+def demo_receipts(category, text):
+    """Les justificatifs d'une dépense de démo : la facture ; pour l'hôtel, aussi le ticket de la carte
+    (pour montrer PLUSIEURS justificatifs sur une même dépense)."""
+    files = [demo_receipt(text, "facture-demo.pdf")]
+    if category.startswith("Hébergement"):
+        files.append(demo_receipt(f"Paiement par carte bancaire\n{text}", "ticket-carte-demo.pdf"))
+    return files
 
 
 def validate_by_n_plus_1(request):
@@ -99,7 +108,7 @@ class Command(BaseCommand):
                 "date": today - datetime.timedelta(days=days_ago),
                 "category": ExpenseCategory.objects.get(name=category),
                 "amount": amount, "description": detail,
-                "receipt": demo_receipt(f"{detail}\nMontant : {amount} MAD\nDate : {today - datetime.timedelta(days=days_ago):%d/%m/%Y}"),
+                "receipts": demo_receipts(category, f"{detail}\nMontant : {amount} MAD\nDate : {today - datetime.timedelta(days=days_ago):%d/%m/%Y}"),
             } for days_ago, category, amount, detail in lines]
             try:
                 claim = submit_claim(employee, title, data)

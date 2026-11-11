@@ -24,6 +24,8 @@ from workflows.models import Request
 
 POSITIVE = [MinValueValidator(Decimal("0.01"))]
 MAX_RECEIPT_SIZE = 5 * 1024 * 1024  # 5 Mo : une photo de téléphone ou un PDF scanné
+# Plusieurs justificatifs par dépense (2026-11-11), ex. la facture de l'hôtel + le ticket de la carte bancaire.
+MAX_RECEIPTS = 5
 # Le maximum d'UNE dépense, même sans plafond du barème (carburant, billet d'avion...) : une sécurité
 # contre une faute de frappe (un zéro de trop). Valeur standard, à confirmer par les RH.
 MAX_LINE_AMOUNT = Decimal("100000")
@@ -116,18 +118,13 @@ def receipt_size(file):
 
 
 class ExpenseLine(models.Model):
-    """Une dépense : un jour d'indemnité, un trajet, une nuit d'hôtel... avec son justificatif."""
+    """Une dépense : un jour d'indemnité, un trajet, une nuit d'hôtel... avec ses justificatifs (ExpenseReceipt)."""
 
     claim = models.ForeignKey(ExpenseClaim, on_delete=models.CASCADE, related_name="lines", verbose_name="Note de frais")
     date = models.DateField("Date")
     category = models.ForeignKey(ExpenseCategory, on_delete=models.PROTECT, related_name="lines", verbose_name="Catégorie")
     amount = models.DecimalField("Montant (MAD)", max_digits=10, decimal_places=2, validators=POSITIVE)
     description = models.CharField("Détail", max_length=200, blank=True)
-    receipt = models.FileField(
-        "Justificatif", upload_to=receipt_path, blank=True,
-        validators=[FileExtensionValidator(["pdf", "jpg", "jpeg", "png"]), receipt_size],
-    )
-    receipt_name = models.CharField("Nom du fichier envoyé", max_length=200, blank=True)  # pour l'afficher
 
     class Meta:
         ordering = ["date", "id"]
@@ -148,9 +145,7 @@ class ExpenseLine(models.Model):
         # Règle 2 : une catégorie désactivée par Admin RH ne se choisit plus.
         if not self.category.is_active:
             raise ValidationError({"category": "Cette catégorie n'est plus proposée."})
-        # Règle 3 : le justificatif, si la catégorie le demande.
-        if self.category.receipt_required and not self.receipt:
-            raise ValidationError({"receipt": f"Justificatif obligatoire pour « {self.category} »."})
+        # (Règle 3, les justificatifs : check_receipts, car ils sont enregistrés APRÈS la ligne.)
         # Règle 4 : le plafond du barème, selon le grade du collaborateur (ex. Grade E, hôtel : 400 MAD par nuit).
         if self.category.ceiling != ExpenseCategory.Ceiling.NONE:
             grade = self.claim.employee.grade
@@ -163,3 +158,38 @@ class ExpenseLine(models.Model):
                     f"Plafond {self.category.get_ceiling_display().lower()} pour votre grade : {ceiling:.2f} MAD "
                     f"(cette dépense : {self.amount:.2f} MAD)."
                 )})
+
+    def check_receipts(self, files):
+        """Règle 3 : les justificatifs envoyés pour cette dépense (files = les fichiers, pas encore enregistrés).
+        Obligatoire si la catégorie le demande ; au plus MAX_RECEIPTS ; chacun pdf / jpg / png de 5 Mo au plus."""
+        if self.category_id and self.category.receipt_required and not files:
+            raise ValidationError(f"Justificatif obligatoire pour « {self.category} ».")
+        if len(files) > MAX_RECEIPTS:
+            raise ValidationError(f"Au plus {MAX_RECEIPTS} justificatifs par dépense.")
+        messages = []
+        for file in files:
+            try:
+                ExpenseReceipt(file=file, name=file.name[:200]).full_clean(exclude=["line"])
+            except ValidationError as problem:
+                messages += [f"{file.name} : {message}" for message in problem.messages]
+        if messages:
+            raise ValidationError(messages)
+
+
+class ExpenseReceipt(models.Model):
+    """Un justificatif d'une dépense (2026-11-11 : PLUSIEURS par dépense, ex. la facture + le ticket de carte).
+    Jamais servi par une adresse publique : seulement /api/expenses/receipts/<id>/, pour ceux que la note concerne."""
+
+    line = models.ForeignKey(ExpenseLine, on_delete=models.CASCADE, related_name="receipts", verbose_name="Dépense")
+    file = models.FileField(
+        "Fichier", upload_to=receipt_path,
+        validators=[FileExtensionValidator(["pdf", "jpg", "jpeg", "png"]), receipt_size],
+    )
+    name = models.CharField("Nom du fichier envoyé", max_length=200, blank=True)  # pour l'afficher
+
+    class Meta:
+        ordering = ["id"]
+        verbose_name = "Justificatif"
+
+    def __str__(self):
+        return self.name or self.file.name

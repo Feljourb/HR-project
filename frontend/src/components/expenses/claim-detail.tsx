@@ -5,7 +5,7 @@
  * le total, le PDF. Pour tous ceux que la demande concerne (le demandeur, son N+1, les RH du pôle...) :
  * c'est ici que le N+1 regarde les tickets avant de valider. Sinon Django répond 404.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, Paperclip } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
@@ -18,7 +18,6 @@ import { PdfButton, actionClass } from './claim-actions'
 export function ClaimDetail({ requestId }: { requestId: number }) {
   const [claim, setClaim] = useState<ExpenseClaim | null>(null)
   const [problem, setProblem] = useState('')
-  const [fileError, setFileError] = useState('')
 
   useEffect(() => {
     apiFetch(`/api/expenses/claims/${requestId}/`)
@@ -31,12 +30,20 @@ export function ClaimDetail({ requestId }: { requestId: number }) {
   }, [requestId])
 
   if (!claim) return <Message>{problem || 'Loading...'}</Message>
-  const status = claimStatus(claim)
 
   return <div className="flex flex-col gap-4">
     <Link href="/expenses" className="flex items-center gap-1 text-xs font-semibold text-[#23355d] hover:underline"><ArrowLeft className="size-3.5" /> Expense claims</Link>
+    <ClaimView claim={claim} />
+  </div>
+}
 
-    <section className="rounded-xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+/** La note elle-même (qui, dépenses, justificatifs, total, PDF, historique) : dans cette page (lien d'une
+ *  cloche, de Team approvals) ET dans le panneau de "My claims" (sans quitter la liste). */
+export function ClaimView({ claim, actions }: { claim: ExpenseClaim; actions?: ReactNode }) {
+  const [fileError, setFileError] = useState('')
+  const status = claimStatus(claim)
+
+  return <section className="rounded-xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
       <header className="flex flex-wrap items-start gap-3 border-b border-slate-100 px-4 py-3">
         <div className="min-w-0 flex-1">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8C6D52]">Expense claim n° {claim.request}</p>
@@ -50,6 +57,7 @@ export function ClaimDetail({ requestId }: { requestId: number }) {
         <div className="flex flex-col items-end gap-1.5">
           <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold', STATUS_BADGE[status.key])}>{status.label}</span>
           <div className="flex items-center gap-1">
+            {actions}
             <PdfButton claim={claim} />
             {/* L'historique du circuit : qui a validé, quand, avec quel commentaire. */}
             <Link href={`/requests/${claim.request}`} className={actionClass}>History</Link>
@@ -64,7 +72,7 @@ export function ClaimDetail({ requestId }: { requestId: number }) {
               <th className="px-4 py-2">Date</th>
               <th className="px-4 py-2">Category</th>
               <th className="px-4 py-2">Detail</th>
-              <th className="px-4 py-2">Receipt</th>
+              <th className="px-4 py-2">Receipts</th>
               <th className="px-4 py-2 text-right">Amount</th>
             </tr>
           </thead>
@@ -74,11 +82,14 @@ export function ClaimDetail({ requestId }: { requestId: number }) {
               <td className="px-4 py-2.5 text-slate-700">{line.category_label}</td>
               <td className="px-4 py-2.5 text-slate-600">{line.description || '—'}</td>
               <td className="px-4 py-2.5">
-                {line.has_receipt
-                  ? <button type="button" className={cn(actionClass, 'px-0')}
-                      onClick={async () => setFileError(await getFile(`/api/expenses/lines/${line.id}/receipt/`, line.receipt_name, false))}>
-                      <Paperclip className="size-3.5" /> <span className="max-w-40 truncate">{line.receipt_name || 'Open'}</span>
-                    </button>
+                {/* Chaque justificatif de la dépense (ex. la facture + le ticket de carte) : un clic l'ouvre. */}
+                {line.receipts.length > 0
+                  ? <div className="flex flex-col items-start gap-0.5">
+                      {line.receipts.map((receipt) => <button key={receipt.id} type="button" className={cn(actionClass, 'px-0')}
+                        onClick={async () => setFileError(await getFile(`/api/expenses/receipts/${receipt.id}/`, receipt.name, false))}>
+                        <Paperclip className="size-3.5" /> <span className="max-w-40 truncate">{receipt.name || 'Open'}</span>
+                      </button>)}
+                    </div>
                   : <span className="text-slate-400">—</span>}
               </td>
               <td className="px-4 py-2.5 text-right font-semibold tabular-nums text-slate-700">{formatMad(line.amount)}</td>
@@ -94,5 +105,4 @@ export function ClaimDetail({ requestId }: { requestId: number }) {
       </div>
       {fileError && <p role="alert" className="px-4 pb-3 text-xs font-medium text-red-600">{fileError}</p>}
     </section>
-  </div>
 }

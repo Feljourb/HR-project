@@ -10,10 +10,16 @@ export type ExpenseCategory = { id: number; name: string; ceiling: Ceiling; ceil
 // Le barème d'un grade (MAD) : indemnité par jour, transport par trajet, hôtel par nuit.
 export type Scale = { id: number; grade: number; grade_label: string; daily_allowance: number; transport: number; hotel: number }
 
+// Un justificatif : le fichier s'ouvre avec GET /api/expenses/receipts/<id>/.
+export type Receipt = { id: number; name: string }
+
 export type ExpenseLine = {
   id: number; date: string; category: number; category_label: string; amount: number
-  description: string; has_receipt: boolean; receipt_name: string
+  description: string; receipts: Receipt[]  // 0 à 5 (ex. la facture + le ticket de carte)
 }
+
+// Le même maximum que Django (MAX_RECEIPTS).
+export const MAX_RECEIPTS = 5
 
 export type ExpenseClaim = {
   id: number

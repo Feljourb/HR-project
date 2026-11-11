@@ -24,12 +24,16 @@ class ExpenseScaleAdmin(admin.ModelAdmin):
 class ExpenseLineInline(admin.TabularInline):
     model = ExpenseLine
     extra = 0
-    fields = ("date", "category", "amount", "description", "receipt_name")
+    fields = ("date", "category", "amount", "description", "receipt_names")
     readonly_fields = fields
     can_delete = False
 
     def has_add_permission(self, request, obj=None):
         return False
+
+    @admin.display(description="Justificatifs")
+    def receipt_names(self, line):
+        return ", ".join(receipt.name for receipt in line.receipts.all()) or "-"
 
 
 @admin.register(ExpenseClaim)

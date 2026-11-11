@@ -5,7 +5,7 @@ from rest_framework import serializers
 
 from workflows.serializers import person
 
-from .models import TOO_HIGH, ExpenseCategory, ExpenseClaim, ExpenseLine, ExpenseScale
+from .models import TOO_HIGH, ExpenseCategory, ExpenseClaim, ExpenseLine, ExpenseReceipt, ExpenseScale
 
 
 def amount_field(**kwargs):
@@ -49,17 +49,22 @@ class LineInputSerializer(serializers.Serializer):
     description = serializers.CharField(required=False, allow_blank=True, default="", max_length=200)
 
 
+class ReceiptSerializer(serializers.ModelSerializer):
+    """Un justificatif : seulement son numéro et son nom (le fichier : GET /api/expenses/receipts/<id>/)."""
+
+    class Meta:
+        model = ExpenseReceipt
+        fields = ["id", "name"]
+
+
 class LineSerializer(serializers.ModelSerializer):
     category_label = serializers.StringRelatedField(source="category")
     amount = amount_field()
-    has_receipt = serializers.SerializerMethodField()
+    receipts = ReceiptSerializer(many=True, read_only=True)  # 0 à 5 (ex. la facture + le ticket de carte)
 
     class Meta:
         model = ExpenseLine
-        fields = ["id", "date", "category", "category_label", "amount", "description", "has_receipt", "receipt_name"]
-
-    def get_has_receipt(self, line):
-        return bool(line.receipt)
+        fields = ["id", "date", "category", "category_label", "amount", "description", "receipts"]
 
 
 class ClaimSerializer(serializers.ModelSerializer):

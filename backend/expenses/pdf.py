@@ -54,10 +54,11 @@ def claim_pdf(claim):
 
     # Les dépenses, puis le total.
     story.append(Paragraph("Dépenses", heading))
-    rows = [["Date", "Catégorie", "Détail", "Justificatif", "Montant (MAD)"]]
-    for line in claim.lines.select_related("category"):
+    rows = [["Date", "Catégorie", "Détail", "Justificatifs", "Montant (MAD)"]]
+    for line in claim.lines.select_related("category").prefetch_related("receipts"):
+        count = len(line.receipts.all())  # le nombre de pièces à joindre (ex. facture + ticket de carte = 2)
         rows.append([f"{line.date:%d/%m/%Y}", Paragraph(str(line.category), normal), Paragraph(line.description or "-", normal),
-                     "Oui" if line.receipt else "Non", money(line.amount)])
+                     str(count) if count else "Non", money(line.amount)])
     rows.append(["", "", "", "Total", money(claim.total)])
     lines_table = Table(rows, colWidths=[22 * mm, 50 * mm, 52 * mm, 22 * mm, 28 * mm], repeatRows=1)
     lines_table.setStyle(TableStyle([

@@ -3,11 +3,12 @@
 GET  categories/                      -> les catégories actives (le formulaire)
 GET  scales/                          -> le barème de chaque grade ; PATCH scales/<id>/ : Admin RH
 GET  mine/                            -> mes notes de frais
-POST mine/                            -> envoyer une note (multipart : title, lines = JSON, receipt_0, receipt_1...)
+POST mine/                            -> envoyer une note (multipart : title, lines = JSON, et les fichiers de la
+                                         dépense n° i sous le nom receipt_<i>, une ou plusieurs fois)
 GET  mine/scale/                      -> MON barème (selon mon grade), pour les aides du formulaire
 GET  claims/<request>/                -> une note (pour ceux que la demande concerne : moi, mon N+1, les RH...)
 GET  claims/<request>/pdf/            -> son PDF, une fois validée (à imprimer pour les RH)
-GET  lines/<id>/receipt/              -> le justificatif d'une dépense (mêmes droits que la note)
+GET  receipts/<id>/                   -> un justificatif d'une dépense (mêmes droits que la note)
 GET  hr/?status=to_reimburse|reimbursed|in_progress|all -> les notes du pôle (RH)
 POST hr/<request>/reimburse/          -> la marquer remboursée (RH)
 Annuler : /api/workflows/requests/<request>/cancel/ (le moteur, comme pour toutes les demandes).
@@ -30,7 +31,7 @@ from employees.services import limited_to_own_pole, user_pole
 from workflows import engine
 from workflows.models import Request
 
-from .models import ExpenseCategory, ExpenseClaim, ExpenseLine, ExpenseScale
+from .models import ExpenseCategory, ExpenseClaim, ExpenseReceipt, ExpenseScale
 from .pdf import claim_pdf
 from .serializers import CategorySerializer, ClaimSerializer, LineInputSerializer, ScaleSerializer
 from .services import mark_reimbursed, submit_claim
@@ -51,7 +52,7 @@ def claims():
     """Les notes avec tout ce que le JSON lit, en peu de requêtes SQL."""
     return (ExpenseClaim.objects
             .select_related("request", "employee__department__direction__entity__pole", "employee__grade", "reimbursed_by")
-            .prefetch_related("lines__category", "request__steps__assignee"))
+            .prefetch_related("lines__category", "lines__receipts", "request__steps__assignee"))
 
 
 class CategoryViewSet(viewsets.ReadOnlyModelViewSet):
@@ -86,7 +87,8 @@ class MyClaimViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
 
     def create(self, request):
         employee = my_employee(request.user)
-        # Les lignes arrivent en JSON (texte) dans le formulaire multipart ; chaque fichier à côté : receipt_<n°>.
+        # Les lignes arrivent en JSON (texte) dans le formulaire multipart ; les fichiers à côté : receipt_<n°>,
+        # répété pour chaque justificatif de la même dépense (getlist).
         try:
             raw_lines = json.loads(request.data.get("lines") or "[]")
         except json.JSONDecodeError:
@@ -98,7 +100,7 @@ class MyClaimViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         for index, raw in enumerate(raw_lines):
             data = LineInputSerializer(data=raw if isinstance(raw, dict) else {})
             if data.is_valid():
-                lines.append({**data.validated_data, "receipt": request.FILES.get(f"receipt_{index}")})
+                lines.append({**data.validated_data, "receipts": request.FILES.getlist(f"receipt_{index}")})
             else:
                 # Un champ mal rempli (ex. une date vide) : son message, sous sa ligne.
                 errors[f"line_{index}"] = [f"{name} : {messages[0]}" for name, messages in data.errors.items()]
@@ -140,18 +142,15 @@ class ClaimViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet):
         return response
 
 
-class LineViewSet(viewsets.GenericViewSet):
-    """Le justificatif d'une dépense : mêmes droits que la note (sinon 404, comme si elle n'existait pas)."""
+class ReceiptViewSet(viewsets.GenericViewSet):
+    """GET receipts/<id>/ -> un justificatif : mêmes droits que la note (sinon 404, comme s'il n'existait pas)."""
 
     def get_queryset(self):
-        return ExpenseLine.objects.filter(claim__request__in=engine.requests_visible_to(self.request.user))
+        return ExpenseReceipt.objects.filter(line__claim__request__in=engine.requests_visible_to(self.request.user))
 
-    @action(detail=True, methods=["get"])
-    def receipt(self, request, pk=None):
-        line = self.get_object()
-        if not line.receipt:
-            raise NotFound("Pas de justificatif pour cette dépense.")
-        return FileResponse(line.receipt.open("rb"), as_attachment=False, filename=line.receipt_name or line.receipt.name)
+    def retrieve(self, request, pk=None):
+        receipt = self.get_object()
+        return FileResponse(receipt.file.open("rb"), as_attachment=False, filename=receipt.name or receipt.file.name)
 
 
 class HrClaimViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
