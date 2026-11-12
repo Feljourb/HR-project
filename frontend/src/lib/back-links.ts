@@ -16,6 +16,8 @@ const PAGES: Record<string, BackLink> = {
   'leave-balances': { href: '/leave-balances', label: 'Leave balances' },
   expenses: { href: '/expenses', label: 'Expense claims' },
   reimbursements: { href: '/reimbursements', label: 'Reimbursements' },
+  documents: { href: '/documents', label: 'Administrative documents' },
+  'document-requests': { href: '/document-requests', label: 'Document requests' },
   dashboard: { href: '/', label: 'Dashboard' },
 }
 

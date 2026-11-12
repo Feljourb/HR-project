@@ -11,7 +11,7 @@ import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import {
   BookOpen, BriefcaseBusiness, Building2, CalendarDays, CalendarRange, Check, ChevronDown, ChevronRight, ChevronsUpDown,
-  CircleHelp, ClipboardCheck, FolderOpen, Headphones, Inbox, LayoutDashboard, ListChecks, LockKeyhole, type LucideIcon,
+  CircleHelp, ClipboardCheck, FileText, FolderOpen, Headphones, Inbox, LayoutDashboard, ListChecks, LockKeyhole, type LucideIcon,
   LogOut, Menu, PiggyBank, Plane, ReceiptText, ScrollText, Search, ShieldCheck, UserRound, UserRoundCheck, UserRoundCog, UsersRound, Workflow, X,
 } from 'lucide-react'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -46,7 +46,7 @@ const navGroups: NavGroup[] = [
     { label: 'Leave Requests', icon: CalendarDays, href: '/leaves' },
     { label: 'Expense Claims', icon: ReceiptText, href: '/expenses' },
     { label: 'Stand-in requests', icon: UserRoundCheck, href: '/stand-in', standInOnly: true },
-    { label: 'Administrative Documents', icon: FolderOpen },
+    { label: 'Administrative Documents', icon: FolderOpen, href: '/documents' },
   ] },
   { label: 'Company Services', icon: Building2, items: [
     // Ici (et pas dans "Management & HR") : l'annuaire est ouvert à tous les rôles.
@@ -68,6 +68,7 @@ const navGroups: NavGroup[] = [
     { label: 'Absences', icon: CalendarDays, href: '/absences', hrOnly: true },
     { label: 'Leave balances', icon: PiggyBank, href: '/leave-balances', hrOnly: true },
     { label: 'Reimbursements', icon: ReceiptText, href: '/reimbursements', hrOnly: true },
+    { label: 'Document requests', icon: FileText, href: '/document-requests', hrOnly: true },
     { label: 'Audit log', icon: ScrollText, href: '/audit', hrOnly: true },
     { label: 'Reference lists', icon: ListChecks, href: '/lists', adminOnly: true },
     { label: 'Workflows', icon: Workflow, href: '/workflows', adminOnly: true },
@@ -97,6 +98,7 @@ const SUB_PAGES: [RegExp, string][] = [
 const FROM_ITEM: Record<string, string> = {
   requests: 'My Requests', received: 'My Requests', leaves: 'Leave Requests', expenses: 'Expense Claims', approvals: 'Team Approvals',
   'stand-in': 'Stand-in requests', absences: 'Absences', 'leave-balances': 'Leave balances', reimbursements: 'Reimbursements',
+  documents: 'Administrative Documents', 'document-requests': 'Document requests',
 }
 
 /**

@@ -148,6 +148,8 @@ def link(notification):
         return "/"  # (garde-fou) une notification sans demande ni page à elle : le tableau de bord
     if notification.kind in (Kind.BALANCE_ADJUSTED, Kind.RIGHT_CHANGED, Kind.EXPIRING):
         return "/leaves"  # ma page Congés : mon solde et la section "Balance changes"
+    if notification.kind == Kind.DOCUMENT_READY:
+        return "/documents"  # ma page Administrative documents : le bouton Download
     if notification.kind == Kind.DELEGATION_ENDED:
         # Ce que j'ai répondu en remplacement : My requests -> Received (collaborateur), Team approvals -> History.
         return "/requests?tab=received" if notification.recipient.role == get_user_model().Role.COLLABORATOR else "/approvals"
@@ -165,8 +167,10 @@ def back_page(notification):
     Role = get_user_model().Role
     role = notification.recipient.role
     if role in (Role.HR, Role.HR_ADMIN):
-        # Les RH suivent les congés dans Absences, les notes de frais dans Reimbursements.
-        return {"LEAVE": "absences", "EXPENSE": "reimbursements"}.get(request.workflow.code, "approvals")
+        # Les RH suivent les congés dans Absences, les notes de frais dans Reimbursements, les documents dans
+        # Document requests.
+        return {"LEAVE": "absences", "EXPENSE": "reimbursements", "ADMIN_REQUEST": "document-requests"}.get(
+            request.workflow.code, "approvals")
     # Un valideur : Team approvals (onglet History) ; un collaborateur délégué : My requests -> Received (toujours
     # là, même la délégation finie). Un collaborateur responsable d'équipe (l'étape est la sienne) : Team approvals.
     if role != Role.COLLABORATOR or request.steps.filter(assignee__user=notification.recipient_id).exists():
@@ -218,6 +222,10 @@ def message(notification):
                                                 created_at__lte=notification.created_at).order_by("-created_at").first())
         period = f" du {delegation.start_date:%d/%m/%Y} au {delegation.end_date:%d/%m/%Y}" if delegation else ""
         return f"Vous remplacez {name}{period} : ses demandes à valider arrivent aussi chez vous."
+    if notification.kind == Kind.DOCUMENT_READY:
+        document = getattr(notification.request, "document", None)  # documents.DocumentRequest (lien inverse)
+        what = f"{document.doc_type} (réf. {document.reference})" if document else notification.request.title
+        return f"Votre document est prêt : {what}. Téléchargez-le dans « Administrative documents »."
     if notification.kind == Kind.DELEGATION_ENDED:
         from workflows.models import Delegation
         delegation = (Delegation.objects.filter(delegator=employee, delegate__user=notification.recipient_id,

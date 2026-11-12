@@ -48,6 +48,7 @@ INSTALLED_APPS = [
     'workflows',
     'leaves',
     'expenses',
+    'documents',
 ]
 
 AUTH_USER_MODEL = "accounts.User"

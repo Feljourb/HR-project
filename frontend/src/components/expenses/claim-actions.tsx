@@ -25,8 +25,9 @@ export function PdfButton({ claim }: { claim: ExpenseClaim }) {
   </>
 }
 
-/** Annuler en deux clics, par le moteur (comme un congé). */
-export function CancelClaim({ claim, onCancelled }: { claim: ExpenseClaim; onCancelled: () => void }) {
+/** Annuler en deux clics, par le moteur (comme un congé). Seuls le n° de demande et son statut servent :
+ *  aussi pour une demande de document (page Administrative documents). */
+export function CancelClaim({ claim, onCancelled }: { claim: Pick<ExpenseClaim, 'request' | 'status'>; onCancelled: () => void }) {
   const [asking, setAsking] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')

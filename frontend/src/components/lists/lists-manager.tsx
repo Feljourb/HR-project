@@ -18,7 +18,7 @@ import { cn } from '@/lib/utils'
 import { AddValueDialog, type AddRequest } from '@/components/employees/add-value-dialog'
 import { SelectField } from '@/components/employees/form-fields'
 import { useList } from '@/components/employees/use-list'
-import { EXPENSE_LISTS, LEAVE_LISTS, LISTS_API, ORGANISATION, OTHER_LISTS, filtersOf, type ListConfig, type ListValue } from './lists-config'
+import { DOCUMENT_LISTS, EXPENSE_LISTS, LEAVE_LISTS, LISTS_API, ORGANISATION, OTHER_LISTS, filtersOf, type ListConfig, type ListValue } from './lists-config'
 import { HolidaysPanel } from './holidays-panel'
 import { LeaveSettingsPanel } from './leave-settings-panel'
 import { ValueRow } from './value-row'
@@ -115,7 +115,7 @@ export function ListsManager() {
       {/* Les 14 listes. */}
       <nav aria-label="Lists" className="rounded-xl border border-slate-200/80 bg-white p-2 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
         {[{ label: 'Organisation', lists: ORGANISATION }, { label: 'Other lists', lists: OTHER_LISTS }, { label: 'Leaves', lists: LEAVE_LISTS },
-          { label: 'Expenses', lists: EXPENSE_LISTS }].map((group) => (
+          { label: 'Expenses', lists: EXPENSE_LISTS }, { label: 'Documents', lists: DOCUMENT_LISTS }].map((group) => (
           <div key={group.label} className="mb-2 last:mb-0">
             <p className="px-2.5 pb-1 pt-2 text-[10px] font-bold uppercase tracking-[0.1em] text-slate-400">{group.label}</p>
             {group.lists.map((list) => (
