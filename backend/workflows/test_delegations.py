@@ -14,7 +14,6 @@ from employees.models import Department, Notification, Pole
 
 from . import engine
 from .delegations import create_delegation, end_delegation
-from .models import Delegation
 from .test_engine import EngineTestCase
 
 User = get_user_model()
@@ -181,9 +180,7 @@ class DelegationTests(EngineTestCase):
         self.assertEqual([(item["request"]["id"], item["by_me"], item["comment"]) for item in mine],
                          [(self.request.pk, False, "Vu")])
         self.assertEqual(mine[0]["decided_by_name"], f"{self.omar.first_name} {self.omar.last_name.title()}")
-        # Délégation finie : le lien reste 30 jours (pour retrouver l'historique), puis disparaît.
+        # Délégation finie : le lien "Stand-in requests" disparaît tout de suite (la mission est finie).
         client.force_authenticate(self.omar.user)
-        self.assertTrue(client.get(reverse("accounts:me")).json()["stands_in"])
-        self.assertTrue(client.get(reverse("workflows:approval-history")).json()[0]["by_me"])
-        Delegation.objects.filter(pk=response.json()["id"]).update(ended_at=timezone.now() - datetime.timedelta(days=31))
         self.assertFalse(client.get(reverse("accounts:me")).json()["stands_in"])
+        self.assertTrue(client.get(reverse("workflows:approval-history")).json()[0]["by_me"])

@@ -1,5 +1,3 @@
-import datetime
-
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
@@ -185,23 +183,18 @@ class MfaConfirmView(APIView):
         return Response({"recovery_codes": mfa.create_recovery_codes(user)})
 
 
-STAND_IN_GRACE_DAYS = 30  # le lien "Stand-in requests" reste 30 jours après la fin d'une délégation
-
-
 class MeView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
         # Import ici : accounts ne dépend de workflows que pour ce petit drapeau (pas d'import circulaire).
-        from django.db.models import Q
         from workflows.models import Delegation
 
-        # stands_in : le menu montre "Stand-in requests" pendant une délégation reçue (en cours ou prévue), et encore
-        # STAND_IN_GRACE_DAYS jours après sa fin (pour retrouver son "History"), puis le lien disparaît.
-        since = timezone.localdate() - datetime.timedelta(days=STAND_IN_GRACE_DAYS)
-        stands_in = Delegation.objects.filter(
-            Q(ended_at__isnull=True, end_date__gte=since) | Q(ended_at__date__gte=since), delegate__user=request.user,
-        ).exists()
+        # stands_in : le menu montre "Stand-in requests" SEULEMENT pendant une délégation reçue (en cours ou prévue).
+        # Finie (date passée ou "End now") : le lien disparaît tout de suite (standard : la mission est finie, moindre
+        # privilège). La trace reste : l'historique de chaque demande, et Team approvals -> History de l'absent.
+        stands_in = Delegation.objects.filter(delegate__user=request.user, ended_at__isnull=True,
+                                              end_date__gte=timezone.localdate()).exists()
         return Response({**user_info(request.user), "stands_in": stands_in})
 
 
