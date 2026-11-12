@@ -71,6 +71,22 @@ class DelegationTests(EngineTestCase):
         end_delegation(now, self.youssef.user)
         self.assertFalse(engine.can_decide(self.omar.user, self.step))
 
+    def test_the_bell_follows_the_period(self):
+        from employees.notifications import refresh_for
+        to_validate = Notification.objects.filter(recipient=self.omar.user, kind="TO_VALIDATE", request=self.request)
+        delegation = create_delegation(self.youssef, self.omar, days(1), days(5), self.youssef.user)
+        self.assertFalse(to_validate.exists())  # prévue demain : rien encore
+        # Le premier jour (tour du matin / cloche ouverte) : la demande qui attendait DÉJÀ Youssef arrive, une fois.
+        tomorrow = days(1)  # calculé AVANT le patch (days() lit localdate)
+        with mock.patch("django.utils.timezone.localdate", lambda *args, **kwargs: tomorrow):
+            refresh_for(self.omar.user)
+            refresh_for(self.omar.user)
+            self.assertEqual(to_validate.count(), 1)
+            # "End now" : elle quitte la cloche d'Omar (pas lue) ; Youssef garde la sienne.
+            end_delegation(delegation, self.youssef.user)
+        self.assertFalse(to_validate.exists())
+        self.assertTrue(Notification.objects.filter(recipient=self.youssef.user, kind="TO_VALIDATE").exists())
+
     def test_nobody_validates_their_own_request(self):
         self.sara.user.role = User.Role.MANAGER  # même une déléguée autorisée ne valide pas SA demande
         self.sara.user.save()

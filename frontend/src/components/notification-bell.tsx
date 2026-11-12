@@ -23,6 +23,21 @@ type Notification = {
   message: string    // calculé par Django aujourd'hui ("dans 3 jours")
   link: string | null  // la page à ouvrir au clic, ou null
   read: boolean
+  created_at: string   // quand elle est arrivée (affichée "5 min ago", "Yesterday, 14:30"...)
+}
+
+/** Quand une notification est arrivée, comme Outlook / Teams : récent = relatif, plus vieux = la date. */
+function whenLabel(iso: string) {
+  const date = new Date(iso)
+  const minutes = Math.floor((Date.now() - date.getTime()) / 60000)
+  const time = date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+  if (minutes < 1) return 'Just now'
+  if (minutes < 60) return `${minutes} min ago`
+  const today = new Date()
+  const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1)
+  if (date.toDateString() === today.toDateString()) return `Today, ${time}`
+  if (date.toDateString() === yesterday.toDateString()) return `Yesterday, ${time}`
+  return `${date.toLocaleDateString('fr-FR')}, ${time}`
 }
 
 type NotificationList = { unread: number; results: Notification[] }
@@ -97,6 +112,8 @@ export function NotificationBell() {
                         {notification.title}{!notification.read && <span className="sr-only"> (unread)</span>}
                       </span>
                       <span className="mt-0.5 block text-xs text-slate-500">{notification.message}</span>
+                      <time dateTime={notification.created_at} title={new Date(notification.created_at).toLocaleString('fr-FR')}
+                        className="mt-1 block text-[10px] font-medium text-slate-400">{whenLabel(notification.created_at)}</time>
                     </span>
                   </>
                   // Avec une page à ouvrir : un lien. Sinon (simple information) : un clic la marque comme lue.

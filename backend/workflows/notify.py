@@ -36,6 +36,36 @@ def clear_waiting(request):
 
 
 @on_bell_refresh
+def sync_stand_in(user):
+    """Délégations (2026-11-12) : la cloche du délégué suit la période, comme sa page. Fait à l'ouverture de la cloche
+    et au tour du matin (donc l'email part aussi), et à "End now".
+    - Fin (date passée ou "End now") : ses "Demande à valider" et rappels PAS ENCORE LUS d'une demande qui n'attend
+      plus sa réponse partent (le lu reste : c'est son historique).
+    - Début (ex. prévue le 13, on est le 13) : 🔔 "Demande à valider" pour chaque demande qui attendait DÉJÀ l'absent
+      (standard : le délégué couvre tout ce qui attend pendant la période), une seule fois par demande."""
+    from .engine import steps_waiting_for  # ici : engine importe déjà ce fichier
+    from .models import Delegation
+
+    waiting = list(steps_waiting_for(user).select_related("request__requester", "assignee"))
+    waiting_requests = {step.request_id for step in waiting}
+    Notification.objects.filter(recipient=user, kind__in=[Kind.TO_VALIDATE, Kind.REMINDER], read_at__isnull=True,
+                                request__isnull=False).exclude(request__in=waiting_requests).delete()
+
+    today = timezone.localdate()
+    if not Delegation.objects.filter(delegate__user=user, ended_at__isnull=True,
+                                     start_date__lte=today, end_date__gte=today).exists():
+        return
+    told = set(Notification.objects.filter(recipient=user, kind=Kind.TO_VALIDATE, request__in=waiting_requests)
+               .values_list("request", flat=True))
+    Notification.objects.bulk_create(
+        Notification(recipient=user, employee=step.request.requester, kind=Kind.TO_VALIDATE, request=step.request)
+        for step in waiting
+        # Seulement les étapes de l'absent (les miennes ont déjà eu leur notification à l'envoi).
+        if step.assignee_id and step.assignee.user_id != user.pk and step.request_id not in told
+    )
+
+
+@on_bell_refresh
 def remind_waiting_requests(user):
     """P3 (rappel, standard) : une demande attend MA réponse depuis 3 jours ou plus -> 🔔 "Rappel : Sara attend votre
     réponse depuis 4 jours". Un seul rappel par demande et par étape (due_date = le jour où elle a eu 3 jours).

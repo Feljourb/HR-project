@@ -10,7 +10,7 @@ from django.utils import timezone
 
 from employees.models import Notification
 
-from . import engine
+from . import engine, notify
 from .models import Delegation, RequestStep
 
 
@@ -47,4 +47,6 @@ def end_delegation(delegation, user):
         raise ValidationError("Cette délégation est déjà terminée.")
     delegation.ended_at = timezone.now()
     delegation.save(update_fields=["ended_at"])
+    # 🔔 Ce qui attendait l'absent quitte tout de suite la cloche du délégué (pas encore lu).
+    notify.sync_stand_in(delegation.delegate.user)
     return delegation
