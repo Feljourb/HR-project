@@ -6,6 +6,7 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 
 from django.db.models import Q
+from django.db.models.functions import Coalesce
 
 from accounts.permissions import IsHRAdmin
 from employees.models import Employee, Pole
@@ -137,26 +138,33 @@ class ApprovalViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         return self.decide(engine.reject)
 
     def decided(self, steps):
-        """Les étapes déjà répondues (onglets "History"), la plus récente d'abord, au plus 200.
+        """Les étapes terminées (onglets "History"), la plus récente d'abord, au plus 200.
         Elles ne sont plus "en attente", donc pas dans get_queryset : leur propre requête."""
         steps = (
-            steps.filter(status__in=[RequestStep.Status.APPROVED, RequestStep.Status.REJECTED])
-            .select_related("request__workflow", "request__requester", "decided_by", "on_behalf_of")
+            steps.select_related("request__workflow", "request__requester", "request__cancelled_by", "decided_by", "on_behalf_of")
             .prefetch_related("request__steps__assignee", "request__steps__decided_by", "request__steps__on_behalf_of")
-            .order_by("-decided_at")[:200]
+            # La date de MA ligne : ma réponse, sinon la fin de la demande (annulée avant que je réponde).
+            .annotate(happened_at=Coalesce("decided_at", "request__closed_at"))
+            .order_by("-happened_at")[:200]
         )
         return Response(DecidedStepSerializer(steps, many=True, context={"request": self.request}).data)
 
     @action(detail=False)
     def history(self, request):
         # Team approvals -> History : les étapes qui m'attendaient (N+1, N+2, DG), répondues par moi OU par mon
-        # délégué en mon nom ; et celles auxquelles j'ai répondu (RH du pôle, ou à la place d'un absent).
-        return self.decided(RequestStep.objects.filter(Q(assignee__user=request.user) | Q(decided_by=request.user)))
+        # délégué en mon nom ; celles auxquelles j'ai répondu (RH du pôle, ou à la place d'un absent) ; ET celles
+        # ANNULÉES pendant qu'elles m'attendaient (par le demandeur, ou par l'application à J) : standard (Workday
+        # "Archive"), le valideur voit toute demande qui lui est arrivée, et comment elle a fini.
+        mine = Q(assignee__user=request.user) | Q(decided_by=request.user)
+        finished = (Q(status__in=[RequestStep.Status.APPROVED, RequestStep.Status.REJECTED])
+                    | Q(status=RequestStep.Status.PENDING, request__status=Request.Status.CANCELLED))
+        return self.decided(RequestStep.objects.filter(mine & finished))
 
     @action(detail=False, url_path="answered-for")
     def answered_for(self, request):
-        # Stand-in requests -> History : seulement ce que j'ai répondu à la place d'un absent.
-        return self.decided(RequestStep.objects.filter(decided_by=request.user, on_behalf_of__isnull=False))
+        # Stand-in requests / My requests -> Received : seulement ce que j'ai répondu à la place d'un absent.
+        return self.decided(RequestStep.objects.filter(decided_by=request.user, on_behalf_of__isnull=False,
+                                                       status__in=[RequestStep.Status.APPROVED, RequestStep.Status.REJECTED]))
 
 
 class DelegationViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):

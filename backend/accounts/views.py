@@ -188,14 +188,17 @@ class MeView(APIView):
 
     def get(self, request):
         # Import ici : accounts ne dépend de workflows que pour ce petit drapeau (pas d'import circulaire).
-        from workflows.models import Delegation
+        from workflows.models import Delegation, RequestStep
 
         # stands_in : le menu montre "Stand-in requests" SEULEMENT pendant une délégation reçue (en cours ou prévue).
         # Finie (date passée ou "End now") : le lien disparaît tout de suite (standard : la mission est finie, moindre
         # privilège). La trace reste : l'historique de chaque demande, et Team approvals -> History de l'absent.
         stands_in = Delegation.objects.filter(delegate__user=request.user, ended_at__isnull=True,
                                               end_date__gte=timezone.localdate()).exists()
-        return Response({**user_info(request.user), "stands_in": stands_in})
+        # stood_in : j'ai déjà répondu à la place de quelqu'un -> "My requests" garde un lien vers ce que j'ai fait
+        # (standard : on perd l'accès pour agir, jamais la trace de ses propres décisions).
+        stood_in = RequestStep.objects.filter(decided_by=request.user, on_behalf_of__isnull=False).exists()
+        return Response({**user_info(request.user), "stands_in": stands_in, "stood_in": stood_in})
 
 
 class SecuritySettingsView(RetrieveUpdateAPIView):

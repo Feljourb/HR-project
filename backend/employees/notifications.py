@@ -144,9 +144,34 @@ def link(notification):
             return "/approvals"
         own = notification.request_id and notification.request.steps.filter(assignee__user=notification.recipient_id).exists()
         return "/approvals" if own and notification.kind != Kind.DELEGATED else "/stand-in"
+    if not notification.request_id:
+        return "/"  # (garde-fou) une notification sans demande ni page à elle : le tableau de bord
     if notification.kind in (Kind.BALANCE_ADJUSTED, Kind.RIGHT_CHANGED, Kind.EXPIRING):
         return "/leaves"  # ma page Congés : mon solde et la section "Balance changes"
-    return f"/requests/{notification.request_id}"  # pour information, acceptée, refusée
+    if notification.kind == Kind.DELEGATION_ENDED:
+        # Ce que j'ai répondu en remplacement : My requests -> Received (collaborateur), Team approvals -> History.
+        return "/requests?tab=received" if notification.recipient.role == get_user_model().Role.COLLABORATOR else "/approvals"
+    # Pour information, acceptée, refusée, annulée... : l'historique de la demande, avec le bon RETOUR (?from=) :
+    # ma demande -> "My requests" ; celle d'un autre -> la page où je la retrouve (2026-11-12 : un manager ouvrait
+    # la demande d'un collaborateur, et "← My requests" le menait à SES demandes).
+    return f"/requests/{notification.request_id}?from={back_page(notification)}"
+
+
+def back_page(notification):
+    """La page d'où la personne retrouve cette demande (le "← retour" de l'historique)."""
+    request = notification.request
+    if request.requester.user_id == notification.recipient_id:
+        return "requests"  # ma propre demande
+    Role = get_user_model().Role
+    role = notification.recipient.role
+    if role in (Role.HR, Role.HR_ADMIN):
+        # Les RH suivent les congés dans Absences, les notes de frais dans Reimbursements.
+        return {"LEAVE": "absences", "EXPENSE": "reimbursements"}.get(request.workflow.code, "approvals")
+    # Un valideur : Team approvals (onglet History) ; un collaborateur délégué : My requests -> Received (toujours
+    # là, même la délégation finie). Un collaborateur responsable d'équipe (l'étape est la sienne) : Team approvals.
+    if role != Role.COLLABORATOR or request.steps.filter(assignee__user=notification.recipient_id).exists():
+        return "approvals"
+    return "received"
 
 
 def message(notification):
@@ -193,6 +218,12 @@ def message(notification):
                                                 created_at__lte=notification.created_at).order_by("-created_at").first())
         period = f" du {delegation.start_date:%d/%m/%Y} au {delegation.end_date:%d/%m/%Y}" if delegation else ""
         return f"Vous remplacez {name}{period} : ses demandes à valider arrivent aussi chez vous."
+    if notification.kind == Kind.DELEGATION_ENDED:
+        from workflows.models import Delegation
+        delegation = (Delegation.objects.filter(delegator=employee, delegate__user=notification.recipient_id,
+                                                ended_at__isnull=False).order_by("-ended_at").first())
+        period = f" (prévue du {delegation.start_date:%d/%m/%Y} au {delegation.end_date:%d/%m/%Y})" if delegation else ""
+        return f"La délégation de {name}{period} est terminée : vous ne répondez plus à sa place."
     if notification.kind == Kind.ANSWERED_FOR:
         # Mon délégué a répondu à ma place : qui, validé ou refusé, et son commentaire.
         from workflows.serializers import name_of

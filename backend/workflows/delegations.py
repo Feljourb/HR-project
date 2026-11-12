@@ -47,6 +47,9 @@ def end_delegation(delegation, user):
         raise ValidationError("Cette délégation est déjà terminée.")
     delegation.ended_at = timezone.now()
     delegation.save(update_fields=["ended_at"])
-    # 🔔 Ce qui attendait l'absent quitte tout de suite la cloche du délégué (pas encore lu).
+    # 🔔 Ce qui attendait l'absent quitte tout de suite la cloche du délégué (pas encore lu),
+    # et le délégué est prévenu (standard) : sinon il croit encore devoir répondre.
     notify.sync_stand_in(delegation.delegate.user)
+    Notification.objects.create(recipient=delegation.delegate.user, employee=delegation.delegator,
+                                kind=Notification.Kind.DELEGATION_ENDED)
     return delegation

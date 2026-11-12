@@ -18,6 +18,7 @@ export type RequestStep = {
   decided_at: string | null
   comment: string
   on_behalf_of: string | null  // P2 : l'absent pour qui quelqu'un a répondu, ou null
+  stand_in: string | null      // étape en attente : le délégué du valideur en ce moment ("Stand-in: Collab Test"), ou null
 }
 
 // P2 step 1 : une délégation ("absent du bureau"). direction : GIVEN = je suis l'absent ; RECEIVED = je remplace.
@@ -60,14 +61,15 @@ export type Approval = {
   on_behalf_of: string | null  // P2 : je réponds à la place de cette personne (absente), ou null
 }
 
-/** Une étape déjà répondue (onglets "History" de Team approvals et de Stand-in requests). */
+/** Une étape terminée (onglets "History" de Team approvals, Stand-in requests, My requests -> Received).
+ *  status PENDING : la demande a été annulée pendant qu'elle m'attendait (pas de réponse à donner). */
 export type DecidedStep = {
   id: number
   request: WorkflowRequest
-  status: 'APPROVED' | 'REJECTED'
-  decided_at: string
+  status: 'APPROVED' | 'REJECTED' | 'PENDING'
+  decided_at: string | null
   comment: string
-  decided_by_name: string
+  decided_by_name: string | null
   on_behalf_of: string | null  // répondue à la place de cette personne (absente), ou null
   by_me: boolean               // "by you", ou "by Elj Fz on your behalf"
 }

@@ -673,6 +673,9 @@ class Notification(models.Model):
         # 2026-11-12 (standard) : mon délégué a répondu À MA PLACE pendant mon absence -> je suis prévenu
         # (`employee` = le demandeur ; le message dit qui, quoi et le commentaire).
         ANSWERED_FOR = "ANSWERED_FOR", "Réponse en votre nom"
+        # 2026-11-12 (standard) : la délégation que j'avais reçue est arrêtée avant sa fin ("End now")
+        # (`employee` = l'absent) : je ne réponds plus à sa place.
+        DELEGATION_ENDED = "DELEGATION_ENDED", "Délégation terminée"
 
     recipient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notifications",
                                   verbose_name="Destinataire")

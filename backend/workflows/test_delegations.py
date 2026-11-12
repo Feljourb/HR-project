@@ -47,6 +47,9 @@ class DelegationTests(EngineTestCase):
         self.assertTrue(Notification.objects.filter(recipient=self.omar.user, kind="DELEGATED").exists())
         self.assertTrue(Notification.objects.filter(recipient=self.omar.user, kind="TO_VALIDATE", request=self.request).exists())
         self.assertIn(self.step, engine.steps_waiting_for(self.omar.user))
+        # Le demandeur voit qui peut répondre : "Waiting for Youssef · Stand-in: Omar".
+        from .serializers import RequestStepSerializer, person
+        self.assertEqual(RequestStepSerializer(self.step).data["stand_in"], person(self.omar))
         engine.approve(self.step, self.omar.user, "OK pour moi")
         self.step.refresh_from_db()
         self.assertEqual((self.step.decided_by, self.step.on_behalf_of), (self.omar.user, self.youssef))
@@ -55,6 +58,9 @@ class DelegationTests(EngineTestCase):
         told = Notification.objects.get(recipient=self.youssef.user, kind="ANSWERED_FOR", request=self.request)
         self.assertIn("a validé en votre nom", message(told))
         self.assertIn("OK pour moi", message(told))
+        # La demande de Sara : le retour mène Youssef à SA page de valideur, pas à "My requests".
+        from employees.notifications import link
+        self.assertEqual(link(told), f"/requests/{self.request.pk}?from=approvals")
 
     def test_the_absent_can_still_answer(self):
         create_delegation(self.youssef, self.omar, days(0), days(5), self.youssef.user)
@@ -86,6 +92,22 @@ class DelegationTests(EngineTestCase):
             end_delegation(delegation, self.youssef.user)
         self.assertFalse(to_validate.exists())
         self.assertTrue(Notification.objects.filter(recipient=self.youssef.user, kind="TO_VALIDATE").exists())
+        # Omar est prévenu que c'est fini (standard).
+        from employees.notifications import message
+        ended = Notification.objects.get(recipient=self.omar.user, kind="DELEGATION_ENDED")
+        self.assertIn("vous ne répondez plus à sa place", message(ended))
+
+    def test_history_shows_a_request_cancelled_while_waiting(self):
+        # Sara annule pendant que la demande attend Youssef : elle reste dans SON History (comme Workday "Archive").
+        engine.cancel(self.request, self.sara.user)
+        client = APIClient()
+        self.youssef.user.must_change_password = False
+        self.youssef.user.save()
+        client.force_authenticate(self.youssef.user)
+        history = client.get(reverse("workflows:approval-history")).json()
+        self.assertEqual([(item["request"]["id"], item["status"], item["request"]["status"]) for item in history],
+                         [(self.request.pk, "PENDING", "CANCELLED")])
+        self.assertIsNone(history[0]["decided_by_name"])
 
     def test_nobody_validates_their_own_request(self):
         self.sara.user.role = User.Role.MANAGER  # même une déléguée autorisée ne valide pas SA demande
@@ -198,5 +220,7 @@ class DelegationTests(EngineTestCase):
         self.assertEqual(mine[0]["decided_by_name"], f"{self.omar.first_name} {self.omar.last_name.title()}")
         # Délégation finie : le lien "Stand-in requests" disparaît tout de suite (la mission est finie).
         client.force_authenticate(self.omar.user)
-        self.assertFalse(client.get(reverse("accounts:me")).json()["stands_in"])
+        me = client.get(reverse("accounts:me")).json()
+        self.assertFalse(me["stands_in"])  # plus d'accès pour agir...
+        self.assertTrue(me["stood_in"])    # ...mais la trace de ce qu'il a décidé reste (lien dans My requests)
         self.assertTrue(client.get(reverse("workflows:approval-history")).json()[0]["by_me"])

@@ -51,15 +51,17 @@ function eventsOf(request: WorkflowRequest, recounts: Recount[]): Event[] {
 
 // La dernière ligne d'une demande acceptée, selon son type : le titre, et ce qui se passe maintenant.
 // Un ton professionnel, sobre (comme les grands logiciels RH) : un statut clair, puis l'étape suivante.
+// Écrit de façon NEUTRE (pas "your") : la page est lue par le demandeur, mais aussi par son N+1, le délégué, les RH
+// (2026-11-12 : "your leave balance" était faux pour le manager).
 const DONE: Record<string, { title: string; next: string }> = {
-  LEAVE: { title: 'Leave approved · Request closed', next: 'The leave is confirmed and your leave balance has been updated accordingly.' },
-  EXPENSE: { title: 'Expense claim approved · Request closed', next: 'Next step: print the PDF and submit it to HR together with the original receipts.' },
+  LEAVE: { title: 'Leave approved · Request closed', next: 'The leave is confirmed and the leave balance is up to date.' },
+  EXPENSE: { title: 'Expense claim approved · Request closed', next: 'Next step: the employee prints the PDF and gives it to HR with the original receipts.' },
 }
 
 // La dernière ligne d'une demande refusée, selon son type.
 const REFUSED: Record<string, { title: string; next: string }> = {
-  LEAVE: { title: 'Leave refused · Request closed', next: 'No days were taken from your balance. You can send a new request with other dates.' },
-  EXPENSE: { title: 'Expense claim refused · Request closed', next: 'Nothing will be reimbursed for this claim. You can correct it and send a new claim.' },
+  LEAVE: { title: 'Leave refused · Request closed', next: 'No days were taken from the leave balance. A new request can be sent with other dates.' },
+  EXPENSE: { title: 'Expense claim refused · Request closed', next: 'Nothing will be reimbursed for this claim. A corrected claim can be sent.' },
 }
 
 // Les rôles des étapes en anglais (la page est en anglais ; Django envoie "RH du pôle", "DG du pôle").
@@ -110,7 +112,10 @@ function stepEvents(request: WorkflowRequest): Event[] {
         // Une demande terminée (annulée) dont l'étape attendait encore : la personne n'a pas répondu.
         events.push(finished
           ? { icon: Circle, tone: 'text-slate-300', title: `Not answered: ${who}`, detail: `Step ${step.order} · ${MODE[step.mode] ?? step.mode_label}`, muted: true }
-          : { icon: Clock, tone: 'text-amber-500', title: `Waiting for ${who}`, detail: `Step ${step.order} · ${MODE[step.mode] ?? step.mode_label}` })
+          // Le valideur a un délégué en ce moment : on dit qui peut aussi répondre (standard : visible dans la demande,
+          // l'équipe n'est pas prévenue à part).
+          : { icon: Clock, tone: 'text-amber-500', title: `Waiting for ${who}`,
+              detail: `Step ${step.order} · ${MODE[step.mode] ?? step.mode_label}${step.stand_in ? ` · Stand-in: ${step.stand_in}` : ''}` })
         break
       default:  // WAITING : pas encore son tour, ou jamais atteinte (demande refusée / annulée)
         events.push({ icon: Circle, tone: 'text-slate-300', title: finished ? `Not reached: ${who}` : `Next: ${who}`, detail: `Step ${step.order} · ${MODE[step.mode] ?? step.mode_label}`, muted: true })
@@ -121,7 +126,7 @@ function stepEvents(request: WorkflowRequest): Event[] {
   if (request.status === 'APPROVED') events.push({ icon: CheckCheck, tone: 'text-emerald-600', title: DONE[request.workflow_code]?.title ?? 'Request approved · Request closed',
     note: DONE[request.workflow_code]?.next, at: request.closed_at })
   if (request.status === 'REJECTED') events.push({ icon: XCircle, tone: 'text-red-600', title: REFUSED[request.workflow_code]?.title ?? 'Request refused · Request closed',
-    note: REFUSED[request.workflow_code]?.next ?? 'You can submit a new request if needed.', noteTone: 'neutral', at: request.closed_at })
+    note: REFUSED[request.workflow_code]?.next ?? 'A new request can be sent if needed.', noteTone: 'neutral', at: request.closed_at })
   // Annulée : par le demandeur, ou par un RH (une demande déjà acceptée), avec le motif ; ou par l'APPLICATION
   // (personne n'a cliqué, 2026-11-12 : un congé pas validé avant son premier jour) : pas d'auteur, mais un motif.
   if (request.status === 'CANCELLED') {

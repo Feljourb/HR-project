@@ -8,6 +8,7 @@ export type BackLink = { href: string; label: string }
 
 const PAGES: Record<string, BackLink> = {
   requests: { href: '/requests', label: 'My requests' },
+  received: { href: '/requests?tab=received', label: 'My requests' },  // onglet "Received" (répondu en remplacement)
   leaves: { href: '/leaves', label: 'Leave requests' },
   approvals: { href: '/approvals', label: 'Team approvals' },
   'stand-in': { href: '/stand-in', label: 'Stand-in requests' },

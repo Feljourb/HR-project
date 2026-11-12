@@ -8,7 +8,7 @@
  */
 import { Suspense, useState, type FormEvent, type ReactNode } from 'react'
 import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import {
   BookOpen, BriefcaseBusiness, Building2, CalendarDays, CalendarRange, Check, ChevronDown, ChevronRight, ChevronsUpDown,
   CircleHelp, ClipboardCheck, FolderOpen, Headphones, Inbox, LayoutDashboard, ListChecks, LockKeyhole, type LucideIcon,
@@ -92,17 +92,29 @@ const SUB_PAGES: [RegExp, string][] = [
   [/^\/expenses\/\d+$/, 'Expense claim'],
 ]
 
+// Une page détail ouverte depuis une autre page (?from=...) : le lien surligné est celui de la page d'origine.
+// Ex. un manager ouvre la demande d'un collaborateur depuis la cloche : "Team Approvals", pas "My Requests".
+const FROM_ITEM: Record<string, string> = {
+  requests: 'My Requests', received: 'My Requests', leaves: 'Leave Requests', expenses: 'Expense Claims', approvals: 'Team Approvals',
+  'stand-in': 'Stand-in requests', absences: 'Absences', 'leave-balances': 'Leave balances', reimbursements: 'Reimbursements',
+}
+
 /**
- * Le lien surligné et le fil d'Ariane, déduits de l'adresse de la page.
+ * Le lien surligné et le fil d'Ariane, déduits de l'adresse de la page (et de ?from= pour une page détail).
  * Ex. "/employees/7" -> lien "Employees", fil "Management & HR > Employee file".
  */
-function pageInfo(pathname: string): { active: string; breadcrumb: [string, string] } {
+function pageInfo(pathname: string, from?: string | null): { active: string; breadcrumb: [string, string] } {
   if (pathname === '/') return { active: 'Dashboard', breadcrumb: ['Dashboard', 'Overview'] }
   if (pathname === '/settings') return { active: '', breadcrumb: ['My account', 'Settings'] }  // ouvert depuis le menu du compte
+  const sub = SUB_PAGES.find(([pattern]) => pattern.test(pathname))?.[1]
+  const origin = sub && from ? FROM_ITEM[from] : undefined
+  if (origin && sub) {
+    const group = navGroups.find((item) => item.items.some((link) => link.label === origin))
+    if (group) return { active: origin, breadcrumb: [group.label, sub] }
+  }
   for (const group of navGroups) {
     for (const item of group.items) {
       if (item.href && item.href !== '/' && (pathname === item.href || pathname.startsWith(`${item.href}/`))) {
-        const sub = SUB_PAGES.find(([pattern]) => pattern.test(pathname))?.[1]
         return { active: item.label, breadcrumb: [group.label, sub ?? item.label] }
       }
     }
@@ -120,12 +132,12 @@ type AppShellProps = {
 // Un composant à part, dans un <Suspense> : Next.js l'exige pour lire l'adresse (usePathname)
 // sur une page avec un numéro comme /employees/7.
 function SidebarNav({ me }: { me: Me | null }) {
-  return <NavList me={me} active={pageInfo(usePathname()).active} />
+  return <NavList me={me} active={pageInfo(usePathname(), useSearchParams().get('from')).active} />
 }
 
 // Le fil d'Ariane du header, ex. "Management & HR > Employee file" (même raison : <Suspense>).
 function Breadcrumb() {
-  const [group, page] = pageInfo(usePathname()).breadcrumb
+  const [group, page] = pageInfo(usePathname(), useSearchParams().get('from')).breadcrumb
   return <div className="hidden items-center gap-2 text-sm text-slate-400 md:flex">
     <span>{group}</span><ChevronRight className="size-3.5" /><span className="font-semibold text-[#0F172A]">{page}</span>
   </div>

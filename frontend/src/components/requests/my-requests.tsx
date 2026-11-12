@@ -11,12 +11,14 @@
  */
 import { useEffect, useState, type ReactNode } from 'react'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import { CalendarDays, ChevronRight, FileText, Inbox, Loader2, ReceiptText, type LucideIcon } from 'lucide-react'
-import { apiFetch } from '@/lib/api'
+import { apiFetch, type Me } from '@/lib/api'
 import { formatDate } from '@/lib/leaves'
-import type { WorkflowRequest } from '@/lib/requests'
+import type { DecidedStep, WorkflowRequest } from '@/lib/requests'
 import { cn } from '@/lib/utils'
 import { sendChange } from '@/lib/workflows'
+import { DecidedList } from './decided-list'
 
 // L'icône de chaque type de demande (un repère pour l'œil, avant de lire).
 const TYPE_ICON: Record<string, LucideIcon> = { LEAVE: CalendarDays, EXPENSE: ReceiptText, ADMIN_REQUEST: FileText }
@@ -41,7 +43,15 @@ const FILTERS = [
 // ?from=requests : la page de la note affiche "← My requests" (le retour mène ici, pas à Expense claims).
 const hrefOf = (request: WorkflowRequest) => (request.workflow_code === 'EXPENSE' ? `/expenses/${request.id}?from=requests` : `/requests/${request.id}?from=requests`)
 
-export function MyRequests() {
+export function MyRequests({ me }: { me: Me }) {
+  // Deux onglets (2026-11-12, standard Microsoft Teams "Approvals" : Sent / Received ; SAP : My Requests / My Inbox) :
+  // "Sent" = ce que j'ai demandé ; "Received" = ce que j'ai répondu À LA PLACE d'un absent (la trace reste, même
+  // quand la délégation est finie et que "Stand-in requests" a quitté le menu). Seulement pour un collaborateur
+  // qui l'a déjà fait : les managers / RH ont cette trace dans Team approvals -> History.
+  const hasReceived = me.stood_in === true && me.role === 'COLLABORATOR' && !me.is_superuser
+  // ?tab=received : le retour de l'historique d'une demande "Received" rouvre cet onglet.
+  const [tab, setTab] = useState<'sent' | 'received'>(useSearchParams().get('tab') === 'received' ? 'received' : 'sent')
+  const [received, setReceived] = useState<DecidedStep[] | null>(null)
   const [requests, setRequests] = useState<WorkflowRequest[] | null>(null)
   const [failed, setFailed] = useState(false)
   const [filter, setFilter] = useState('all')
@@ -54,6 +64,13 @@ export function MyRequests() {
       })
       .catch(() => setFailed(true))
   }, [])
+
+  useEffect(() => {
+    if (!hasReceived) return
+    apiFetch('/api/workflows/approvals/answered-for/')
+      .then(async (response) => { if (response.ok) setReceived(await response.json()) })
+      .catch(() => setReceived([]))
+  }, [hasReceived])
 
   // Remplace une demande par sa nouvelle version (ex. après Cancel).
   function replace(updated: WorkflowRequest) {
@@ -71,10 +88,31 @@ export function MyRequests() {
   return <div className="mx-auto flex w-full max-w-4xl flex-col gap-5">
     <div>
       <h1 className="text-lg font-semibold text-[#192646]">My requests</h1>
-      <p className="text-xs text-slate-500">What is still waiting for an answer, then everything you sent before.</p>
+      <p className="text-xs text-slate-500">
+        {tab === 'received' ? 'The requests you answered on behalf of a colleague who was away.'
+          : 'What is still waiting for an answer, then everything you sent before.'}
+      </p>
     </div>
 
-    {requests === null
+    {/* Sent / Received : un contrôle segmenté (différent des pastilles de filtre en dessous). */}
+    {hasReceived && <div role="tablist" aria-label="Requests" className="flex w-fit rounded-lg bg-slate-200/70 p-1">
+      {([['sent', 'Sent', requests?.length], ['received', 'Received', received?.length]] as const).map(([id, label, total]) => {
+        const selected = tab === id
+        return <button key={id} type="button" role="tab" aria-selected={selected} onClick={() => setTab(id)}
+          className={cn('flex items-center gap-1.5 rounded-md px-4 py-1.5 text-xs font-semibold transition-colors',
+            selected ? 'bg-white text-[#192646] shadow-sm' : 'text-slate-500 hover:text-[#192646]')}>
+          {label}{total !== undefined && <span className="tabular-nums text-slate-400">{total}</span>}
+        </button>
+      })}
+    </div>}
+
+    {tab === 'received' && hasReceived
+      ? received === null
+        ? <Message>Loading...</Message>
+        : received.length === 0
+          ? <Message>Nothing answered as a stand-in yet.</Message>
+          : <DecidedList items={received} from="received" />
+      : requests === null
       ? <Message>{failed ? 'Could not load your requests. Please try again later.' : 'Loading...'}</Message>
       : all.length === 0
         ? <Message><Inbox className="mx-auto mb-2 size-6 text-[#8C6D52]" />No request yet.</Message>
@@ -201,6 +239,8 @@ function WaitingCard({ request, onCancelled }: { request: WorkflowRequest; onCan
       <p className="text-xs text-slate-500">
         Sent {formatDate(request.created_at.slice(0, 10))}
         {pending && <> · Step {index} of {request.steps.length} · <span className="font-medium text-amber-700">waiting for {who}</span></>}
+        {/* Le valideur est absent et a choisi un délégué : lui aussi peut répondre. */}
+        {pending?.stand_in && <> · stand-in: {pending.stand_in}</>}
       </p>
       {/* La progression du circuit, une barre par étape (pleine = passée, ambre = en cours). */}
       <div className="mt-2 flex gap-1" aria-hidden>

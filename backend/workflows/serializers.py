@@ -6,6 +6,7 @@ from rest_framework import serializers
 from employees.models import Employee, Pole
 from employees.serializers import ReferenceSerializer, check_model_rules, preview
 
+from .engine import stand_in
 from .models import Delegation, Request, RequestStep, Workflow, WorkflowStep
 
 
@@ -112,14 +113,22 @@ class RequestStepSerializer(serializers.ModelSerializer):
     decided_by_name = serializers.SerializerMethodField()
     # P2 step 1 : l'absent pour qui quelqu'un a répondu ("Validée par karim pour Youssef Bennani"), ou null.
     on_behalf_of = serializers.SerializerMethodField()
+    # Une étape qui attend un valideur qui a un délégué en ce moment : le nom du délégué ("Stand-in: Collab Test").
+    stand_in = serializers.SerializerMethodField()
 
     class Meta:
         model = RequestStep
         fields = ["order", "approver", "approver_label", "mode", "mode_label", "status", "status_label",
-                  "validator", "decided_by", "decided_by_name", "decided_at", "comment", "on_behalf_of"]
+                  "validator", "decided_by", "decided_by_name", "decided_at", "comment", "on_behalf_of", "stand_in"]
 
     def get_on_behalf_of(self, step):
         return person(step.on_behalf_of) if step.on_behalf_of_id else None
+
+    def get_stand_in(self, step):
+        if step.status != RequestStep.Status.PENDING:
+            return None
+        kind, delegate = stand_in(step)
+        return person(delegate) if kind == "person" else None
 
     def get_validator(self, step):
         # Qui doit répondre : "Youssef Bennani" (N+1, N+2 ou DG), ou "RH du pôle" (n'importe quel RH).
@@ -187,10 +196,11 @@ class DecidedStepSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = RequestStep
+        # status PENDING : la demande a été annulée pendant qu'elle m'attendait (je n'ai pas eu à répondre).
         fields = ["id", "request", "status", "decided_at", "comment", "decided_by_name", "on_behalf_of", "by_me"]
 
     def get_decided_by_name(self, step):
-        return name_of(step.decided_by)
+        return name_of(step.decided_by) if step.decided_by_id else None
 
     def get_on_behalf_of(self, step):
         return person(step.on_behalf_of) if step.on_behalf_of_id else None

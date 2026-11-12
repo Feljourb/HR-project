@@ -9,6 +9,7 @@ export type Me = {
   must_change_password: boolean;
   mfa_setup_required: boolean;
   stands_in?: boolean; // seulement dans /me : quelqu'un m'a choisi comme délégué (en cours ou prévu)
+  stood_in?: boolean;  // seulement dans /me : j'ai déjà répondu à la place de quelqu'un (la trace, dans My requests)
 };
 
 // Where a user must go first: change the password, then activate MFA, then home.
