@@ -9,12 +9,13 @@ export type ListValue = ReferenceItem & {
   deducts_balance?: boolean; max_days?: string | null; max_days_back?: number; counting?: string; document_from_days?: number | null; date?: string; estimated?: boolean; fixed?: boolean
   ceiling?: string; receipt_required?: boolean
   template?: string  // types de document : "WORK" = généré par l'application, "" = préparé par les RH
+  delivery_days?: number  // types de document : le délai promis, en jours ouvrés
 }
 
 // Un champ en plus du nom (listes des modules Congés, Notes de frais, Documents) : affiché en colonne, modifiable avec le nom.
 export type ExtraField = {
   name: 'deducts_balance' | 'max_days' | 'max_days_back' | 'counting' | 'document_from_days' | 'date' | 'estimated' | 'ceiling' | 'receipt_required'
-    | 'template'
+    | 'template' | 'delivery_days'
   label: string
   type: 'checkbox' | 'number' | 'date' | 'select'
   required?: boolean
@@ -89,6 +90,8 @@ export const DOCUMENT_LISTS: ListConfig[] = [
       { id: '', name: 'HR (upload the signed PDF)' },
       { id: 'WORK', name: 'The app: work certificate' },
     ] },
+    // Le délai promis au collaborateur ("expected by ..."), en jours ouvrés ; 0 = tout de suite (document généré).
+    { name: 'delivery_days', label: 'Delay (working days)', type: 'number', required: true, min: 0, step: 1, placeholder: '2' },
   ] },
 ]
 

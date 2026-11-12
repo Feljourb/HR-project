@@ -11,7 +11,7 @@ class DocumentTypeSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DocumentType
-        fields = ["id", "name", "template", "automatic"]
+        fields = ["id", "name", "template", "automatic", "delivery_days"]
 
     def get_automatic(self, doc_type):
         return bool(doc_type.template)
@@ -32,11 +32,17 @@ class DocumentRequestSerializer(serializers.ModelSerializer):
     has_file = serializers.SerializerMethodField()
     delivered_by = serializers.SerializerMethodField()
     refusal = serializers.SerializerMethodField()
+    requested_by = serializers.SerializerMethodField()  # le RH qui a demandé POUR le collaborateur, ou null
+    late = serializers.BooleanField(read_only=True)     # pas livré et le délai promis est passé
 
     class Meta:
         model = DocumentRequest
         fields = ["id", "request", "doc_type", "automatic", "purpose", "status", "state", "created_at", "closed_at",
-                  "employee", "department", "reference", "file_name", "has_file", "delivered_at", "delivered_by", "refusal"]
+                  "employee", "department", "reference", "file_name", "has_file", "delivered_at", "delivered_by", "refusal",
+                  "requested_by", "due_date", "late"]
+
+    def get_requested_by(self, document):
+        return name_of(document.requested_by) if document.requested_by_id else None
 
     def get_automatic(self, document):
         return bool(document.doc_type.template)

@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import Link from 'next/link'
 import { CheckCircle2, FileText, Loader2, Send } from 'lucide-react'
-import { apiFetch } from '@/lib/api'
+import { apiFetch, isHr, type Me } from '@/lib/api'
 import { STATE, type DocumentRequest, type DocumentType } from '@/lib/documents'
 import { formatDate } from '@/lib/leaves'
 import { cn } from '@/lib/utils'
@@ -18,11 +18,12 @@ import { SelectField, TextField } from '@/components/employees/form-fields'
 import { CancelClaim, actionClass } from '@/components/expenses/claim-actions'
 import { Message } from '@/components/leaves/leaves-page'
 import { StatTiles } from '@/components/leaves/stat-tiles'
+import { PersonPicker, type Person } from '@/components/requests/out-of-office'
 import { DownloadButton } from './download-button'
 
 type Loaded = { documents: DocumentRequest[]; types: DocumentType[] }
 
-export function DocumentsPage() {
+export function DocumentsPage({ me }: { me: Me }) {
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [problem, setProblem] = useState('')
   const [version, setVersion] = useState(0)  // +1 après un envoi / une annulation : tout est relu
@@ -55,16 +56,47 @@ export function DocumentsPage() {
     ]} />
 
     <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-      <RequestForm types={loaded.types} onSent={reload} />
+      <div className="flex min-w-0 flex-col gap-4">
+        <RequestForm types={loaded.types} hr={isHr(me)} onSent={reload} />
+        <HowItWorks />
+      </div>
       <MyDocuments documents={documents} onChanged={reload} />
     </div>
   </div>
 }
 
-/** "Request a document" : le type, et pour qui / pourquoi (facultatif, ex. "Banque"). */
-function RequestForm({ types, onSent }: { types: DocumentType[]; onSent: () => void }) {
+/** Le circuit d'une demande, en 4 étapes (comme l'outil actuel des RH) : chacun sait ce qui va se passer. */
+function HowItWorks() {
+  const steps = [
+    'You send your request (document and purpose).',
+    'HR of your pôle review it.',
+    'The document is delivered: generated at once, or prepared by HR within the announced delay (working days).',
+    'You get a notification and an email, and download it here. You can cancel while it is in approval.',
+  ]
+  return <section className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+    <h2 className="text-sm font-semibold text-[#192646]">How it works</h2>
+    <ol className="mt-2 flex flex-col gap-2">
+      {steps.map((step, index) => <li key={step} className="flex gap-2.5 text-xs text-slate-600">
+        <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-[#E4E9F2] text-[10px] font-bold text-[#23355d]">{index + 1}</span>
+        {step}
+      </li>)}
+    </ol>
+  </section>
+}
+
+/** Le délai annoncé d'un type : "Generated at once" ou "Ready within 2 working days". */
+function delayHint(type: DocumentType) {
+  if (type.automatic) return 'Generated automatically as soon as HR approve.'
+  const days = type.delivery_days
+  return `Prepared and signed by HR: ready within ${days} working day${days > 1 ? 's' : ''}.`
+}
+
+/** "Request a document" : le type, et pour qui / pourquoi (facultatif, ex. "Banque").
+ *  Un RH peut demander POUR un collaborateur de son pôle (champ "Employee", comme l'outil actuel) : acceptée tout de suite. */
+function RequestForm({ types, hr, onSent }: { types: DocumentType[]; hr: boolean; onSent: () => void }) {
   const [typeId, setTypeId] = useState('')
   const [purpose, setPurpose] = useState('')
+  const [forEmployee, setForEmployee] = useState<Person | null>(null)  // null : pour moi-même
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [sent, setSent] = useState('')
@@ -74,14 +106,16 @@ function RequestForm({ types, onSent }: { types: DocumentType[]; onSent: () => v
     event.preventDefault()
     setBusy(true)
     setError('')
+    const body = { doc_type: typeId, purpose, ...(forEmployee ? { employee: forEmployee.id } : {}) }
     const result = await sendChange<DocumentRequest>(
-      () => apiFetch('/api/documents/mine/', { method: 'POST', body: JSON.stringify({ doc_type: typeId, purpose }) }),
+      () => apiFetch('/api/documents/mine/', { method: 'POST', body: JSON.stringify(body) }),
       'You cannot request this document.')
     setBusy(false)
     if ('error' in result) return setError(result.error)
-    setSent(result.data.doc_type)
+    setSent(forEmployee ? `${result.data.doc_type} for ${result.data.employee} (see Document requests)` : result.data.doc_type)
     setTypeId('')
     setPurpose('')
+    setForEmployee(null)
     onSent()
   }
 
@@ -90,9 +124,14 @@ function RequestForm({ types, onSent }: { types: DocumentType[]; onSent: () => v
       <h2 className="text-sm font-semibold text-[#192646]">Request a document</h2>
       <p className="text-[11px] text-slate-500">HR of your pôle approve the request. You get a notification and an email when it is ready.</p>
     </div>
+    {hr && <div>
+      <PersonPicker id="doc-employee" label="Employee (HR)" value={forEmployee} onChange={setForEmployee}
+        source={(search) => `/api/employees/?search=${search}`} />
+      <p className="mt-1 text-[11px] text-slate-500">{forEmployee ? 'Requested by HR: approved at once, the employee is notified.' : 'Empty = for yourself.'}</p>
+    </div>}
     <SelectField id="doc-type" label="Document" required value={typeId} onChange={(value) => { setTypeId(value); setError(''); setSent('') }}
       options={types.map((type) => ({ id: String(type.id), name: type.name }))} placeholder="Choose a document"
-      hint={chosen ? (chosen.automatic ? 'Generated automatically as soon as HR approve.' : 'Prepared and signed by HR after their approval.') : undefined} />
+      hint={chosen ? delayHint(chosen) : undefined} />
     <TextField id="doc-purpose" label="For / purpose" value={purpose} onChange={setPurpose} placeholder="e.g. Bank, visa, rental (optional)" />
     {error && <p role="alert" className="text-[11px] font-medium text-red-600">{error}</p>}
     {sent && <p role="status" className="flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800">
@@ -155,11 +194,15 @@ function DocumentLine({ document, onChanged }: { document: DocumentRequest; onCh
   const sent = document.created_at.slice(0, 10)
   const ended = document.state === 'REJECTED' || document.state === 'CANCELLED'
   const state = STATE[document.state]
+  const waiting = document.state === 'IN_PROGRESS' || document.state === 'TO_PREPARE'
   const extras = [
     document.purpose && `for ${document.purpose}`,
     `requested ${formatDate(sent)}`,
+    document.requested_by && `by HR (${document.requested_by})`,
     document.state === 'IN_PROGRESS' && 'waiting for HR',
     document.state === 'TO_PREPARE' && 'HR are preparing it',
+    // Le délai promis : "expected by 16/11/2026" tant que le document n'est pas prêt.
+    waiting && document.due_date && `expected by ${formatDate(document.due_date)}`,
     document.reference && `ref. ${document.reference}`,
     document.refusal && `reason: ${document.refusal}`,
   ].filter(Boolean)

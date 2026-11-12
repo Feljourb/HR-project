@@ -1,4 +1,5 @@
 """Tests des documents administratifs : demander, valider (RH), générer, déposer, télécharger, et les droits."""
+import datetime
 import shutil
 import tempfile
 
@@ -6,6 +7,7 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from employees.models import Notification
@@ -15,7 +17,7 @@ from workflows.models import Request
 from workflows.test_engine import EngineTestCase
 
 from .models import DocumentRequest, DocumentType
-from .services import request_document, upload
+from .services import add_working_days, request_document, upload
 
 MEDIA = tempfile.mkdtemp()  # les PDF des tests vont ici (effacé à la fin), pas dans media/
 
@@ -79,7 +81,7 @@ class FlowTests(DocumentTestCase):
     def test_rules(self):
         request_document(self.sara, self.salary)
         # Une seule demande en cours par type ; un autre type, oui.
-        with self.assertRaisesMessage(ValidationError, "déjà une demande en cours"):
+        with self.assertRaisesMessage(ValidationError, "déjà en cours"):
             request_document(self.sara, self.salary)
         request_document(self.sara, self.work)
         # Un type désactivé par Admin RH ne se demande plus.
@@ -88,6 +90,30 @@ class FlowTests(DocumentTestCase):
         DocumentRequest.objects.all().delete()
         with self.assertRaisesMessage(ValidationError, "plus proposé"):
             request_document(self.sara, self.salary)
+
+    def test_delivery_date_in_working_days(self):
+        # Un jeudi + 2 jours ouvrés = le lundi (pas le samedi) ; un document généré : le jour même.
+        thursday = datetime.date(2026, 11, 12)
+        self.assertEqual(add_working_days(thursday, 2), datetime.date(2026, 11, 16))
+        self.assertEqual(add_working_days(thursday, 0), thursday)
+        document = request_document(self.sara, self.salary)
+        self.assertEqual(document.due_date, add_working_days(timezone.localdate(), 2))
+        self.assertFalse(document.late)
+        DocumentRequest.objects.filter(pk=document.pk).update(due_date=timezone.localdate() - datetime.timedelta(days=1))
+        document.refresh_from_db()
+        self.assertTrue(document.late)  # le délai est passé : en rouge chez les RH
+
+    def test_hr_requests_for_an_employee(self):
+        # Nadia (RH du pôle) demande POUR Sara : acceptée tout de suite, la trace dit qui l'a demandée.
+        document = request_document(self.sara, self.work, "Banque", by=self.nadia.user)
+        self.assertEqual((document.state, document.requested_by, document.employee), ("READY", self.nadia.user, self.sara))
+        self.assertIn("Demandé par les RH", document.request.steps.get().comment)
+        self.assertTrue(self.ready_notices().exists())  # Sara est prévenue
+        # Un document préparé par les RH : à préparer tout de suite.
+        self.assertEqual(request_document(self.sara, self.salary, by=self.nadia.user).state, "TO_PREPARE")
+        # Youssef (son N+1, pas RH) ne peut pas demander pour elle.
+        with self.assertRaises(PermissionDenied):
+            request_document(self.sara, self.work, by=self.youssef.user)
 
     def test_refused_and_upload_before_approval(self):
         document = request_document(self.sara, self.salary)

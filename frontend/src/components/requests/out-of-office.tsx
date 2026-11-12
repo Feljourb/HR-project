@@ -151,11 +151,12 @@ function DelegationForm({ me, onClose, onSaved }: { me: Me; onClose: () => void;
   </form>
 }
 
-type Person = { id: number; first_name: string; last_name: string; position?: string | null; department?: string | null; role?: string }
+export type Person = { id: number; first_name: string; last_name: string; position?: string | null; department?: string | null; role?: string }
 
 // Chercher une personne : on tape 2 lettres, on choisit. `source` = l'adresse de la recherche
 // (l'annuaire pour l'absent ; les personnes PERMISES pour le délégué). Les deux réponses sont lues : liste ou page.
-function PersonPicker({ id, label, value, onChange, source }: {
+// (Aussi dans la page Administrative documents : un RH demande un document POUR un collaborateur.)
+export function PersonPicker({ id, label, value, onChange, source }: {
   id: string; label: string; value: Person | null; onChange: (person: Person | null) => void; source: (search: string) => string
 }) {
   const [query, setQuery] = useState('')

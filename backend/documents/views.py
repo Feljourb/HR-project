@@ -57,13 +57,18 @@ class MyDocumentViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         return documents().filter(employee__user=self.request.user)
 
     def create(self, request):
-        employee = Employee.objects.filter(user=request.user).first()
+        # "employee" (facultatif) : un RH demande POUR un collaborateur de son pôle ; sinon, pour moi.
+        employee_id = str(request.data.get("employee") or "")
+        if employee_id:
+            employee = Employee.objects.filter(pk=employee_id).first() if employee_id.isdigit() else None
+        else:
+            employee = Employee.objects.filter(user=request.user).first()
         if employee is None:
-            raise NotFound("Aucun dossier RH n'est lié à ce compte.")
+            raise NotFound("Aucun dossier RH n'est lié à ce compte." if not employee_id else "Collaborateur introuvable.")
         doc_type = DocumentType.objects.filter(pk=request.data.get("doc_type")).first()
         if doc_type is None:
             raise serializers.ValidationError({"doc_type": ["Choisissez un document."]})
-        document = run(lambda: request_document(employee, doc_type, request.data.get("purpose", "")))
+        document = run(lambda: request_document(employee, doc_type, request.data.get("purpose", ""), by=request.user))
         return Response(DocumentRequestSerializer(documents().get(pk=document.pk)).data, status=status.HTTP_201_CREATED)
 
 
@@ -104,7 +109,10 @@ class HrDocumentViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
             pole = user_pole(user)
             queryset = queryset.filter(employee__department__direction__entity__pole=pole) if pole else queryset.none()
         if self.action == "list":
-            queryset = queryset.filter(**self.FILTERS.get(self.request.query_params.get("status"), {}))
+            wanted = self.request.query_params.get("status")
+            queryset = queryset.filter(**self.FILTERS.get(wanted, {}))
+            if wanted in ("to_prepare", "in_progress"):
+                queryset = queryset.order_by("due_date", "id")  # à faire : le délai le plus proche d'abord
         return queryset
 
     @action(detail=True, methods=["post"])

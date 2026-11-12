@@ -13,7 +13,7 @@ from pathlib import Path
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.core.validators import FileExtensionValidator
+from django.core.validators import FileExtensionValidator, MaxValueValidator
 from django.db import models
 from django.utils import timezone
 
@@ -32,6 +32,10 @@ class DocumentType(ReferenceItem):
         WORK = "WORK", "Attestation de travail (générée)"
 
     template = models.CharField("Modèle", max_length=10, choices=Template.choices, default=Template.NONE, blank=True)
+    # Le délai promis (standard "SLA") : le document est prêt au plus tard N jours OUVRÉS après la demande (lundi ->
+    # vendredi, sans les jours fériés). 0 = tout de suite (un document généré). Valeurs de départ : à confirmer par les RH.
+    delivery_days = models.PositiveSmallIntegerField("Délai (jours ouvrés)", default=2,
+                                                     validators=[MaxValueValidator(30)])
 
     class Meta(ReferenceItem.Meta):
         verbose_name = "Type de document"
@@ -72,6 +76,11 @@ class DocumentRequest(models.Model):
     employee = models.ForeignKey(Employee, on_delete=models.PROTECT, related_name="document_requests", verbose_name="Collaborateur")
     doc_type = models.ForeignKey(DocumentType, on_delete=models.PROTECT, related_name="requests", verbose_name="Type")
     purpose = models.CharField("Motif / destinataire", max_length=200, blank=True)  # ex. "Banque", "Visa"
+    # Le RH qui a fait la demande POUR le collaborateur (champ "Employé (RH)" de l'outil actuel) ; vide : lui-même.
+    requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                                     related_name="+", verbose_name="Demandé par (RH)")
+    # Prêt au plus tard le (date de la demande + le délai du type, en jours ouvrés) : "Expected by 16/11".
+    due_date = models.DateField("Prévu pour le", null=True, blank=True)
     # Le document livré : généré par l'application, ou déposé par un RH. Jamais servi par une adresse publique.
     reference = models.CharField("Référence", max_length=30, unique=True, null=True, blank=True)
     file = models.FileField("Fichier", upload_to=document_path, blank=True,
@@ -98,3 +107,9 @@ class DocumentRequest(models.Model):
         if status == Request.Status.APPROVED:
             return "READY" if self.file else "TO_PREPARE"
         return status
+
+    @property
+    def late(self):
+        """Pas encore livré, et le délai promis est passé (les RH le voient en rouge)."""
+        return (self.state in ("IN_PROGRESS", "TO_PREPARE") and self.due_date is not None
+                and self.due_date < timezone.localdate())

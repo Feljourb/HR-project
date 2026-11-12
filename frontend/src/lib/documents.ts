@@ -7,6 +7,7 @@ export type DocumentType = {
   id: number
   name: string
   automatic: boolean  // true : l'application génère le PDF dès la validation des RH
+  delivery_days: number  // le délai promis, en jours ouvrés (0 : tout de suite)
 }
 
 export type DocumentState = 'IN_PROGRESS' | 'TO_PREPARE' | 'READY' | 'REJECTED' | 'CANCELLED'
@@ -29,6 +30,9 @@ export type DocumentRequest = {
   delivered_at: string | null
   delivered_by: string | null  // le RH qui a déposé le fichier ; null : généré par l'application
   refusal: string              // le motif du refus des RH
+  requested_by: string | null  // le RH qui a demandé POUR le collaborateur ; null : lui-même
+  due_date: string | null      // prêt au plus tard le (date de la demande + le délai du type)
+  late: boolean                // pas livré et le délai est passé
 }
 
 // Les états en anglais (les pages sont en anglais), avec les couleurs des autres pages.
