@@ -188,11 +188,13 @@ class MeView(APIView):
 
     def get(self, request):
         # Import ici : accounts ne dépend de workflows que pour ce petit drapeau (pas d'import circulaire).
-        from workflows.models import Delegation
+        from workflows.models import Delegation, RequestStep
 
-        # stands_in : quelqu'un m'a choisi comme délégué (en cours ou prévu) -> le menu montre "Stand-in requests".
-        stands_in = Delegation.objects.filter(delegate__user=request.user, ended_at__isnull=True,
-                                              end_date__gte=timezone.localdate()).exists()
+        # stands_in : le menu montre "Stand-in requests" si quelqu'un m'a choisi comme délégué (en cours ou prévu),
+        # OU si j'ai déjà répondu à la place de quelqu'un (son historique reste trouvable après la délégation).
+        stands_in = (Delegation.objects.filter(delegate__user=request.user, ended_at__isnull=True,
+                                               end_date__gte=timezone.localdate()).exists()
+                     or RequestStep.objects.filter(decided_by=request.user, on_behalf_of__isnull=False).exists())
         return Response({**user_info(request.user), "stands_in": stands_in})
 
 

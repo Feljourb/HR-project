@@ -176,6 +176,20 @@ class ApprovalSerializer(serializers.ModelSerializer):
         return person(step.assignee) if step.assignee_id and step.assignee.user_id != user.pk else None
 
 
+class AnsweredForSerializer(serializers.ModelSerializer):
+    """Une étape à laquelle J'AI répondu à la place d'un absent (historique de la page "Stand-in requests")."""
+
+    request = RequestSerializer()
+    on_behalf_of = serializers.SerializerMethodField()
+
+    class Meta:
+        model = RequestStep
+        fields = ["id", "request", "on_behalf_of", "status", "decided_at", "comment"]
+
+    def get_on_behalf_of(self, step):
+        return person(step.on_behalf_of)
+
+
 class DelegationSerializer(serializers.ModelSerializer):
     """P2 step 1 : une délégation ("absent du bureau"), avec les noms et si elle est en cours aujourd'hui."""
 

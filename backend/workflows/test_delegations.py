@@ -50,12 +50,18 @@ class DelegationTests(EngineTestCase):
         engine.approve(self.step, self.omar.user, "OK pour moi")
         self.step.refresh_from_db()
         self.assertEqual((self.step.decided_by, self.step.on_behalf_of), (self.omar.user, self.youssef))
+        # 🔔 + email à Youssef (l'absent) : qui a répondu en son nom, et le commentaire.
+        from employees.notifications import message
+        told = Notification.objects.get(recipient=self.youssef.user, kind="ANSWERED_FOR", request=self.request)
+        self.assertIn("a validé en votre nom", message(told))
+        self.assertIn("OK pour moi", message(told))
 
     def test_the_absent_can_still_answer(self):
         create_delegation(self.youssef, self.omar, days(0), days(5), self.youssef.user)
         engine.approve(self.step, self.youssef.user)
         self.step.refresh_from_db()
         self.assertIsNone(self.step.on_behalf_of)  # Youssef a répondu lui-même
+        self.assertFalse(Notification.objects.filter(kind="ANSWERED_FOR").exists())  # rien à lui dire
 
     def test_a_future_or_ended_delegation_changes_nothing(self):
         planned = create_delegation(self.youssef, self.omar, days(3), days(5), self.youssef.user)
@@ -158,9 +164,17 @@ class DelegationTests(EngineTestCase):
         self.assertEqual(approvals[0]["on_behalf_of"], f"{self.youssef.first_name} {self.youssef.last_name.title()}")
         # /me dit au menu qu'Omar remplace quelqu'un (lien "Stand-in requests" pour un collaborateur).
         self.assertTrue(client.get(reverse("accounts:me")).json()["stands_in"])
+        # Omar valide : la demande quitte "à valider" et entre dans SON historique de remplaçant.
+        answered = reverse("workflows:approval-answered-for")
+        self.assertEqual(client.get(answered).json(), [])
+        client.post(reverse("workflows:approval-approve", args=[approvals[0]["id"]]), {"comment": "Vu"})
+        history = client.get(answered).json()
+        self.assertEqual([(item["request"]["id"], item["status"], item["comment"]) for item in history],
+                         [(self.request.pk, "APPROVED", "Vu")])
         # "End now" par Youssef.
         client.force_authenticate(self.youssef.user)
         ended = client.post(reverse("workflows:delegation-end", args=[response.json()["id"]]))
         self.assertEqual(ended.json()["state"], "ENDED")
+        # Délégation finie : le lien reste, pour retrouver l'historique de ce qu'Omar a répondu.
         client.force_authenticate(self.omar.user)
-        self.assertFalse(client.get(reverse("accounts:me")).json()["stands_in"])
+        self.assertTrue(client.get(reverse("accounts:me")).json()["stands_in"])

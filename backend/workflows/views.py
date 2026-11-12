@@ -12,9 +12,9 @@ from employees.models import Employee, Pole
 
 from . import delegations as delegations_service
 from . import engine
-from .models import Delegation, Request, Workflow, can_be_delegate
+from .models import Delegation, Request, RequestStep, Workflow, can_be_delegate
 from .serializers import (
-    ApprovalSerializer, DecisionSerializer, DelegationInputSerializer, DelegationSerializer, PoleDirectorSerializer,
+    AnsweredForSerializer, ApprovalSerializer, DecisionSerializer, DelegationInputSerializer, DelegationSerializer, PoleDirectorSerializer,
     RequestSerializer, WorkflowSerializer,
 )
 
@@ -105,7 +105,8 @@ class ApprovalViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
 
     GET  /api/workflows/approvals/              -> les étapes qui m'attendent, la plus ancienne d'abord
     POST /api/workflows/approvals/<id>/approve/ -> {"comment": "..."} (facultatif)
-    POST /api/workflows/approvals/<id>/reject/  -> {"comment": "..."} (obligatoire)"""
+    POST /api/workflows/approvals/<id>/reject/  -> {"comment": "..."} (obligatoire)
+    GET  /api/workflows/approvals/answered-for/ -> ce que J'AI répondu à la place d'un absent (le plus récent d'abord)"""
 
     serializer_class = ApprovalSerializer
 
@@ -133,6 +134,18 @@ class ApprovalViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     @action(detail=True, methods=["post"])
     def reject(self, request, pk=None):
         return self.decide(engine.reject)
+
+    @action(detail=False, url_path="answered-for")
+    def answered_for(self, request):
+        """L'historique d'un délégué (page "Stand-in requests") : les 100 dernières réponses données en
+        remplacement. Les étapes ne sont plus "en attente", donc pas dans get_queryset : leur propre requête."""
+        steps = (
+            RequestStep.objects.filter(decided_by=request.user, on_behalf_of__isnull=False)
+            .select_related("request__workflow", "request__requester", "on_behalf_of")
+            .prefetch_related("request__steps__assignee", "request__steps__decided_by", "request__steps__on_behalf_of")
+            .order_by("-decided_at")[:100]
+        )
+        return Response(AnsweredForSerializer(steps, many=True).data)
 
 
 class DelegationViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):

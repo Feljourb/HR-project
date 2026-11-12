@@ -10,6 +10,7 @@ const PAGES: Record<string, BackLink> = {
   requests: { href: '/requests', label: 'My requests' },
   leaves: { href: '/leaves', label: 'Leave requests' },
   approvals: { href: '/approvals', label: 'Team approvals' },
+  'stand-in': { href: '/stand-in', label: 'Stand-in requests' },
   absences: { href: '/absences', label: 'Absences' },
   'leave-balances': { href: '/leave-balances', label: 'Leave balances' },
   expenses: { href: '/expenses', label: 'Expense claims' },

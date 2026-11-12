@@ -305,6 +305,9 @@ def decide(step, user, status, comment):
     step.save(update_fields=["status", "decided_by", "decided_at", "comment", "on_behalf_of"])
     # 🔔 L'étape a sa réponse : les autres (ex. les autres RH du pôle) n'ont plus à la valider.
     notify.clear_waiting(step.request)
+    # 🔔 + email à l'absent (standard) : il sait ce que son délégué a décidé en son nom.
+    if step.on_behalf_of_id:
+        notify.send([step.on_behalf_of.user], notify.Kind.ANSWERED_FOR, step.request)
 
 
 @transaction.atomic

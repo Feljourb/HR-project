@@ -192,7 +192,18 @@ def message(notification):
         delegation = (Delegation.objects.filter(delegator=employee, delegate__user=notification.recipient_id,
                                                 created_at__lte=notification.created_at).order_by("-created_at").first())
         period = f" du {delegation.start_date:%d/%m/%Y} au {delegation.end_date:%d/%m/%Y}" if delegation else ""
-        return f"Vous remplacez {name}{period} : ses demandes à valider arrivent aussi dans votre Team approvals."
+        return f"Vous remplacez {name}{period} : ses demandes à valider arrivent aussi chez vous."
+    if notification.kind == Kind.ANSWERED_FOR:
+        # Mon délégué a répondu à ma place : qui, validé ou refusé, et son commentaire.
+        from workflows.serializers import name_of
+        request = notification.request
+        step = (request.steps.filter(on_behalf_of__user=notification.recipient_id)
+                .select_related("decided_by").order_by("-decided_at").first())
+        if step is None:
+            return f"Votre délégué a répondu en votre nom : {request.title} ({name})."
+        verb = "validé" if step.status == "APPROVED" else "refusé"
+        comment = f" Commentaire : {step.comment}" if step.comment else ""
+        return f"{name_of(step.decided_by)} a {verb} en votre nom : {request.title} ({name}).{comment}"
 
     # Les demandes (app workflows, step 7).
     if notification.kind != Kind.TRIAL_END:

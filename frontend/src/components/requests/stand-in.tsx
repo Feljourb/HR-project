@@ -5,14 +5,17 @@
  * délégué par un valideur absent (n'importe qui du pôle peut l'être). Il n'a pas le menu "Team approvals" (il ne
  * valide personne d'habitude) : ici, SEULEMENT ce qui le concerne, le temps de la délégation :
  * - en haut : qui il remplace et quand (Active / Planned) ;
- * - dessous : les demandes qui attendent sa réponse, avec Approve / Reject (les mêmes que Team approvals).
+ * - dessous : les demandes qui attendent sa réponse, avec Approve / Reject (les mêmes que Team approvals) ;
+ * - en bas : "History", ce qu'il a déjà répondu en remplacement (standard : la trace de ce qu'on a décidé
+ *   au nom de quelqu'un), chaque ligne ouvre l'historique de la demande.
  * La cloche, l'email et la case du tableau de bord d'un collaborateur mènent ici (notifications.link).
  */
-import { useEffect, useState, type ReactNode } from 'react'
-import { CalendarClock, CheckCheck, Plane, UserRoundCheck } from 'lucide-react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import Link from 'next/link'
+import { CalendarClock, CheckCheck, ChevronRight, History, Plane, UserRoundCheck } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 import { formatDate } from '@/lib/leaves'
-import type { Approval, Delegation } from '@/lib/requests'
+import type { AnsweredFor, Approval, Delegation } from '@/lib/requests'
 import { cn } from '@/lib/utils'
 import { RequestCard } from './request-card'
 import { Decision } from './team-approvals'
@@ -23,6 +26,15 @@ export function StandIn() {
   const [approvals, setApprovals] = useState<Approval[] | null>(null)
   const [failed, setFailed] = useState(false)
   const [done, setDone] = useState('')
+  const [history, setHistory] = useState<AnsweredFor[] | null>(null)
+
+  // L'historique : relu au départ, puis après chaque réponse (la demande y passe).
+  const loadHistory = useCallback(() => {
+    apiFetch('/api/workflows/approvals/answered-for/')
+      .then(async (response) => { if (response.ok) setHistory(await response.json()) })
+      .catch(() => setHistory([]))
+  }, [])
+  useEffect(loadHistory, [loadHistory])
 
   useEffect(() => {
     Promise.all([apiFetch('/api/workflows/delegations/'), apiFetch('/api/workflows/approvals/')])
@@ -37,6 +49,7 @@ export function StandIn() {
   function answered(approval: Approval, verb: string) {
     setApprovals((list) => list && list.filter((item) => item.id !== approval.id))
     setDone(`${verb}: ${approval.request.title}`)
+    loadHistory()
   }
 
   const active = (delegations ?? []).filter((item) => item.state === 'ACTIVE')
@@ -89,7 +102,48 @@ export function StandIn() {
                   : `Requests will appear here from ${formatDate(planned[0]?.start_date ?? '')}.`}
               </Message>}
         </>}
+
+    {history && history.length > 0 && <AnsweredHistory items={history} />}
   </div>
+}
+
+/** "History" : mes réponses en remplacement, la plus récente d'abord ; 5 lignes, puis "Show all". */
+function AnsweredHistory({ items }: { items: AnsweredFor[] }) {
+  const [all, setAll] = useState(false)
+  const shown = all ? items : items.slice(0, 5)
+  return <section className="rounded-xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+    <h2 className="flex items-center gap-2 border-b border-slate-100 px-4 py-3 text-sm font-semibold text-[#192646]">
+      <History className="size-4 text-slate-400" aria-hidden /> History
+      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500">{items.length}</span>
+      <span className="ml-auto text-[11px] font-normal text-slate-400">What you answered as a stand-in</span>
+    </h2>
+    <ul className="divide-y divide-slate-100">
+      {shown.map((item) => {
+        const approved = item.status === 'APPROVED'
+        return <li key={item.id}>
+          <Link href={`/requests/${item.request.id}?from=stand-in`} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50">
+            <span className={cn('size-2 shrink-0 rounded-full', approved ? 'bg-emerald-500' : 'bg-rose-500')} aria-hidden />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[13px] font-medium text-[#192646]">{item.request.title}</p>
+              <p className="truncate text-[11px] text-slate-500">
+                {item.request.requester} · on behalf of {item.on_behalf_of}
+                {item.comment && <> · “{item.comment}”</>}
+              </p>
+            </div>
+            <span className="hidden text-[11px] text-slate-400 sm:block">{new Date(item.decided_at).toLocaleDateString('fr-FR')}</span>
+            <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset',
+              approved ? 'bg-emerald-50 text-emerald-700 ring-emerald-200' : 'bg-rose-50 text-rose-700 ring-rose-200')}>
+              {approved ? 'Approved' : 'Refused'}
+            </span>
+            <ChevronRight className="size-4 text-slate-300" aria-hidden />
+          </Link>
+        </li>
+      })}
+    </ul>
+    {items.length > 5 && <button onClick={() => setAll(!all)} className="w-full border-t border-slate-100 py-2.5 text-xs font-medium text-[#23355d] hover:bg-slate-50">
+      {all ? 'Show less' : `Show all (${items.length})`}
+    </button>}
+  </section>
 }
 
 function Message({ children }: { children: ReactNode }) {

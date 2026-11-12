@@ -28,7 +28,8 @@ from .models import Employee, Notification, NotificationSettings
 Kind = Notification.Kind
 ALWAYS = {Kind.TO_VALIDATE, Kind.DELEGATED, Kind.TRIAL_END}           # il faut agir : toujours envoyé
 RESULTS = {Kind.APPROVED, Kind.REJECTED, Kind.CANCELLED, Kind.RECOUNTED, Kind.EXPIRED}  # mes demandes : "email_results"
-# Le reste (pour information, solde corrigé, droit changé, jours perdus le 31/12, rappels, "pas encore validée") :
+# Le reste (pour information, solde corrigé, droit changé, jours perdus le 31/12, rappels, "pas encore validée",
+# "réponse en votre nom" par mon délégué) :
 # "email_info".
 
 

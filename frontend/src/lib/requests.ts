@@ -59,3 +59,13 @@ export type Approval = {
   request: WorkflowRequest
   on_behalf_of: string | null  // P2 : je réponds à la place de cette personne (absente), ou null
 }
+
+/** Une réponse que J'AI donnée à la place d'un absent (historique de "Stand-in requests"). */
+export type AnsweredFor = {
+  id: number
+  request: WorkflowRequest
+  on_behalf_of: string
+  status: 'APPROVED' | 'REJECTED'
+  decided_at: string
+  comment: string
+}
