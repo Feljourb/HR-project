@@ -187,7 +187,13 @@ class MeView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        return Response(user_info(request.user))
+        # Import ici : accounts ne dépend de workflows que pour ce petit drapeau (pas d'import circulaire).
+        from workflows.models import Delegation
+
+        # stands_in : quelqu'un m'a choisi comme délégué (en cours ou prévu) -> le menu montre "Stand-in requests".
+        stands_in = Delegation.objects.filter(delegate__user=request.user, ended_at__isnull=True,
+                                              end_date__gte=timezone.localdate()).exists()
+        return Response({**user_info(request.user), "stands_in": stands_in})
 
 
 class SecuritySettingsView(RetrieveUpdateAPIView):

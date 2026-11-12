@@ -156,7 +156,11 @@ class DelegationTests(EngineTestCase):
         self.assertEqual(len(client.get(url).json()), 1)
         approvals = client.get(reverse("workflows:approval-list")).json()
         self.assertEqual(approvals[0]["on_behalf_of"], f"{self.youssef.first_name} {self.youssef.last_name.title()}")
+        # /me dit au menu qu'Omar remplace quelqu'un (lien "Stand-in requests" pour un collaborateur).
+        self.assertTrue(client.get(reverse("accounts:me")).json()["stands_in"])
         # "End now" par Youssef.
         client.force_authenticate(self.youssef.user)
         ended = client.post(reverse("workflows:delegation-end", args=[response.json()["id"]]))
         self.assertEqual(ended.json()["state"], "ENDED")
+        client.force_authenticate(self.omar.user)
+        self.assertFalse(client.get(reverse("accounts:me")).json()["stands_in"])

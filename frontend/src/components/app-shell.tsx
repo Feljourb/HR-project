@@ -12,7 +12,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import {
   BookOpen, BriefcaseBusiness, Building2, CalendarDays, CalendarRange, Check, ChevronDown, ChevronRight, ChevronsUpDown,
   CircleHelp, ClipboardCheck, FolderOpen, Headphones, Inbox, LayoutDashboard, ListChecks, LockKeyhole, type LucideIcon,
-  LogOut, Menu, PiggyBank, Plane, ReceiptText, ScrollText, Search, ShieldCheck, UserRound, UserRoundCog, UsersRound, Workflow, X,
+  LogOut, Menu, PiggyBank, Plane, ReceiptText, ScrollText, Search, ShieldCheck, UserRound, UserRoundCheck, UserRoundCog, UsersRound, Workflow, X,
 } from 'lucide-react'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { BrandLogo } from '@/components/brand-logo'
@@ -28,6 +28,7 @@ type NavItem = {
   hrOnly?: boolean   // visible seulement pour RH et Admin RH
   adminOnly?: boolean  // visible seulement pour Admin RH (et l'IT)
   itOnly?: boolean     // visible seulement pour l'IT (superuser)
+  standInOnly?: boolean  // visible seulement pour un collaborateur choisi comme délégué (les autres ont Team approvals)
 }
 
 type NavGroup = {
@@ -44,6 +45,7 @@ const navGroups: NavGroup[] = [
     { label: 'My Requests', icon: Inbox, href: '/requests' },
     { label: 'Leave Requests', icon: CalendarDays, href: '/leaves' },
     { label: 'Expense Claims', icon: ReceiptText, href: '/expenses' },
+    { label: 'Stand-in requests', icon: UserRoundCheck, href: '/stand-in', standInOnly: true },
     { label: 'Administrative Documents', icon: FolderOpen },
   ] },
   { label: 'Company Services', icon: Building2, items: [
@@ -97,7 +99,6 @@ const SUB_PAGES: [RegExp, string][] = [
 function pageInfo(pathname: string): { active: string; breadcrumb: [string, string] } {
   if (pathname === '/') return { active: 'Dashboard', breadcrumb: ['Dashboard', 'Overview'] }
   if (pathname === '/settings') return { active: '', breadcrumb: ['My account', 'Settings'] }  // ouvert depuis le menu du compte
-  if (pathname === '/stand-in') return { active: '', breadcrumb: ['Personal Space', 'Stand-in requests'] }  // délégué (cloche, tableau de bord)
   for (const group of navGroups) {
     for (const item of group.items) {
       if (item.href && item.href !== '/' && (pathname === item.href || pathname.startsWith(`${item.href}/`))) {
@@ -137,7 +138,8 @@ function NavList({ me, active }: { me: Me | null; active: string }) {
     .filter((group) => !group.restricted || (me !== null && (me.role !== 'COLLABORATOR' || me.is_superuser)))
     .map((group) => ({ ...group, items: group.items.filter((item) =>
       (!item.hrOnly || (me !== null && isHr(me))) && (!item.adminOnly || (me !== null && seesBothPoles(me)))
-      && (!item.itOnly || (me !== null && me.is_superuser))) }))
+      && (!item.itOnly || (me !== null && me.is_superuser))
+      && (!item.standInOnly || (me !== null && me.stands_in === true && me.role === 'COLLABORATOR' && !me.is_superuser))) }))
 
   // On ouvre le groupe qui contient la page active : au départ, puis à chaque changement de page
   // (le cadre reste en place, donc on ajuste l'état pendant le rendu, comme le conseille React).
