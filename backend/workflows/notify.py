@@ -29,8 +29,10 @@ def send(users, kind, request):
 
 
 def clear_waiting(request):
-    """La demande n'attend plus ces personnes : leurs "Demande à valider" (et les rappels) pas encore lus sont retirés."""
-    Notification.objects.filter(request=request, kind__in=[Kind.TO_VALIDATE, Kind.REMINDER], read_at__isnull=True).delete()
+    """La demande n'attend plus ces personnes : leurs "Demande à valider", rappels et "Pas encore validée"
+    pas encore lus sont retirés."""
+    Notification.objects.filter(request=request, kind__in=[Kind.TO_VALIDATE, Kind.REMINDER, Kind.NOT_VALIDATED],
+                                read_at__isnull=True).delete()
 
 
 @on_bell_refresh

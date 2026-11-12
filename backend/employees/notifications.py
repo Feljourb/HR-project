@@ -77,12 +77,29 @@ def refresh_for(user):
         refresher(user)
 
 
+# Les travaux "une fois par jour" des modules (2026-11-12), faits au début du tour du matin, avant les rappels.
+# Ex. le module Congés : annuler les demandes pas validées avant leur premier jour (leaves/handlers.py).
+MORNING_JOBS = []
+
+
+def on_morning_round(job):
+    """Pour un module : @on_morning_round sur une fonction (sans argument) faite chaque matin par le facteur."""
+    MORNING_JOBS.append(job)
+    return job
+
+
 def refresh_everyone():
-    """Le tour du matin (emails, step 4, 2026-11-12) : refresh_for pour TOUS les comptes actifs, comme si
-    chacun ouvrait sa cloche. Sans ce tour, un rappel (31/12, demande en attente, fin d'essai) naissait
-    seulement à l'ouverture de la cloche : quelqu'un qui ne vient pas dans l'application n'avait pas d'email.
-    Le refaire ne crée pas de doublon (les contraintes uniques des notifications). Rend (comptes vérifiés, erreurs)."""
+    """Le tour du matin (emails, step 4, 2026-11-12) : d'abord les travaux du jour des modules (MORNING_JOBS),
+    puis refresh_for pour TOUS les comptes actifs, comme si chacun ouvrait sa cloche. Sans ce tour, un rappel
+    (31/12, demande en attente, fin d'essai) naissait seulement à l'ouverture de la cloche : quelqu'un qui ne vient
+    pas dans l'application n'avait pas d'email. Le refaire ne crée pas de doublon (les contraintes uniques des
+    notifications). Rend (comptes vérifiés, erreurs)."""
     checked, errors = 0, []
+    for job in MORNING_JOBS:
+        try:
+            job()
+        except Exception as error:  # un travail raté n'empêche pas les rappels
+            errors.append(f"{job.__name__} : {error}")
     for user in get_user_model().objects.filter(is_active=True).order_by("id"):
         try:
             refresh_for(user)
@@ -149,6 +166,20 @@ def message(notification):
         request = notification.request
         waiting = (timezone.localdate() - timezone.localtime(request.created_at).date()).days
         return f"Rappel : {name} attend votre réponse depuis {waiting} jours : {request.title}."
+    if notification.kind == Kind.NOT_VALIDATED:
+        # 2 jours avant le début (due_date) : le demandeur et les RH. Qui la demande attend encore.
+        request = notification.request
+        step = request.steps.filter(status="PENDING").select_related("assignee").first()
+        who = (f"{step.assignee.first_name} {step.assignee.last_name}" if step and step.assignee_id
+               else step.get_approver_display() if step else "?")
+        start = notification.due_date.strftime("%d/%m/%Y")
+        if employee.user_id == notification.recipient_id:
+            return (f"Votre demande n'est pas encore validée (en attente de {who}) : {request.title}. "
+                    f"Sans validation avant le {start}, elle sera annulée automatiquement.")
+        return f"Pas encore validée (en attente de {who}) : {request.title} ({name}), qui commence le {start}."
+    if notification.kind == Kind.EXPIRED:
+        request = notification.request
+        return f"Demande annulée automatiquement : {request.title} ({name}). Motif : {request.cancel_reason}"
     if notification.kind == Kind.DELEGATED:
         # Importé ici : l'app workflows importe déjà employees (sinon une boucle d'imports).
         from workflows.models import Delegation

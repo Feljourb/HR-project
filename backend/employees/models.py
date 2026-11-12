@@ -665,6 +665,11 @@ class Notification(models.Model):
         # une demande attend MA réponse depuis plusieurs jours (`due_date` = le jour du rappel).
         EXPIRING = "EXPIRING", "Jours bientôt perdus"
         REMINDER = "REMINDER", "Rappel : demande en attente"
+        # 2026-11-12 (un valideur absent sans délégué : personne ne le remplace) : 2 jours avant le début d'un congé
+        # encore en attente, le demandeur et les RH sont prévenus (`due_date` = le 1er jour du congé) ; le jour du
+        # début, la demande encore en attente est annulée automatiquement (prévenus : demandeur, valideur, RH).
+        NOT_VALIDATED = "NOT_VALIDATED", "Pas encore validée"
+        EXPIRED = "EXPIRED", "Annulée : pas validée à temps"
 
     recipient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notifications",
                                   verbose_name="Destinataire")

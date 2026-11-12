@@ -12,7 +12,7 @@ from employees.models import Employee, Pole
 
 from . import delegations as delegations_service
 from . import engine
-from .models import DELEGATE_ROLES, Delegation, Request, Workflow, can_be_delegate
+from .models import Delegation, Request, Workflow, can_be_delegate
 from .serializers import (
     ApprovalSerializer, DecisionSerializer, DelegationInputSerializer, DelegationSerializer, PoleDirectorSerializer,
     RequestSerializer, WorkflowSerializer,
@@ -173,7 +173,7 @@ class DelegationViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     @action(detail=False, methods=["get"])
     def candidates(self, request):
         """GET /api/workflows/delegations/candidates/?search=kar&delegator=12 -> les personnes qui PEUVENT remplacer
-        l'absent (moi, ou `delegator` pour les RH) : Manager / RH / Admin RH du même pôle (models.can_be_delegate).
+        l'absent (moi, ou `delegator` pour les RH) : n'importe qui du même pôle (models.can_be_delegate, 2026-11-12).
         La recherche ne propose qu'elles ; Django refuse les autres de toute façon."""
         delegator_id = request.query_params.get("delegator", "")
         delegator = (Employee.objects.filter(pk=delegator_id).first() if delegator_id.isdigit()
@@ -181,7 +181,7 @@ class DelegationViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         if delegator is None or not delegations_service.can_manage(request.user, delegator):
             return Response([])
         people = (Employee.objects.exclude(status=Employee.Status.LEFT).exclude(pk=delegator.pk)
-                  .filter(user__is_active=True, user__role__in=DELEGATE_ROLES)
+                  .filter(user__is_active=True)
                   .select_related("user", "position", "department__direction__entity__pole"))
         if search := request.query_params.get("search", "").strip():
             people = people.filter(Q(last_name__icontains=search) | Q(first_name__icontains=search))

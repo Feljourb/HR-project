@@ -188,7 +188,9 @@ function WorkCell({ validator, now }: { validator: boolean; now: Date | null }) 
   return <KpiCell icon={ClipboardCheck} label={approving ? 'To approve' : 'My requests'}
     value={work ? String(count) : '—'} unit={approving ? 'waiting for you' : 'in progress'}
     footer={<span className="flex items-center justify-between gap-2">
-      <span className="truncate">{approving ? 'Leaves, expenses and documents' : 'Follow them step by step'}</span>
+      {/* Un collaborateur qui remplace un valideur absent (délégation, 2026-11-12) : pas de menu "Team approvals",
+          cette case lui montre les demandes à traiter, le temps de la délégation. */}
+      <span className="truncate">{!approving ? 'Follow them step by step' : validator ? 'Leaves, expenses and documents' : 'As a stand-in (out of office)'}</span>
       <Link href={approving ? '/approvals' : '/requests'} className="shrink-0 font-semibold text-[#23355d] hover:underline">
         {approving ? 'Team approvals' : 'My requests'}
       </Link>

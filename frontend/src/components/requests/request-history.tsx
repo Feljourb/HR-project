@@ -107,7 +107,10 @@ function stepEvents(request: WorkflowRequest): Event[] {
         events.push({ icon: Minus, tone: 'text-slate-400', title: `Step ${step.order} skipped`, detail: `No ${roleOf(step)} when the request was submitted.`, at: step.decided_at })
         break
       case 'PENDING':
-        events.push({ icon: Clock, tone: 'text-amber-500', title: `Waiting for ${who}`, detail: `Step ${step.order} · ${MODE[step.mode] ?? step.mode_label}` })
+        // Une demande terminée (annulée) dont l'étape attendait encore : la personne n'a pas répondu.
+        events.push(finished
+          ? { icon: Circle, tone: 'text-slate-300', title: `Not answered: ${who}`, detail: `Step ${step.order} · ${MODE[step.mode] ?? step.mode_label}`, muted: true }
+          : { icon: Clock, tone: 'text-amber-500', title: `Waiting for ${who}`, detail: `Step ${step.order} · ${MODE[step.mode] ?? step.mode_label}` })
         break
       default:  // WAITING : pas encore son tour, ou jamais atteinte (demande refusée / annulée)
         events.push({ icon: Circle, tone: 'text-slate-300', title: finished ? `Not reached: ${who}` : `Next: ${who}`, detail: `Step ${step.order} · ${MODE[step.mode] ?? step.mode_label}`, muted: true })
@@ -119,9 +122,15 @@ function stepEvents(request: WorkflowRequest): Event[] {
     note: DONE[request.workflow_code]?.next, at: request.closed_at })
   if (request.status === 'REJECTED') events.push({ icon: XCircle, tone: 'text-red-600', title: REFUSED[request.workflow_code]?.title ?? 'Request refused · Request closed',
     note: REFUSED[request.workflow_code]?.next ?? 'You can submit a new request if needed.', noteTone: 'neutral', at: request.closed_at })
-  // Annulée : par le demandeur, ou par un RH (une demande déjà acceptée), avec le motif.
-  if (request.status === 'CANCELLED') events.push({ icon: Ban, tone: 'text-slate-500', title: `Cancelled by ${request.cancelled_by_name ?? request.requester} · Request closed`,
-    comment: request.cancel_reason || undefined, at: request.closed_at })
+  // Annulée : par le demandeur, ou par un RH (une demande déjà acceptée), avec le motif ; ou par l'APPLICATION
+  // (personne n'a cliqué, 2026-11-12 : un congé pas validé avant son premier jour) : pas d'auteur, mais un motif.
+  if (request.status === 'CANCELLED') {
+    const automatic = !request.cancelled_by_name && Boolean(request.cancel_reason)
+    events.push(automatic
+      ? { icon: Ban, tone: 'text-slate-500', title: 'Cancelled automatically · Request closed', note: request.cancel_reason, noteTone: 'neutral', at: request.closed_at }
+      : { icon: Ban, tone: 'text-slate-500', title: `Cancelled by ${request.cancelled_by_name ?? request.requester} · Request closed`,
+          comment: request.cancel_reason || undefined, at: request.closed_at })
+  }
   return events
 }
 

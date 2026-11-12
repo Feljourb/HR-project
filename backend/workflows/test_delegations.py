@@ -1,6 +1,6 @@
-"""P2 step 1 : un valideur absent. Les 3 niveaux du standard (décision du 2026-11-09) :
-1. son délégué (choisi par lui, ou par les RH) ; 2. sinon, s'il est en congé : son responsable (pas le DG) ;
-3. sinon (le responsable est le DG, absent, ou il n'y en a pas) : les RH du pôle."""
+"""Un valideur absent (décision de l'utilisateur, 2026-11-12, à la place des 3 niveaux du 2026-11-09) :
+SEULEMENT le délégué qu'il a choisi (n'importe qui de son pôle) répond à sa place. Sans délégué, personne ne le
+remplace (ni son responsable, ni les RH) : la demande l'attend (le module Congés prévient à J-2 et annule à J)."""
 import datetime
 from unittest import mock
 
@@ -10,7 +10,7 @@ from django.urls import reverse
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from employees.models import Notification, Pole
+from employees.models import Department, Notification, Pole
 
 from . import engine
 from .delegations import create_delegation, end_delegation
@@ -71,47 +71,39 @@ class DelegationTests(EngineTestCase):
         create_delegation(self.youssef, self.sara, days(0), days(5), self.youssef.user)
         self.assertFalse(engine.can_decide(self.sara.user, self.step))
 
-    def test_the_delegate_is_a_manager_or_hr_of_the_same_pole(self):
-        # Un collaborateur : refusé (il validerait les congés de ses collègues).
+    def test_the_delegate_is_anyone_of_the_same_pole(self):
+        # Un collaborateur du pôle : permis (au choix de l'absent, décision du 2026-11-12). Il valide "on behalf of".
         colleague = self.make_employee("ali.collab", "AA100031")
-        with self.assertRaisesMessage(ValidationError, "pas un collaborateur"):
-            create_delegation(self.youssef, colleague, days(0), days(2), self.youssef.user)
-        # Un RH du pôle : permis. La recherche ne propose que les personnes permises.
-        create_delegation(self.youssef, self.nadia, days(0), days(2), self.youssef.user)
+        create_delegation(self.youssef, colleague, days(0), days(2), self.youssef.user)
+        self.assertIn(self.step, engine.steps_waiting_for(colleague.user))
+        # Quelqu'un de l'AUTRE pôle : refusé. La recherche ne le propose pas.
+        production = Department.objects.get(name="Production", direction__entity__name="Eureka")
+        riaya = self.make_employee("rida.riaya", "AA100032", department=production, position=production.positions.first())
+        with self.assertRaisesMessage(ValidationError, "même pôle"):
+            create_delegation(self.youssef, riaya, days(10), days(12), self.youssef.user)
         client = APIClient()
         self.youssef.user.must_change_password = False
         self.youssef.user.save()
         client.force_authenticate(self.youssef.user)
         found = [person["id"] for person in client.get(reverse("workflows:delegation-candidates")).json()]
-        self.assertIn(self.omar.pk, found)
-        self.assertNotIn(colleague.pk, found)
+        self.assertIn(colleague.pk, found)
+        self.assertNotIn(riaya.pk, found)
         self.assertNotIn(self.youssef.pk, found)
 
-    # --- Niveau 2 : son responsable (absent sans délégué) -----------------------------------
+    # --- Sans délégué : personne ne remplace (décision du 2026-11-12) --------------------------
 
-    def test_absent_without_delegate_goes_to_the_manager_above(self):
-        with self.absent(self.youssef):
-            self.assertIn(self.step, engine.steps_waiting_for(self.karim.user))
-            engine.approve(self.step, self.karim.user)
-        self.step.refresh_from_db()
-        self.assertEqual(self.step.on_behalf_of, self.youssef)
-
-    def test_present_without_delegate_nobody_replaces(self):
-        self.assertFalse(engine.can_decide(self.karim.user, self.step))
-
-    # --- Niveau 3 : les RH du pôle ------------------------------------------------------
-
-    def test_when_the_manager_above_is_the_dg_hr_answers(self):
-        Pole.objects.filter(pk=self.sara.pole.pk).update(director=self.karim)  # Karim est le DG du pôle
+    def test_absent_without_delegate_nobody_replaces(self):
+        Pole.objects.filter(pk=self.sara.pole.pk).update(director=self.karim)
         self.sara.refresh_from_db()
-        with self.absent(self.youssef):
-            self.assertFalse(engine.can_decide(self.karim.user, self.step))  # le DG ne connaît pas chaque équipe
-            self.assertTrue(engine.can_decide(self.nadia.user, self.step))
-
-    def test_when_the_manager_above_is_absent_too_hr_answers(self):
         with self.absent(self.youssef, self.karim):
-            self.assertFalse(engine.can_decide(self.karim.user, self.step))
-            self.assertIn(self.step, engine.steps_waiting_for(self.hind.user))
+            # Ni son responsable, ni les RH : la demande attend Youssef.
+            for other in (self.karim, self.nadia, self.hind):
+                self.assertFalse(engine.can_decide(other.user, self.step))
+                self.assertNotIn(self.step, engine.steps_waiting_for(other.user))
+            # Youssef peut répondre même en congé.
+            engine.approve(self.step, self.youssef.user)
+        self.step.refresh_from_db()
+        self.assertIsNone(self.step.on_behalf_of)
 
     # --- P3 : le rappel "une demande attend ta réponse depuis 3 jours" ----------------------
 

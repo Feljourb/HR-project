@@ -68,23 +68,22 @@ def find_validator(approver, requester):
 
 def people_of(step):
     """Les comptes concernés par cette étape (ceux qui répondent, ou qu'on informe) : pour la cloche.
-    P2 step 1 : + ceux qui répondent À LA PLACE d'un valideur absent (son délégué, son responsable, ou les RH)."""
+    + le délégué qui répond À LA PLACE du valideur (s'il en a choisi un pour ces dates)."""
     requester = step.request.requester
     if step.assignee_id:
         people = [step.assignee.user]  # N+1, N+2 ou DG
         kind, stand = stand_in(step)
         if kind == "person":
             people.append(stand.user)
-        elif kind == "hr":
-            people += list(hr_validators(requester))
         return list(dict.fromkeys(people))
     return list(hr_validators(requester))  # RH du pôle + Admin RH
 
 
-# --- P2 step 1 : un valideur absent (délégation, puis son responsable, puis les RH) ---------------
+# --- Un valideur absent : seulement son délégué (décision du 2026-11-12) ---------------------------
 
 # Les modules disent au moteur "cette personne est absente ce jour-là" (ex. le module Congés : un congé
 # accepté). Le moteur ne sait rien des congés : il demande seulement aux fonctions de cette liste.
+# (Depuis le 2026-11-12, plus personne ne remplace un absent sans délégué : is_absent sert à afficher l'absence.)
 ABSENCE_CHECKS = []
 
 
@@ -109,36 +108,24 @@ def delegate_of(employee, day=None):
 
 def stand_in(step):
     """QUI répond À LA PLACE de la personne attendue par cette étape (N+1, N+2 ou DG), aujourd'hui.
-    Le standard des logiciels RH, en 3 niveaux (décision du 2026-11-09) :
-    1. elle a choisi un délégué pour ces dates            -> ("person", le délégué) ;
-    2. sinon, elle est absente (en congé accepté aujourd'hui) -> ("person", SON responsable),
-       sauf si ce responsable est le DG du pôle (il ne connaît pas le travail de chaque équipe), absent lui aussi,
-       ou s'il n'y en a pas                              -> ("hr", None) : les RH du pôle (le filet de sécurité) ;
-    3. sinon (présente, pas de délégué)                  -> (None, None) : personne ne la remplace.
-    Jamais le demandeur lui-même (personne ne valide sa propre demande)."""
+    Décision de l'utilisateur (2026-11-12) : SEULEMENT le délégué qu'elle a choisi pour ces dates
+    -> ("person", le délégué). Sans délégué -> (None, None) : PERSONNE ne la remplace, même si elle est en congé
+    (ni son responsable, ni les RH) : un congé n'existe pas sans la validation de SON N+1. La demande l'attend :
+    elle peut répondre même en congé (🔔 + email), elle a un rappel tous les 3 jours ; 2 jours avant le début du
+    congé, le demandeur et les RH sont prévenus ; le jour du début, une demande encore en attente est annulée
+    automatiquement (module Congés, leaves/handlers.py). Jamais le demandeur lui-même."""
     if not step.assignee_id:
         return None, None
-    requester = step.request.requester
     delegate = delegate_of(step.assignee)
-    if delegate and delegate.pk != requester.pk:
+    if delegate and delegate.pk != step.request.requester_id:
         return "person", delegate
-    if not is_absent(step.assignee):
-        return None, None
-    above = still_here(step.assignee.n_plus_1)
-    director = requester.pole.director
-    if above and above.pk != requester.pk and (director is None or above.pk != director.pk) and not is_absent(above):
-        return "person", above
-    return "hr", None
+    return None, None
 
 
 def answers_for_absent(user, step):
-    """True si CET utilisateur répond à la place de la personne absente (voir stand_in)."""
+    """True si CET utilisateur est le délégué qui répond à la place de la personne attendue (voir stand_in)."""
     kind, stand = stand_in(step)
-    if kind == "person":
-        return stand.user_id == user.pk
-    if kind == "hr":
-        return hr_validators(step.request.requester).filter(pk=user.pk).exists()
-    return False
+    return kind == "person" and stand.user_id == user.pk
 
 
 @transaction.atomic
@@ -272,7 +259,7 @@ def steps_waiting_for(user):
     waiting = (RequestStep.objects.filter(status=Status.PENDING, request__status=Request.Status.IN_PROGRESS)
                .exclude(request__requester__user=user))  # jamais ma propre demande
     ids = set(waiting.filter(mine).values_list("pk", flat=True))
-    # P2 step 1 : + les étapes d'un valideur absent que JE remplace (délégué, responsable, ou RH).
+    # + les étapes d'un valideur absent dont JE suis le délégué.
     # Vérifiées une par une (la règle dépend des congés du jour) : il y a peu d'étapes en attente à la fois.
     others = waiting.filter(assignee__isnull=False).exclude(assignee__user=user).exclude(pk__in=ids)
     for step in others.select_related("assignee", "request__requester__department__direction__entity__pole"):
@@ -376,4 +363,21 @@ def cancel_approved(request, user, reason):
     deciders = get_user_model().objects.filter(pk__in=request.steps.exclude(decided_by=None).values("decided_by"))
     people = [*deciders, *([request.requester.user] if request.requester.user_id != user.pk else [])]
     notify.send([person for person in dict.fromkeys(people) if person.pk != user.pk], notify.Kind.CANCELLED, request)
+    return request
+
+
+@transaction.atomic
+def expire(request, reason, also=()):
+    """Une demande encore EN COURS devenue sans objet, annulée par L'APPLICATION (personne n'a cliqué : cancelled_by
+    vide), avec le motif. Le moteur ne sait pas QUAND : le module le décide (Congés, 2026-11-12 : pas validée avant
+    le premier jour du congé). Prévenus (🔔 + email "Annulée : pas validée à temps") : le demandeur, ceux que
+    l'étape attendait (le valideur, son délégué), et `also` (ex. les RH du pôle). Déjà terminée : rien ne change."""
+    request = Request.objects.select_for_update().select_related("requester__user").get(pk=request.pk)
+    if request.status != Request.Status.IN_PROGRESS:
+        return request
+    waiting = [person for step in request.steps.filter(status=Status.PENDING) for person in people_of(step)]
+    request.status, request.closed_at, request.cancel_reason = Request.Status.CANCELLED, timezone.now(), reason
+    request.save(update_fields=["status", "closed_at", "cancel_reason"])
+    notify.clear_waiting(request)  # plus rien à valider : les "Demande à valider" pas lues partent
+    notify.send(list(dict.fromkeys([request.requester.user, *waiting, *also])), notify.Kind.EXPIRED, request)
     return request

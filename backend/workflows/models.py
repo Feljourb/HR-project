@@ -156,14 +156,11 @@ class RequestStep(models.Model):
         return f"{self.request} - {self.order}. {self.get_approver_display()} ({self.get_status_display()})"
 
 
-DELEGATE_ROLES = ("MANAGER", "HR", "HR_ADMIN")
-
-
 def can_be_delegate(delegate, delegator):
-    """P2 step 1 : qui peut remplacer un valideur absent : un Manager, un RH ou une Admin RH (qui a déjà
-    l'autorité de valider), du même pôle que l'absent (une Admin RH : les deux pôles)."""
-    role = delegate.user.role
-    return role in DELEGATE_ROLES and (role == "HR_ADMIN" or delegate.pole == delegator.pole)
+    """Qui peut remplacer un valideur absent : N'IMPORTE QUI du même pôle que l'absent (une Admin RH : les deux
+    pôles), au choix de l'absent (décision de l'utilisateur, 2026-11-12 ; avant : seulement Manager / RH / Admin RH).
+    Toujours : jamais pour sa propre demande (engine.stand_in), et l'historique dit "on behalf of"."""
+    return delegate.user.role == "HR_ADMIN" or delegate.pole == delegator.pole
 
 
 class Delegation(models.Model):
@@ -198,10 +195,9 @@ class Delegation(models.Model):
             raise ValidationError({"delegate": "Choisissez une autre personne que l'absent."})
         if self.delegate.status == Employee.Status.LEFT or not self.delegate.user.is_active:
             raise ValidationError({"delegate": "Ce collaborateur n'est plus actif."})
-        # Le standard : le délégué a DÉJÀ l'autorité de valider (Manager, RH ou Admin RH), et il est du même pôle
-        # (Admin RH : les deux pôles). Jamais un collaborateur : il validerait les congés de ses collègues.
+        # Quelqu'un du même pôle (Admin RH : les deux pôles), au choix de l'absent (décision du 2026-11-12).
         if not can_be_delegate(self.delegate, self.delegator):
-            raise ValidationError({"delegate": "Choisissez un manager ou un RH du même pôle (pas un collaborateur)."})
+            raise ValidationError({"delegate": "Choisissez quelqu'un du même pôle que l'absent."})
         if self.end_date < self.start_date:
             raise ValidationError({"end_date": "La fin est avant le début."})
         if self.end_date < timezone.localdate():
