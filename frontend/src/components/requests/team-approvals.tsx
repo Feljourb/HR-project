@@ -4,12 +4,16 @@
  * La page "Team approvals" : les demandes qui attendent MA réponse (N+1, N+2, RH du pôle),
  * la plus ancienne d'abord. Pour chacune : un commentaire, puis Approve ou Reject.
  * Lu dans /api/workflows/approvals/ : Django ne renvoie que les étapes qui m'attendent.
+ * Deux onglets (2026-11-12, standard) : "Waiting" (à répondre) et "History" (mes étapes déjà répondues, par moi
+ * ou par mon délégué en mon nom : /api/workflows/approvals/history/).
  */
-import { useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Check, CheckCheck, Loader2, Plane, X } from 'lucide-react'
 import { apiFetch, type Me } from '@/lib/api'
-import type { Approval, WorkflowRequest } from '@/lib/requests'
+import type { Approval, DecidedStep, WorkflowRequest } from '@/lib/requests'
+import { cn } from '@/lib/utils'
 import { sendChange } from '@/lib/workflows'
+import { DecidedList } from './decided-list'
 import { OutOfOffice } from './out-of-office'
 import { RequestCard } from './request-card'
 import { TeamCalendar } from './team-calendar'
@@ -19,6 +23,8 @@ export function TeamApprovals({ me }: { me: Me }) {
   const [failed, setFailed] = useState(false)
   // La dernière réponse donnée, affichée en haut : "Approved: Congé du 10 au 14 novembre".
   const [done, setDone] = useState('')
+  const [tab, setTab] = useState<'waiting' | 'history'>('waiting')
+  const [history, setHistory] = useState<DecidedStep[] | null>(null)
 
   useEffect(() => {
     apiFetch('/api/workflows/approvals/')
@@ -29,16 +35,30 @@ export function TeamApprovals({ me }: { me: Me }) {
       .catch(() => setFailed(true))
   }, [])
 
-  // Après une réponse : l'étape n'attend plus personne, elle quitte la liste.
+  // L'historique : relu au départ (pour son nombre), puis après chaque réponse (la demande y passe).
+  const loadHistory = useCallback(() => {
+    apiFetch('/api/workflows/approvals/history/')
+      .then(async (response) => { if (response.ok) setHistory(await response.json()) })
+      .catch(() => setHistory([]))
+  }, [])
+  useEffect(loadHistory, [loadHistory])
+
+  // Après une réponse : l'étape n'attend plus personne, elle quitte la liste (et entre dans History).
   function answered(approval: Approval, verb: string) {
     setApprovals((list) => list && list.filter((item) => item.id !== approval.id))
     setDone(`${verb}: ${approval.request.title}`)
+    loadHistory()
   }
+
+  const tabs = [
+    { id: 'waiting' as const, label: 'Waiting', count: approvals?.length },
+    { id: 'history' as const, label: 'History', count: history?.length },
+  ]
 
   return <div className="flex flex-col gap-4">
     <div>
       <h1 className="text-lg font-semibold text-[#192646]">Team approvals</h1>
-      <p className="text-xs text-slate-500">The requests waiting for your answer, oldest first.</p>
+      <p className="text-xs text-slate-500">The requests waiting for your answer, oldest first, and the ones already answered.</p>
     </div>
 
     {/* P2 step 1 : mon "absent du bureau" (qui valide à ma place), et ceux que je remplace.
@@ -50,7 +70,25 @@ export function TeamApprovals({ me }: { me: Me }) {
       <CheckCheck className="size-4" /> {done}
     </p>}
 
-    {approvals === null
+    {/* Les deux onglets, en pastilles comme "My requests". */}
+    <div role="group" aria-label="Show" className="flex flex-wrap gap-2">
+      {tabs.map(({ id, label, count }) => {
+        const selected = tab === id
+        return <button key={id} type="button" aria-pressed={selected} onClick={() => setTab(id)}
+          className={cn('flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold transition-colors',
+            selected ? 'border-[#23355d] bg-[#23355d] text-white' : 'border-slate-200 bg-white text-slate-600 hover:border-[#23355d]/40 hover:text-[#23355d]')}>
+          {label}{count !== undefined && <span className={cn('tabular-nums', selected ? 'text-white/70' : 'text-slate-400')}>{count}</span>}
+        </button>
+      })}
+    </div>
+
+    {tab === 'history'
+      ? history === null
+        ? <Message>Loading...</Message>
+        : history.length === 0
+          ? <Message>You have not answered any request yet.</Message>
+          : <DecidedList items={history} from="approvals" />
+      : approvals === null
       ? <Message>{failed ? 'Could not load the requests. Please try again later.' : 'Loading...'}</Message>
       : approvals.length === 0
         ? <Message><CheckCheck className="mx-auto mb-2 size-6 text-emerald-600" />Nothing is waiting for you.</Message>

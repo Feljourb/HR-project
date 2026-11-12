@@ -14,6 +14,7 @@ from employees.models import Department, Notification, Pole
 
 from . import engine
 from .delegations import create_delegation, end_delegation
+from .models import Delegation
 from .test_engine import EngineTestCase
 
 User = get_user_model()
@@ -175,6 +176,14 @@ class DelegationTests(EngineTestCase):
         client.force_authenticate(self.youssef.user)
         ended = client.post(reverse("workflows:delegation-end", args=[response.json()["id"]]))
         self.assertEqual(ended.json()["state"], "ENDED")
-        # Délégation finie : le lien reste, pour retrouver l'historique de ce qu'Omar a répondu.
+        # Team approvals -> History de Youssef : son étape, répondue par Omar en son nom.
+        mine = client.get(reverse("workflows:approval-history")).json()
+        self.assertEqual([(item["request"]["id"], item["by_me"], item["comment"]) for item in mine],
+                         [(self.request.pk, False, "Vu")])
+        self.assertEqual(mine[0]["decided_by_name"], f"{self.omar.first_name} {self.omar.last_name.title()}")
+        # Délégation finie : le lien reste 30 jours (pour retrouver l'historique), puis disparaît.
         client.force_authenticate(self.omar.user)
         self.assertTrue(client.get(reverse("accounts:me")).json()["stands_in"])
+        self.assertTrue(client.get(reverse("workflows:approval-history")).json()[0]["by_me"])
+        Delegation.objects.filter(pk=response.json()["id"]).update(ended_at=timezone.now() - datetime.timedelta(days=31))
+        self.assertFalse(client.get(reverse("accounts:me")).json()["stands_in"])

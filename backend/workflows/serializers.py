@@ -176,18 +176,27 @@ class ApprovalSerializer(serializers.ModelSerializer):
         return person(step.assignee) if step.assignee_id and step.assignee.user_id != user.pk else None
 
 
-class AnsweredForSerializer(serializers.ModelSerializer):
-    """Une étape à laquelle J'AI répondu à la place d'un absent (historique de la page "Stand-in requests")."""
+class DecidedStepSerializer(serializers.ModelSerializer):
+    """Une étape DÉJÀ répondue, pour les onglets "History" : Team approvals (mes étapes, répondues par moi ou par
+    mon délégué en mon nom) et Stand-in requests (ce que j'ai répondu à la place d'un absent)."""
 
     request = RequestSerializer()
+    decided_by_name = serializers.SerializerMethodField()
     on_behalf_of = serializers.SerializerMethodField()
+    by_me = serializers.SerializerMethodField()  # "by you", ou "by Elj Fz on your behalf"
 
     class Meta:
         model = RequestStep
-        fields = ["id", "request", "on_behalf_of", "status", "decided_at", "comment"]
+        fields = ["id", "request", "status", "decided_at", "comment", "decided_by_name", "on_behalf_of", "by_me"]
+
+    def get_decided_by_name(self, step):
+        return name_of(step.decided_by)
 
     def get_on_behalf_of(self, step):
-        return person(step.on_behalf_of)
+        return person(step.on_behalf_of) if step.on_behalf_of_id else None
+
+    def get_by_me(self, step):
+        return step.decided_by_id == self.context["request"].user.pk
 
 
 class DelegationSerializer(serializers.ModelSerializer):

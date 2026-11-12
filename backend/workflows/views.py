@@ -14,7 +14,7 @@ from . import delegations as delegations_service
 from . import engine
 from .models import Delegation, Request, RequestStep, Workflow, can_be_delegate
 from .serializers import (
-    AnsweredForSerializer, ApprovalSerializer, DecisionSerializer, DelegationInputSerializer, DelegationSerializer, PoleDirectorSerializer,
+    ApprovalSerializer, DecidedStepSerializer, DecisionSerializer, DelegationInputSerializer, DelegationSerializer, PoleDirectorSerializer,
     RequestSerializer, WorkflowSerializer,
 )
 
@@ -106,6 +106,7 @@ class ApprovalViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     GET  /api/workflows/approvals/              -> les étapes qui m'attendent, la plus ancienne d'abord
     POST /api/workflows/approvals/<id>/approve/ -> {"comment": "..."} (facultatif)
     POST /api/workflows/approvals/<id>/reject/  -> {"comment": "..."} (obligatoire)
+    GET  /api/workflows/approvals/history/      -> mes étapes déjà répondues (par moi, ou par mon délégué en mon nom)
     GET  /api/workflows/approvals/answered-for/ -> ce que J'AI répondu à la place d'un absent (le plus récent d'abord)"""
 
     serializer_class = ApprovalSerializer
@@ -135,17 +136,27 @@ class ApprovalViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     def reject(self, request, pk=None):
         return self.decide(engine.reject)
 
+    def decided(self, steps):
+        """Les étapes déjà répondues (onglets "History"), la plus récente d'abord, au plus 200.
+        Elles ne sont plus "en attente", donc pas dans get_queryset : leur propre requête."""
+        steps = (
+            steps.filter(status__in=[RequestStep.Status.APPROVED, RequestStep.Status.REJECTED])
+            .select_related("request__workflow", "request__requester", "decided_by", "on_behalf_of")
+            .prefetch_related("request__steps__assignee", "request__steps__decided_by", "request__steps__on_behalf_of")
+            .order_by("-decided_at")[:200]
+        )
+        return Response(DecidedStepSerializer(steps, many=True, context={"request": self.request}).data)
+
+    @action(detail=False)
+    def history(self, request):
+        # Team approvals -> History : les étapes qui m'attendaient (N+1, N+2, DG), répondues par moi OU par mon
+        # délégué en mon nom ; et celles auxquelles j'ai répondu (RH du pôle, ou à la place d'un absent).
+        return self.decided(RequestStep.objects.filter(Q(assignee__user=request.user) | Q(decided_by=request.user)))
+
     @action(detail=False, url_path="answered-for")
     def answered_for(self, request):
-        """L'historique d'un délégué (page "Stand-in requests") : les 100 dernières réponses données en
-        remplacement. Les étapes ne sont plus "en attente", donc pas dans get_queryset : leur propre requête."""
-        steps = (
-            RequestStep.objects.filter(decided_by=request.user, on_behalf_of__isnull=False)
-            .select_related("request__workflow", "request__requester", "on_behalf_of")
-            .prefetch_related("request__steps__assignee", "request__steps__decided_by", "request__steps__on_behalf_of")
-            .order_by("-decided_at")[:100]
-        )
-        return Response(AnsweredForSerializer(steps, many=True).data)
+        # Stand-in requests -> History : seulement ce que j'ai répondu à la place d'un absent.
+        return self.decided(RequestStep.objects.filter(decided_by=request.user, on_behalf_of__isnull=False))
 
 
 class DelegationViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
