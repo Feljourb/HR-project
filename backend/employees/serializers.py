@@ -13,7 +13,7 @@ from rest_framework import serializers
 from accounts.services import can_change_role, can_give_role_to_new_account, can_reset_password
 
 from . import history, notifications, services
-from .models import Child, City, Employee, EmployeeHistory, Notification
+from .models import Child, City, Employee, EmployeeHistory, Notification, NotificationSettings
 
 User = get_user_model()
 
@@ -317,6 +317,14 @@ class NotificationSerializer(serializers.ModelSerializer):
 
     def get_read(self, notification):
         return notification.read_at is not None
+
+
+class NotificationSettingsSerializer(serializers.ModelSerializer):
+    """MES choix d'emails (page Settings) : deux interrupteurs. "À valider" n'y est pas : toujours envoyé."""
+
+    class Meta:
+        model = NotificationSettings
+        fields = ["email_results", "email_info"]
 
 
 class DirectorySerializer(serializers.ModelSerializer):

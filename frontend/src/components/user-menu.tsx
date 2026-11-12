@@ -10,7 +10,7 @@
 import type { ReactNode } from 'react'
 import Link from 'next/link'
 import { Menu } from '@base-ui/react/menu'
-import { KeyRound, LogOut, UserRound } from 'lucide-react'
+import { KeyRound, LogOut, Settings, UserRound } from 'lucide-react'
 import { accountLabel, type Me } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
@@ -48,6 +48,10 @@ export function UserMenu({ me, displayName, onLogout, children, triggerClassName
           </Menu.LinkItem>
           <Menu.LinkItem closeOnClick render={<Link href="/change-password" />} className={itemClass}>
             <KeyRound className="size-4" /> Change password
+          </Menu.LinkItem>
+          {/* MES réglages : les emails des notifications. */}
+          <Menu.LinkItem closeOnClick render={<Link href="/settings" />} className={itemClass}>
+            <Settings className="size-4" /> Settings
           </Menu.LinkItem>
           <Menu.Separator className="my-1 h-px bg-slate-100" />
 

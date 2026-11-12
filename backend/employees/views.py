@@ -37,13 +37,14 @@ from accounts.permissions import AccountReady, IsHR, IsHRAdmin
 from accounts.services import can_reset_password, reset_password as reset_account_password
 
 from . import history, notifications
+from .emails import address_of
 from .models import (
     Assignment, Bank, Category, City, ContractType, CostCenter, Department, Direction, Division,
-    Employee, EmployeeHistory, Entity, Grade, Notification, Pole, Position, Region, TempAgency,
+    Employee, EmployeeHistory, Entity, Grade, Notification, NotificationSettings, Pole, Position, Region, TempAgency,
 )
 from .serializers import (
     AuditLogSerializer, DirectorySerializer, EmployeeListSerializer, EmployeeSerializer, HistorySerializer,
-    MyFicheSerializer, NotificationSerializer, ReferenceSerializer, hierarchy_data,
+    MyFicheSerializer, NotificationSerializer, NotificationSettingsSerializer, ReferenceSerializer, hierarchy_data,
 )
 from .services import limited_to_own_pole, sees_both_poles, user_pole
 
@@ -372,6 +373,17 @@ class NotificationViewSet(viewsets.GenericViewSet):
     def read_all(self, request):
         self.get_queryset().filter(read_at__isnull=True).update(read_at=timezone.now())
         return Response(status=204)
+
+    @action(detail=False, methods=["get", "patch"], url_path="settings")
+    def email_settings(self, request):
+        """GET / PATCH /api/employees/notifications/settings/ -> MES choix d'emails (page Settings) :
+        {"email_results": true, "email_info": true, "email_address": "f.alami@..."}. Chacun ne change que les siens."""
+        choices = NotificationSettings.objects.filter(user=request.user).first() or NotificationSettings(user=request.user)
+        if request.method == "PATCH":
+            serializer = NotificationSettingsSerializer(choices, data=request.data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            choices = serializer.save()
+        return Response({**NotificationSettingsSerializer(choices).data, "email_address": address_of(request.user)})
 
 
 # --- Annuaire ----------------------------------------------------------------------

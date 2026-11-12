@@ -4,10 +4,10 @@ from django.contrib.auth import get_user_model
 from django.urls import reverse
 from django.utils.html import format_html
 
-from . import history, services
+from . import emails, history, services
 from .models import (
     Assignment, Bank, Category, Child, City, ContractType, CostCenter, Department, Direction, Division,
-    Employee, EmployeeHistory, Entity, Grade, Pole, Position, Region, TempAgency,
+    Employee, EmployeeHistory, Entity, Grade, Notification, Pole, Position, Region, TempAgency,
 )
 
 
@@ -220,6 +220,52 @@ class EmployeeHistoryAdmin(admin.ModelAdmin):
     search_fields = ("employee__last_name", "employee__first_name", "employee__u_number", "actor_name")
     list_select_related = ("employee",)
 
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+# --- Les notifications et leurs emails (2026-11-11) : en lecture seule, pour l'IT ---
+
+class EmailStateFilter(admin.SimpleListFilter):
+    """Où en est l'email de chaque notification (le filtre "Email" à droite)."""
+    title = "Email"
+    parameter_name = "email"
+
+    def lookups(self, request, model_admin):
+        return [("failed", "En échec (à renvoyer)"), ("waiting", "En attente"), ("sent", "Envoyé"), ("not_sent", "Pas envoyé (raison)")]
+
+    def queryset(self, request, queryset):
+        if self.value() == "failed":
+            return queryset.filter(emailed_at__isnull=True, email_attempts__gte=emails.MAX_ATTEMPTS)
+        if self.value() == "waiting":
+            return queryset.filter(emailed_at__isnull=True, email_attempts__lt=emails.MAX_ATTEMPTS)
+        if self.value() == "sent":
+            return queryset.filter(emailed_at__isnull=False, email_error="")
+        if self.value() == "not_sent":
+            return queryset.filter(emailed_at__isnull=False).exclude(email_error="")
+        return queryset
+
+
+@admin.register(Notification)
+class NotificationAdmin(admin.ModelAdmin):
+    list_display = ("created_at", "kind", "recipient", "employee", "read_at", "emailed_at", "email_attempts", "email_error")
+    list_filter = (EmailStateFilter, "kind")
+    search_fields = ("recipient__username", "employee__last_name", "employee__first_name")
+    list_select_related = ("recipient", "employee")
+    actions = ["resend_email"]
+
+    @admin.action(description="Renvoyer l'email (après avoir réglé le problème : mot de passe, serveur...)")
+    def resend_email(self, request, queryset):
+        count = emails.resend(queryset)
+        self.message_user(request, f"{count} email(s) repartiront au prochain passage du facteur (dans 30 secondes au plus).")
+
+    # Créées par l'application seulement : ni ajout, ni modification, ni suppression ici.
     def has_add_permission(self, request):
         return False
 

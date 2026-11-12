@@ -52,6 +52,11 @@ send-request:
 test-email:
 	$(DC) exec backend python manage.py send_test_email $(to)
 
+# The morning round of reminders NOW (31/12, requests waiting, end of trial), then send the emails.
+# (The "mailer" service does it by itself every day from 8:00.)
+reminders:
+	$(DC) exec backend python manage.py send_emails --reminders
+
 migrate:
 	$(DC) exec backend python manage.py migrate
 

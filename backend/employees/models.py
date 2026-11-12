@@ -685,6 +685,8 @@ class Notification(models.Model):
     emailed_at = models.DateTimeField("Email traité le", null=True, blank=True)
     email_attempts = models.PositiveSmallIntegerField("Essais d'envoi", default=0)
     email_error = models.CharField("Email : erreur ou raison", max_length=300, blank=True)
+    # Après un échec : pas avant cette heure (1 min, 5 min... 12 h : on ne harcèle pas un serveur en panne).
+    email_next_try = models.DateTimeField("Email : prochain essai", null=True, blank=True)
 
     class Meta:
         verbose_name = "Notification"
@@ -701,3 +703,23 @@ class Notification(models.Model):
 
     def __str__(self):
         return f"{self.get_kind_display()} - {self.employee} -> {self.recipient}"
+
+
+class NotificationSettings(models.Model):
+    """Les choix d'UN utilisateur pour ses emails (page Settings, 2026-11-11). Seulement les emails :
+    la cloche n'a pas de réglage (toujours là : un compte de la société). "Demandes à valider" n'est pas
+    ici non plus : toujours envoyé (sinon les demandes de l'équipe resteraient bloquées).
+    Pas de ligne pour un utilisateur = tout est activé (le défaut)."""
+
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notification_settings",
+                                verbose_name="Compte")
+    email_results = models.BooleanField("Email : résultat de mes demandes", default=True)  # acceptée, refusée, annulée...
+    email_info = models.BooleanField("Email : informations et rappels", default=True)      # pour info, solde, 31/12, rappels
+    updated_at = models.DateTimeField("Modifié le", auto_now=True)
+
+    class Meta:
+        verbose_name = "Réglages des notifications"
+        verbose_name_plural = "Réglages des notifications"
+
+    def __str__(self):
+        return str(self.user)

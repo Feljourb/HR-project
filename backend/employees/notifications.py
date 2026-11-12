@@ -77,6 +77,21 @@ def refresh_for(user):
         refresher(user)
 
 
+def refresh_everyone():
+    """Le tour du matin (emails, step 4, 2026-11-12) : refresh_for pour TOUS les comptes actifs, comme si
+    chacun ouvrait sa cloche. Sans ce tour, un rappel (31/12, demande en attente, fin d'essai) naissait
+    seulement à l'ouverture de la cloche : quelqu'un qui ne vient pas dans l'application n'avait pas d'email.
+    Le refaire ne crée pas de doublon (les contraintes uniques des notifications). Rend (comptes vérifiés, erreurs)."""
+    checked, errors = 0, []
+    for user in get_user_model().objects.filter(is_active=True).order_by("id"):
+        try:
+            refresh_for(user)
+            checked += 1
+        except Exception as error:  # un compte à problème n'empêche pas les autres d'avoir leurs rappels
+            errors.append(f"{user.username} : {error}")
+    return checked, errors
+
+
 def refresh_trial(user):
     """La fin de période d'essai, pour un RH.
 
