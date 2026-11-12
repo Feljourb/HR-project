@@ -1,9 +1,9 @@
 "use client";
 
-import { NotificationSettings } from "@/components/settings/notification-settings";
+import { SettingsPage } from "@/components/settings/settings-page";
 import { SignedIn } from "@/lib/current-user";
 
-// /settings : MES réglages (pour tous les rôles) : les emails des notifications.
-export default function SettingsPage() {
-  return <SignedIn>{() => <NotificationSettings />}</SignedIn>;
+// /settings : MES réglages (pour tous les rôles) : les notifications, le mot de passe... (une section à la fois).
+export default function SettingsRoute() {
+  return <SignedIn>{() => <SettingsPage />}</SignedIn>;
 }

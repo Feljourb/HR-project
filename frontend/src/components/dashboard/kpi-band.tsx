@@ -173,6 +173,8 @@ function WorkCell({ validator, now }: { validator: boolean; now: Date | null }) 
   const toApprove = work?.approvals ?? []
   const inProgress = (work?.mine ?? []).filter((request) => request.status === 'IN_PROGRESS')
   const approving = validator || toApprove.length > 0
+  // Seulement des demandes d'un absent que je remplace (délégué, pas valideur d'habitude) : ma page "Stand-in requests".
+  const standIn = !validator && toApprove.length > 0 && toApprove.every((approval) => approval.on_behalf_of)
 
   // Depuis combien de jours la demande attend (pour voir celles qui traînent).
   const ageOf = (sent: string) => now ? Math.max(0, Math.floor((now.getTime() - Date.parse(sent)) / 86_400_000)) : null
@@ -190,9 +192,10 @@ function WorkCell({ validator, now }: { validator: boolean; now: Date | null }) 
     footer={<span className="flex items-center justify-between gap-2">
       {/* Un collaborateur qui remplace un valideur absent (délégation, 2026-11-12) : pas de menu "Team approvals",
           cette case lui montre les demandes à traiter, le temps de la délégation. */}
-      <span className="truncate">{!approving ? 'Follow them step by step' : validator ? 'Leaves, expenses and documents' : 'As a stand-in (out of office)'}</span>
-      <Link href={approving ? '/approvals' : '/requests'} className="shrink-0 font-semibold text-[#23355d] hover:underline">
-        {approving ? 'Team approvals' : 'My requests'}
+      <span className="truncate">{!approving ? 'Follow them step by step' : standIn ? 'As a stand-in (out of office)' : 'Leaves, expenses and documents'}</span>
+      {/* Un collaborateur délégué : sa page "Stand-in requests" (pas Team approvals, qu'il n'a pas dans le menu). */}
+      <Link href={!approving ? '/requests' : standIn ? '/stand-in' : '/approvals'} className="shrink-0 font-semibold text-[#23355d] hover:underline">
+        {!approving ? 'My requests' : standIn ? 'Stand-in requests' : 'Team approvals'}
       </Link>
     </span>}>
     {work && lines.length === 0

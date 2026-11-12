@@ -41,8 +41,10 @@ export function TeamApprovals({ me }: { me: Me }) {
       <p className="text-xs text-slate-500">The requests waiting for your answer, oldest first.</p>
     </div>
 
-    {/* P2 step 1 : mon "absent du bureau" (qui valide à ma place), et ceux que je remplace. */}
-    <OutOfOffice me={me} />
+    {/* P2 step 1 : mon "absent du bureau" (qui valide à ma place), et ceux que je remplace.
+        Seulement pour ceux qui valident (2026-11-12) : un collaborateur ne valide personne, il n'a rien à déléguer
+        (s'il remplace quelqu'un, il a sa page "Stand-in requests"). Sauf un collaborateur responsable d'une équipe. */}
+    {(me.role !== 'COLLABORATOR' || me.is_superuser || approvals?.some((approval) => !approval.on_behalf_of)) && <OutOfOffice me={me} />}
 
     {done && <p role="status" className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800">
       <CheckCheck className="size-4" /> {done}
@@ -72,7 +74,8 @@ function Message({ children }: { children: ReactNode }) {
 
 // Le commentaire et les deux boutons. Le commentaire est obligatoire pour refuser : Django le vérifie
 // et renvoie "Un commentaire est obligatoire pour refuser.", affiché sous les boutons.
-function Decision({ approval, onAnswered }: { approval: Approval; onAnswered: (verb: string) => void }) {
+// (Aussi dans la page "Stand-in requests" d'un collaborateur qui remplace un valideur absent.)
+export function Decision({ approval, onAnswered }: { approval: Approval; onAnswered: (verb: string) => void }) {
   const [comment, setComment] = useState('')
   const [busy, setBusy] = useState<'approve' | 'reject' | null>(null)
   const [error, setError] = useState('')

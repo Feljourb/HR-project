@@ -76,6 +76,10 @@ class DelegationTests(EngineTestCase):
         colleague = self.make_employee("ali.collab", "AA100031")
         create_delegation(self.youssef, colleague, days(0), days(2), self.youssef.user)
         self.assertIn(self.step, engine.steps_waiting_for(colleague.user))
+        # Sa cloche (et son email) mènent à SA page "Stand-in requests" (il n'a pas "Team approvals").
+        from employees.notifications import link
+        self.assertEqual(link(Notification.objects.get(recipient=colleague.user, kind="TO_VALIDATE")), "/stand-in")
+        self.assertEqual(link(Notification.objects.get(recipient=self.youssef.user, kind="TO_VALIDATE")), "/approvals")
         # Quelqu'un de l'AUTRE pôle : refusé. La recherche ne le propose pas.
         production = Department.objects.get(name="Production", direction__entity__name="Eureka")
         riaya = self.make_employee("rida.riaya", "AA100032", department=production, position=production.positions.first())

@@ -97,6 +97,7 @@ const SUB_PAGES: [RegExp, string][] = [
 function pageInfo(pathname: string): { active: string; breadcrumb: [string, string] } {
   if (pathname === '/') return { active: 'Dashboard', breadcrumb: ['Dashboard', 'Overview'] }
   if (pathname === '/settings') return { active: '', breadcrumb: ['My account', 'Settings'] }  // ouvert depuis le menu du compte
+  if (pathname === '/stand-in') return { active: '', breadcrumb: ['Personal Space', 'Stand-in requests'] }  // délégué (cloche, tableau de bord)
   for (const group of navGroups) {
     for (const item of group.items) {
       if (item.href && item.href !== '/' && (pathname === item.href || pathname.startsWith(`${item.href}/`))) {

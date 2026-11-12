@@ -137,7 +137,13 @@ def link(notification):
     if notification.kind == Kind.TRIAL_END:
         return f"/employees/{notification.employee_id}"
     if notification.kind in (Kind.TO_VALIDATE, Kind.DELEGATED, Kind.REMINDER):
-        return "/approvals"
+        # Un collaborateur qui répond À LA PLACE d'un absent (délégué, 2026-11-12) n'a pas "Team approvals" :
+        # sa page "Stand-in requests". Mais un collaborateur peut aussi être lui-même le N+1 (responsable d'une
+        # équipe sans le rôle Manager) : pour SES étapes, "Team approvals" comme les autres valideurs.
+        if notification.recipient.role != get_user_model().Role.COLLABORATOR:
+            return "/approvals"
+        own = notification.request_id and notification.request.steps.filter(assignee__user=notification.recipient_id).exists()
+        return "/approvals" if own and notification.kind != Kind.DELEGATED else "/stand-in"
     if notification.kind in (Kind.BALANCE_ADJUSTED, Kind.RIGHT_CHANGED, Kind.EXPIRING):
         return "/leaves"  # ma page Congés : mon solde et la section "Balance changes"
     return f"/requests/{notification.request_id}"  # pour information, acceptée, refusée
