@@ -10,7 +10,6 @@ generate list:
 docker compose exec backend python manage.py export_lists
 
 
-
 ----------------
 
 mah.zakaria : BL4526
@@ -60,3 +59,16 @@ Professional email
 r.riaya@riaya-industries.com
 Temporary password
 their CIN (R123)
+
+----------------------------------------
+
+ID
+U000013
+Username
+halima.arabi
+Professional email
+h.arabi@silent-believers.com
+Temporary password
+their CIN (H1234)
+
+
