@@ -13,7 +13,8 @@ from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_RIGHT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import mm
-from reportlab.platypus import HRFlowable, Paragraph, SimpleDocTemplate, Spacer
+from reportlab.lib.utils import ImageReader
+from reportlab.platypus import HRFlowable, Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from employees.models import Employee
 
@@ -24,9 +25,38 @@ GREY = colors.HexColor("#64748B")
 
 
 def signatory_of(employee):
-    """Le signataire du pôle du collaborateur (les valeurs par défaut s'il n'est pas encore rempli dans /admin)."""
+    """Le signataire du pôle du collaborateur (les valeurs par défaut s'il n'est pas encore réglé par Admin RH)."""
     pole = employee.department.direction.entity.pole
     return DocumentSignatory.objects.filter(pole=pole).first() or DocumentSignatory(pole=pole)
+
+
+def picture(field, max_width, max_height):
+    """Une image enregistrée (signature, cachet) -> une image du PDF, à sa taille maximum SANS la déformer.
+    Fichier absent ou illisible : None (le PDF garde la place vide, rien ne casse)."""
+    if not field:
+        return None
+    try:
+        with field.open("rb") as file:
+            data = file.read()
+        width, height = ImageReader(BytesIO(data)).getSize()
+    except Exception:  # noqa: BLE001 (un fichier effacé ou abîmé ne doit pas empêcher l'attestation)
+        return None
+    scale = min(max_width / width, max_height / height)
+    return Image(BytesIO(data), width=width * scale, height=height * scale)
+
+
+def signature_block(signatory):
+    """Sous "Le Directeur des Ressources Humaines" : la signature et le cachet (mode IMAGE, réglé par Admin RH),
+    sinon une place vide pour signer et tamponner à la main."""
+    images = []
+    if signatory.mode == DocumentSignatory.Mode.IMAGE:
+        images = [image for image in (picture(signatory.stamp, 38 * mm, 38 * mm),
+                                      picture(signatory.signature, 55 * mm, 26 * mm)) if image]
+    if not images:
+        return [Spacer(1, 70)]  # la place de la signature et du cachet, à la main
+    table = Table([images], hAlign="RIGHT")
+    table.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("LEFTPADDING", (0, 0), (-1, -1), 4)]))
+    return [Spacer(1, 4), table, Spacer(1, 16)]
 
 
 def work_certificate(document):
@@ -77,8 +107,8 @@ def work_certificate(document):
     ]
     if signatory.name:
         story.append(Paragraph(escape(signatory.name), right))
+    story += signature_block(signatory)
     story += [
-        Spacer(1, 70),  # la place de la signature et du cachet
         HRFlowable(width="100%", thickness=0.4, color=GREY),
         Spacer(1, 4),
         Paragraph(f"Document établi le {today:%d/%m/%Y} par l'Intranet RH, référence {document.reference}. "

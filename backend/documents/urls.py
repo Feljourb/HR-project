@@ -4,7 +4,7 @@ from rest_framework.routers import SimpleRouter
 from employees.views import make_viewset
 
 from .models import DocumentType
-from .views import FileViewSet, HrDocumentViewSet, MyDocumentViewSet, TypeViewSet
+from .views import ByRequestViewSet, FileViewSet, HrDocumentViewSet, MyDocumentViewSet, SignatoryViewSet, TypeViewSet
 
 app_name = "documents"
 
@@ -13,7 +13,9 @@ router = SimpleRouter()
 router.register("lists/types", make_viewset(DocumentType), basename="list-types")
 router.register("types", TypeViewSet, basename="type")
 router.register("mine", MyDocumentViewSet, basename="mine")
+router.register("requests", ByRequestViewSet, basename="by-request")
 router.register("files", FileViewSet, basename="file")
 router.register("hr", HrDocumentViewSet, basename="hr")
+router.register("signatories", SignatoryViewSet, basename="signatory")  # Admin RH : qui signe, et comment
 
 urlpatterns = router.urls

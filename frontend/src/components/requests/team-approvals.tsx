@@ -8,9 +8,13 @@
  * ou par mon délégué en mon nom : /api/workflows/approvals/history/).
  */
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { Check, CheckCheck, Loader2, Plane, X } from 'lucide-react'
+import Link from 'next/link'
+import { Check, CheckCheck, FileText, Loader2, Plane, X } from 'lucide-react'
 import { apiFetch, type Me } from '@/lib/api'
+import type { DocumentRequest } from '@/lib/documents'
+import { formatDate } from '@/lib/leaves'
 import type { Approval, DecidedStep, WorkflowRequest } from '@/lib/requests'
+import { UploadButton } from '@/components/documents/hr-documents'
 import { cn } from '@/lib/utils'
 import { sendChange } from '@/lib/workflows'
 import { DecidedList } from './decided-list'
@@ -25,6 +29,8 @@ export function TeamApprovals({ me }: { me: Me }) {
   const [done, setDone] = useState('')
   const [tab, setTab] = useState<'waiting' | 'history'>('waiting')
   const [history, setHistory] = useState<DecidedStep[] | null>(null)
+  // Un document préparé par les RH vient d'être validé : l'étape suivante (déposer le PDF), ici même.
+  const [toPrepare, setToPrepare] = useState<DocumentRequest | null>(null)
 
   useEffect(() => {
     apiFetch('/api/workflows/approvals/')
@@ -48,6 +54,15 @@ export function TeamApprovals({ me }: { me: Me }) {
     setApprovals((list) => list && list.filter((item) => item.id !== approval.id))
     setDone(`${verb}: ${approval.request.title}`)
     loadHistory()
+    setToPrepare(null)
+    if (verb === 'Approved' && approval.request.workflow_code === 'ADMIN_REQUEST') {
+      apiFetch(`/api/documents/requests/${approval.request.id}/`)
+        .then(async (response) => {
+          const document: DocumentRequest | null = response.ok ? await response.json() : null
+          if (document?.state === 'TO_PREPARE' && document.can_upload) setToPrepare(document)
+        })
+        .catch(() => { /* pas de document (demande de démo) : rien de plus à faire */ })
+    }
   }
 
   const tabs = [
@@ -69,6 +84,17 @@ export function TeamApprovals({ me }: { me: Me }) {
     {done && <p role="status" className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800">
       <CheckCheck className="size-4" /> {done}
     </p>}
+
+    {/* Validé : le document n'est pas généré par l'application -> le RH le prépare et dépose le PDF signé. */}
+    {toPrepare && <div role="status" className="flex flex-wrap items-center gap-3 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3">
+      <FileText className="size-5 shrink-0 text-sky-700" aria-hidden />
+      <div className="min-w-0 flex-1 text-xs text-sky-900">
+        <p className="font-semibold">Next step: prepare the document</p>
+        <p>{toPrepare.doc_type} for {toPrepare.employee}{toPrepare.due_date ? `, expected by ${formatDate(toPrepare.due_date)}` : ''}.
+          Upload the signed PDF now, or later from <Link href="/document-requests" className="font-semibold underline">Document requests</Link>.</p>
+      </div>
+      <UploadButton document={toPrepare} onUploaded={() => { setToPrepare(null); setDone(`Document delivered: ${toPrepare.doc_type} for ${toPrepare.employee}`) }} />
+    </div>}
 
     {/* Les deux onglets, en pastilles comme "My requests". */}
     <div role="group" aria-label="Show" className="flex flex-wrap gap-2">

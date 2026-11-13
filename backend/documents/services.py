@@ -39,9 +39,13 @@ def add_working_days(start, days):
     return day
 
 
+FORMAT_IN_TITLE = {DocumentRequest.Format.ORIGINAL: "original", DocumentRequest.Format.BOTH: "PDF + original"}
+
+
 @transaction.atomic
-def request_document(employee, doc_type, purpose="", by=None):
+def request_document(employee, doc_type, purpose="", by=None, format=DocumentRequest.Format.PDF):
     """Demander un document. Une règle refusée -> ValidationError({"doc_type": [...]}).
+    format : PDF, ORIGINAL (papier signé à la main, à récupérer au bureau RH) ou BOTH.
     - par le collaborateur lui-même (by vide, ou lui) : la demande suit le circuit (les RH du pôle valident) ;
     - par un RH POUR un collaborateur (champ "Employé (RH)", standard "request on behalf of") : les RH sont
       l'autorité, la demande est ACCEPTÉE tout de suite (engine.record_approved, l'historique dit qui l'a faite)."""
@@ -52,20 +56,28 @@ def request_document(employee, doc_type, purpose="", by=None):
     Employee.objects.select_for_update().get(pk=employee.pk)
     if not doc_type.is_active:
         raise ValidationError({"doc_type": ["Ce document n'est plus proposé."]})
+    if format not in DocumentRequest.Format.values:
+        raise ValidationError({"format": ["Choisissez le format : PDF, original ou les deux."]})
     # Une seule demande en cours par type (standard) : à valider, ou validée et pas encore livrée par les RH.
     waiting = Q(request__status=Request.Status.IN_PROGRESS) | Q(request__status=Request.Status.APPROVED, file="")
     if DocumentRequest.objects.filter(waiting, employee=employee, doc_type=doc_type).exists():
         raise ValidationError({"doc_type": ["Une demande est déjà en cours pour ce document."]})
 
     purpose = (purpose or "").strip()[:200]
+    # Le titre (Team approvals, l'historique, la cloche) dit tout de suite au RH s'il faut un original papier :
+    # "Attestation de travail (Banque) · original".
     title = f"{doc_type.name} ({purpose})" if purpose else doc_type.name
+    if format in FORMAT_IN_TITLE:
+        title = f"{title} · {FORMAT_IN_TITLE[format]}"
+    title = title[:200]  # la longueur maximum d'un titre de demande (un motif très long)
     if for_other:
         request = engine.record_approved(Workflow.Code.ADMIN_REQUEST, employee, title, by,
                                          f"Demandé par les RH pour {person(employee)}.")
     else:
         request = engine.submit(Workflow.Code.ADMIN_REQUEST, employee, title)
     document = DocumentRequest.objects.create(
-        request=request, employee=employee, doc_type=doc_type, purpose=purpose, requested_by=by if for_other else None,
+        request=request, employee=employee, doc_type=doc_type, purpose=purpose, format=format,
+        requested_by=by if for_other else None,
         due_date=add_working_days(timezone.localdate(), 0 if doc_type.template else doc_type.delivery_days))
     # Déjà acceptée (demandée par les RH) : le handler est passé AVANT que le document existe -> on génère ici.
     if request.status == Request.Status.APPROVED and doc_type.template:

@@ -12,12 +12,22 @@ export type DocumentType = {
 
 export type DocumentState = 'IN_PROGRESS' | 'TO_PREPARE' | 'READY' | 'REJECTED' | 'CANCELLED'
 
+// Le format choisi par le collaborateur (standard : une banque, un consulat demandent souvent l'ORIGINAL signé).
+export type DocumentFormat = 'PDF' | 'ORIGINAL' | 'BOTH'
+export const FORMATS: { id: DocumentFormat; title: string; text: string; short: string }[] = [
+  { id: 'PDF', title: 'PDF', text: 'Download it here', short: 'PDF' },
+  { id: 'ORIGINAL', title: 'Signed original', text: 'Paper, picked up at the HR office', short: 'original' },
+  { id: 'BOTH', title: 'Both', text: 'PDF now + the paper original', short: 'PDF + original' },
+]
+
 export type DocumentRequest = {
   id: number
   request: number          // la demande du moteur : son historique /requests/<n>, son fichier /api/documents/files/<n>/
   doc_type: string
   automatic: boolean
   purpose: string
+  format: DocumentFormat   // ce que veut le collaborateur : PDF, l'original papier, ou les deux
+  format_label: string
   status: string           // le statut du moteur (IN_PROGRESS, APPROVED, REJECTED, CANCELLED)
   state: DocumentState
   created_at: string
@@ -33,6 +43,7 @@ export type DocumentRequest = {
   requested_by: string | null  // le RH qui a demandé POUR le collaborateur ; null : lui-même
   due_date: string | null      // prêt au plus tard le (date de la demande + le délai du type)
   late: boolean                // pas livré et le délai est passé
+  can_upload: boolean          // celui qui lit peut déposer / remplacer le PDF (RH du pôle, document préparé par les RH)
 }
 
 // Les états en anglais (les pages sont en anglais), avec les couleurs des autres pages.

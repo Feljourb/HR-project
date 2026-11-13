@@ -10,7 +10,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import Link from 'next/link'
 import { CheckCircle2, FileText, Loader2, Send } from 'lucide-react'
 import { apiFetch, isHr, type Me } from '@/lib/api'
-import { STATE, type DocumentRequest, type DocumentType } from '@/lib/documents'
+import { FORMATS, STATE, type DocumentFormat, type DocumentRequest, type DocumentType } from '@/lib/documents'
 import { formatDate } from '@/lib/leaves'
 import { cn } from '@/lib/utils'
 import { sendChange } from '@/lib/workflows'
@@ -96,6 +96,7 @@ function delayHint(type: DocumentType) {
 function RequestForm({ types, hr, onSent }: { types: DocumentType[]; hr: boolean; onSent: () => void }) {
   const [typeId, setTypeId] = useState('')
   const [purpose, setPurpose] = useState('')
+  const [format, setFormat] = useState<DocumentFormat>('PDF')
   const [forEmployee, setForEmployee] = useState<Person | null>(null)  // null : pour moi-même
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -106,7 +107,7 @@ function RequestForm({ types, hr, onSent }: { types: DocumentType[]; hr: boolean
     event.preventDefault()
     setBusy(true)
     setError('')
-    const body = { doc_type: typeId, purpose, ...(forEmployee ? { employee: forEmployee.id } : {}) }
+    const body = { doc_type: typeId, purpose, format, ...(forEmployee ? { employee: forEmployee.id } : {}) }
     const result = await sendChange<DocumentRequest>(
       () => apiFetch('/api/documents/mine/', { method: 'POST', body: JSON.stringify(body) }),
       'You cannot request this document.')
@@ -115,6 +116,7 @@ function RequestForm({ types, hr, onSent }: { types: DocumentType[]; hr: boolean
     setSent(forEmployee ? `${result.data.doc_type} for ${result.data.employee} (see Document requests)` : result.data.doc_type)
     setTypeId('')
     setPurpose('')
+    setFormat('PDF')
     setForEmployee(null)
     onSent()
   }
@@ -133,6 +135,24 @@ function RequestForm({ types, hr, onSent }: { types: DocumentType[]; hr: boolean
       options={types.map((type) => ({ id: String(type.id), name: type.name }))} placeholder="Choose a document"
       hint={chosen ? delayHint(chosen) : undefined} />
     <TextField id="doc-purpose" label="For / purpose" value={purpose} onChange={setPurpose} placeholder="e.g. Bank, visa, rental (optional)" />
+    {/* Le format : une banque ou un consulat demandent souvent l'ORIGINAL signé et tamponné à la main. */}
+    <fieldset>
+      <legend className="text-xs font-semibold text-slate-700">Format</legend>
+      <div className="mt-1.5 grid gap-2 sm:grid-cols-3">
+        {FORMATS.map((option) => {
+          const selected = format === option.id
+          return <label key={option.id} className={cn('flex cursor-pointer gap-2 rounded-lg border px-2.5 py-2 transition-colors',
+            selected ? 'border-[#23355d] bg-[#E4E9F2]/50 ring-1 ring-[#23355d]' : 'border-slate-200 hover:border-slate-300')}>
+            <input type="radio" name="doc-format" value={option.id} checked={selected} onChange={() => setFormat(option.id)} className="mt-0.5 accent-[#192646]" />
+            <span>
+              <span className="block text-xs font-semibold text-[#192646]">{option.title}</span>
+              <span className="block text-[11px] leading-snug text-slate-500">{option.text}</span>
+            </span>
+          </label>
+        })}
+      </div>
+      {format !== 'PDF' && <p className="mt-1.5 text-[11px] text-slate-500">Banks and consulates often ask for the original. You get a notification when it is ready at the HR office.</p>}
+    </fieldset>
     {error && <p role="alert" className="text-[11px] font-medium text-red-600">{error}</p>}
     {sent && <p role="status" className="flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800">
       <CheckCircle2 className="size-4" /> Sent to HR: {sent}.
@@ -197,6 +217,7 @@ function DocumentLine({ document, onChanged }: { document: DocumentRequest; onCh
   const waiting = document.state === 'IN_PROGRESS' || document.state === 'TO_PREPARE'
   const extras = [
     document.purpose && `for ${document.purpose}`,
+    document.format !== 'PDF' && FORMATS.find((option) => option.id === document.format)?.short,
     `requested ${formatDate(sent)}`,
     document.requested_by && `by HR (${document.requested_by})`,
     document.state === 'IN_PROGRESS' && 'waiting for HR',

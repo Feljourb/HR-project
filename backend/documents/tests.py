@@ -3,6 +3,7 @@ import datetime
 import shutil
 import tempfile
 
+from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
@@ -19,6 +20,7 @@ from workflows.test_engine import EngineTestCase
 from .models import DocumentRequest, DocumentType
 from .services import add_working_days, request_document, upload
 
+User = get_user_model()
 MEDIA = tempfile.mkdtemp()  # les PDF des tests vont ici (effacé à la fin), pas dans media/
 
 
@@ -91,6 +93,14 @@ class FlowTests(DocumentTestCase):
         with self.assertRaisesMessage(ValidationError, "plus proposé"):
             request_document(self.sara, self.salary)
 
+    def test_the_employee_chooses_the_format(self):
+        # PDF par défaut ; "original" : le RH le voit dès le titre (Team approvals, cloche).
+        self.assertEqual(request_document(self.sara, self.work).format, "PDF")
+        document = request_document(self.sara, self.salary, "Visa", format="BOTH")
+        self.assertEqual((document.format, document.request.title), ("BOTH", "Attestation de salaire (Visa) · PDF + original"))
+        with self.assertRaisesMessage(ValidationError, "format"):
+            request_document(self.sara, DocumentType.objects.get(name="Attestation de congé"), format="FAX")
+
     def test_delivery_date_in_working_days(self):
         # Un jeudi + 2 jours ouvrés = le lundi (pas le samedi) ; un document généré : le jour même.
         thursday = datetime.date(2026, 11, 12)
@@ -124,6 +134,53 @@ class FlowTests(DocumentTestCase):
         self.assertEqual(document.state, Request.Status.REJECTED)
 
 
+def png(name="signature.png"):
+    """Une petite image PNG valide (comme un scan de signature)."""
+    from io import BytesIO
+
+    from PIL import Image
+    buffer = BytesIO()
+    Image.new("RGBA", (200, 80), (25, 38, 70, 255)).save(buffer, format="PNG")
+    return SimpleUploadedFile(name, buffer.getvalue(), content_type="image/png")
+
+
+class SignatoryTests(DocumentTestCase):
+    """Admin RH règle qui signe et comment (à la main, ou signature + cachet posés par l'application)."""
+
+    def setUp(self):
+        super().setUp()
+        self.client = APIClient()
+        self.admin = User.objects.create_user("admin.rh", role=User.Role.HR_ADMIN, must_change_password=False)
+        self.client.force_authenticate(self.admin)
+        self.sbd = next(item for item in self.client.get(reverse("documents:signatory-list")).json() if item["pole"] == "SBD")
+        self.url = reverse("documents:signatory-detail", args=[self.sbd["id"]])
+
+    def test_images_mode_puts_the_signature_and_stamp_on_the_pdf(self):
+        self.assertEqual(self.sbd["mode"], "HAND")  # au départ : à signer à la main
+        # Le mode "images" sans la signature : refusé tout de suite.
+        response = self.client.patch(self.url, {"mode": "IMAGE"}, format="multipart")
+        self.assertEqual(response.status_code, 400)
+        response = self.client.patch(self.url, {"mode": "IMAGE", "name": "Karima Idrissi", "signature": png(),
+                                                "stamp": png("cachet.png")}, format="multipart")
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual((response.json()["has_signature"], response.json()["has_stamp"]), (True, True))
+        # L'attestation générée après la validation porte les deux images.
+        document = self.approve(request_document(self.sara, self.work))
+        content = document.file.open("rb").read()
+        self.assertEqual(content.count(b"/Subtype /Image"), 2)
+        # L'exemple (aperçu) aussi ; une image qui n'est pas PNG / JPG : refusée.
+        preview = self.client.get(reverse("documents:signatory-preview", args=[self.sbd["id"]]))
+        self.assertEqual((preview.status_code, preview["Content-Type"]), (200, "application/pdf"))
+        bad = self.client.patch(self.url, {"stamp": SimpleUploadedFile("cachet.gif", b"GIF89a")}, format="multipart")
+        self.assertEqual(bad.status_code, 400)
+
+    def test_only_admin_rh(self):
+        self.nadia.user.must_change_password = False
+        self.nadia.user.save()
+        self.client.force_authenticate(self.nadia.user)  # RH du pôle, pas Admin RH
+        self.assertEqual(self.client.get(reverse("documents:signatory-list")).status_code, 403)
+
+
 class ApiTests(DocumentTestCase):
     def setUp(self):
         super().setUp()
@@ -151,6 +208,18 @@ class ApiTests(DocumentTestCase):
         # Nadia (RH du pôle) : oui.
         self.login(self.nadia)
         self.assertEqual(self.client.get(file_url).status_code, 200)
+
+    def test_the_document_of_a_request(self):
+        # L'historique de la demande (et Team approvals) savent où en est le document, et qui peut le déposer.
+        document = self.approve(request_document(self.sara, self.salary))
+        url = reverse("documents:by-request-detail", args=[document.request_id])
+        self.login(self.nadia)
+        data = self.client.get(url).json()
+        self.assertEqual((data["state"], data["can_upload"], data["due_date"] is not None), ("TO_PREPARE", True, True))
+        self.login(self.sara)
+        self.assertFalse(self.client.get(url).json()["can_upload"])  # Sara attend, elle ne dépose pas
+        self.login(self.youssef)
+        self.assertEqual(self.client.get(url).status_code, 404)    # son N+1 : rien à voir
 
     def test_hr_list_and_upload(self):
         document = self.approve(request_document(self.sara, self.salary))

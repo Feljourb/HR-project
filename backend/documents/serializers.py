@@ -2,7 +2,8 @@ from rest_framework import serializers
 
 from workflows.serializers import name_of, person
 
-from .models import DocumentRequest, DocumentType
+from .models import DocumentRequest, DocumentSignatory, DocumentType
+from .services import can_prepare
 
 
 class DocumentTypeSerializer(serializers.ModelSerializer):
@@ -15,6 +16,30 @@ class DocumentTypeSerializer(serializers.ModelSerializer):
 
     def get_automatic(self, doc_type):
         return bool(doc_type.template)
+
+
+class SignatorySerializer(serializers.ModelSerializer):
+    """Le signataire d'un pôle (page Lists -> Documents -> Signatures, Admin RH). Les images ne sont jamais
+    envoyées ici : seulement si elles existent (has_*) ; on les voit avec signatories/<id>/image/?kind=..."""
+
+    pole = serializers.CharField(source="pole.name", read_only=True)
+    has_signature = serializers.SerializerMethodField()
+    has_stamp = serializers.SerializerMethodField()
+    updated_by = serializers.SerializerMethodField()
+
+    class Meta:
+        model = DocumentSignatory
+        fields = ["id", "pole", "name", "title", "city", "mode", "has_signature", "has_stamp", "updated_at", "updated_by"]
+        read_only_fields = ["updated_at"]
+
+    def get_has_signature(self, signatory):
+        return bool(signatory.signature)
+
+    def get_has_stamp(self, signatory):
+        return bool(signatory.stamp)
+
+    def get_updated_by(self, signatory):
+        return name_of(signatory.updated_by) if signatory.updated_by_id else None
 
 
 class DocumentRequestSerializer(serializers.ModelSerializer):
@@ -34,12 +59,21 @@ class DocumentRequestSerializer(serializers.ModelSerializer):
     refusal = serializers.SerializerMethodField()
     requested_by = serializers.SerializerMethodField()  # le RH qui a demandé POUR le collaborateur, ou null
     late = serializers.BooleanField(read_only=True)     # pas livré et le délai promis est passé
+    # Celui qui lit peut déposer / remplacer le PDF (un RH du pôle, un document préparé par les RH, validé) :
+    # le bouton "Upload PDF" apparaît aussi dans l'historique et dans Team approvals, là où le RH se trouve.
+    can_upload = serializers.SerializerMethodField()
+    format_label = serializers.CharField(source="get_format_display", read_only=True)
 
     class Meta:
         model = DocumentRequest
-        fields = ["id", "request", "doc_type", "automatic", "purpose", "status", "state", "created_at", "closed_at",
+        fields = ["id", "request", "doc_type", "automatic", "purpose", "format", "format_label", "status", "state", "created_at", "closed_at",
                   "employee", "department", "reference", "file_name", "has_file", "delivered_at", "delivered_by", "refusal",
-                  "requested_by", "due_date", "late"]
+                  "requested_by", "due_date", "late", "can_upload"]
+
+    def get_can_upload(self, document):
+        viewer = self.context.get("request")
+        return bool(viewer and not document.doc_type.template and document.state in ("TO_PREPARE", "READY")
+                    and can_prepare(viewer.user, document))
 
     def get_requested_by(self, document):
         return name_of(document.requested_by) if document.requested_by_id else None

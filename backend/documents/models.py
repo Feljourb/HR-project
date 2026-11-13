@@ -42,14 +42,40 @@ class DocumentType(ReferenceItem):
         verbose_name_plural = "Types de document"
 
 
+def signature_path(signatory, filename):
+    """signatures/<nom au hasard>.png : jamais une adresse publique (seulement dans les PDF générés)."""
+    return f"signatures/{uuid.uuid4().hex}{Path(filename).suffix.lower()}"
+
+
+def image_size(file):
+    if file.size > 1024 * 1024:
+        raise ValidationError("L'image dépasse 1 Mo.")
+
+
+IMAGE_RULES = [FileExtensionValidator(["png", "jpg", "jpeg"]), image_size]
+
+
 class DocumentSignatory(models.Model):
-    """Qui signe les documents générés, par pôle (ex. "Le Directeur des Ressources Humaines", son nom, la ville du
-    "Fait à"). Valeurs de départ : PROPOSITION, à confirmer par les RH (dans /admin)."""
+    """Qui signe les documents générés, par pôle, et COMMENT (réglé par Admin RH, standard Workday / SAP) :
+    - HAND : le PDF garde une place vide, les RH signent et tamponnent à la main (imprimé) ;
+    - IMAGE : l'application pose la signature et le cachet (images données une fois par les RH) sur chaque PDF,
+      seulement APRÈS la validation des RH. Il faut l'accord du signataire pour utiliser sa signature.
+    Valeurs de départ : PROPOSITION, à confirmer par les RH."""
+
+    class Mode(models.TextChoices):
+        HAND = "HAND", "À signer à la main"
+        IMAGE = "IMAGE", "Signature et cachet ajoutés par l'application"
 
     pole = models.OneToOneField(Pole, on_delete=models.PROTECT, related_name="document_signatory", verbose_name="Pôle")
     name = models.CharField("Nom du signataire", max_length=150, blank=True)  # vide : seulement la fonction
     title = models.CharField("Fonction", max_length=150, default="Le Directeur des Ressources Humaines")
     city = models.CharField("Ville (« Fait à »)", max_length=100, default="Casablanca")
+    mode = models.CharField("Signature", max_length=5, choices=Mode.choices, default=Mode.HAND)
+    signature = models.FileField("Image de la signature", upload_to=signature_path, blank=True, validators=IMAGE_RULES)
+    stamp = models.FileField("Image du cachet", upload_to=signature_path, blank=True, validators=IMAGE_RULES)
+    updated_at = models.DateTimeField("Modifié le", auto_now=True)
+    updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name="+", verbose_name="Modifié par")
 
     class Meta:
         verbose_name = "Signataire des documents"
@@ -57,6 +83,11 @@ class DocumentSignatory(models.Model):
 
     def __str__(self):
         return f"{self.pole} : {self.title}"
+
+    def clean(self):
+        # "Signature et cachet ajoutés" sans la signature : le PDF sortirait sans rien, on le dit tout de suite.
+        if self.mode == self.Mode.IMAGE and not self.signature:
+            raise ValidationError({"signature": "Ajoutez l'image de la signature pour ce mode."})
 
 
 def document_path(document, filename):
@@ -72,10 +103,18 @@ def document_size(file):
 class DocumentRequest(models.Model):
     """Une demande de document, attachée à une demande du moteur (son circuit, son historique, son statut)."""
 
+    class Format(models.TextChoices):
+        # Ce que veut le collaborateur (standard : c'est lui qui sait à qui il donne le document ; une banque ou un
+        # consulat demande souvent l'ORIGINAL signé et tamponné à la main). Décision de l'utilisateur, 2026-11-13.
+        PDF = "PDF", "PDF à télécharger"
+        ORIGINAL = "ORIGINAL", "Original signé (à récupérer au bureau RH)"
+        BOTH = "BOTH", "PDF + original signé"
+
     request = models.OneToOneField(Request, on_delete=models.CASCADE, related_name="document", verbose_name="Demande")
     employee = models.ForeignKey(Employee, on_delete=models.PROTECT, related_name="document_requests", verbose_name="Collaborateur")
     doc_type = models.ForeignKey(DocumentType, on_delete=models.PROTECT, related_name="requests", verbose_name="Type")
     purpose = models.CharField("Motif / destinataire", max_length=200, blank=True)  # ex. "Banque", "Visa"
+    format = models.CharField("Format", max_length=8, choices=Format.choices, default=Format.PDF)
     # Le RH qui a fait la demande POUR le collaborateur (champ "Employé (RH)" de l'outil actuel) ; vide : lui-même.
     requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
                                      related_name="+", verbose_name="Demandé par (RH)")

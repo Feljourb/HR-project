@@ -41,7 +41,7 @@ export type ListConfig = {
   headFilter?: 'direction' | 'department'
   extra?: ExtraField[]  // des champs en plus du nom
   byDate?: boolean      // trier par date (jours fériés), pas par nom
-  panel?: 'holidays' | 'settings'  // une page à part (jours fériés : année par année ; réglages des congés)
+  panel?: 'holidays' | 'settings' | 'signatures'  // une page à part (jours fériés ; réglages des congés ; signatures)
 }
 
 // Les listes du module Congés (adresse /api/leaves/lists/...).
@@ -93,6 +93,8 @@ export const DOCUMENT_LISTS: ListConfig[] = [
     // Le délai promis au collaborateur ("expected by ..."), en jours ouvrés ; 0 = tout de suite (document généré).
     { name: 'delivery_days', label: 'Delay (working days)', type: 'number', required: true, min: 0, step: 1, placeholder: '2' },
   ] },
+  // Qui signe les documents générés, et comment (à la main, ou signature + cachet posés par l'application) : par pôle.
+  { name: 'signatories', title: 'Signatures', singular: 'Signature', panel: 'signatures' },
 ]
 
 /** La valeur d'un champ en plus, en texte pour un <input> ("true" / "false" pour une case). */

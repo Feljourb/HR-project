@@ -88,7 +88,13 @@ function Row({ document, onUploaded }: { document: DocumentRequest; onUploaded: 
 
   return <li className="flex flex-wrap items-center gap-3 px-4 py-3">
     <div className="min-w-0 flex-1">
-      <p className="truncate text-sm font-semibold text-[#192646]">{document.doc_type} <span className="font-normal text-slate-500">· {document.employee}</span></p>
+      <p className="flex min-w-0 items-center gap-2 text-sm font-semibold text-[#192646]">
+        <span className="truncate">{document.doc_type} <span className="font-normal text-slate-500">· {document.employee}</span></span>
+        {/* Un original papier à signer à la main : visible tout de suite. */}
+        {document.format !== 'PDF' && <span className="shrink-0 rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-700 ring-1 ring-inset ring-violet-200">
+          {document.format === 'BOTH' ? 'PDF + original' : 'Original'}
+        </span>}
+      </p>
       <p className="truncate text-[11px] text-slate-400">{extras.join(' · ')}</p>
     </div>
     {/* Le délai promis est passé et le document n'est pas livré : à traiter en premier. */}
@@ -102,8 +108,9 @@ function Row({ document, onUploaded }: { document: DocumentRequest; onUploaded: 
   </li>
 }
 
-/** Choisir le PDF signé -> envoyé tout de suite ; le collaborateur est prévenu. */
-function UploadButton({ document, onUploaded }: { document: DocumentRequest; onUploaded: () => void }) {
+/** Choisir le PDF signé -> envoyé tout de suite ; le collaborateur est prévenu.
+ *  (Aussi dans l'historique de la demande et dans Team approvals : le RH le fait là où il se trouve.) */
+export function UploadButton({ document, onUploaded }: { document: DocumentRequest; onUploaded: () => void }) {
   const input = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
