@@ -84,10 +84,9 @@ class DocumentRequestSerializer(serializers.ModelSerializer):
         return bool(viewer and can_prepare(viewer.user, document))
 
     def get_can_upload(self, document):
-        # Un document préparé par les RH ; ou généré mais "à signer à la main" (pas encore livré, ou déjà déposé
-        # par un RH : "Replace"). Pas un document signé et livré par l'application.
-        generated_and_signed = document.doc_type.template and document.file and not document.delivered_by_id
-        return (document.needs_pdf and document.request.status == "APPROVED" and not generated_and_signed
+        # Le PDF signé pas encore livré (préparé par les RH, ou généré "à signer à la main"). Livré : il ne change
+        # plus (2026-11-13) ; une correction = une nouvelle demande.
+        return (document.needs_pdf and document.request.status == "APPROVED" and not document.file
                 and self.is_hr(document))
 
     def get_can_print(self, document):

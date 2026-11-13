@@ -200,7 +200,7 @@ function Row({ document, onChanged, onOpen }: { document: DocumentRequest; onCha
     {document.late && <span className="rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-700 ring-1 ring-inset ring-red-200">Late</span>}
     <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset', state.badge)}>{state.label}</span>
     <div className="flex items-center gap-1">
-      {/* Un document préparé par les RH : "Upload PDF" une fois validé, "Replace" s'il est déjà livré (ex. une erreur). */}
+      {/* Le PDF signé pas encore livré : "Upload PDF". Livré, il ne se remplace plus (une erreur = une nouvelle demande). */}
       {document.can_upload && <UploadButton document={document} onUploaded={() => onChanged(`Sent to the employee: ${who}. They get a notification and an email.`)} />}
       {/* À préparer : le brouillon sans signature à imprimer (signer, tamponner) ; livré : le PDF. */}
       {document.state === 'TO_PREPARE' && <PrintButton document={document} />}

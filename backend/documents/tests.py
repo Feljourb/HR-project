@@ -85,6 +85,9 @@ class FlowTests(DocumentTestCase):
         document = upload(document, self.nadia.user, pdf())
         self.assertEqual((document.state, document.delivered_by), ("READY", self.nadia.user))
         self.assertTrue(self.ready_notices().exists())
+        # Livré : il ne se remplace plus (la trace ; une correction = une nouvelle demande).
+        with self.assertRaisesMessage(ValidationError, "ne se remplace pas"):
+            upload(document, self.hind.user, pdf("corrige.pdf"))
 
     def test_rules(self):
         request_document(self.sara, self.salary)

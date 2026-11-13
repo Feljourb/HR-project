@@ -142,6 +142,12 @@ def upload(document, user, file):
         raise ValidationError("Le document se dépose après la validation de la demande.")
     if not document.needs_pdf:
         raise ValidationError("Le collaborateur a demandé l'original papier seulement : pas de PDF à déposer.")
+    # Un document livré ne change plus (décision de l'utilisatrice, 2026-11-13 : la trace d'abord ; le collaborateur
+    # l'a peut-être déjà donné à sa banque). Une erreur -> une NOUVELLE demande (les RH : "Employee (HR)"), nouvelle
+    # référence ; l'ancienne reste dans l'historique.
+    if document.file:
+        raise ValidationError("Ce document est déjà livré et ne se remplace pas. Pour une correction, faites une "
+                              "nouvelle demande pour ce collaborateur.")
     if file is None:
         raise ValidationError("Choisissez le fichier PDF.")
     if Path(file.name).suffix.lower() != ".pdf":

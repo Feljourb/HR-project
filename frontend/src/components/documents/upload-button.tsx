@@ -1,11 +1,12 @@
 'use client'
 
-/* "Upload PDF" / "Replace" (les RH) : le PDF signé et scanné, livré au collaborateur (🔔 + email "Document prêt").
+/* "Upload PDF" (les RH) : le PDF signé et scanné, livré au collaborateur (🔔 + email "Document prêt").
  * Dans Document requests, l'historique de la demande, le panneau d'un document et Team approvals (là où est le RH).
  * Deux temps (2026-11-13, retour de l'utilisatrice : le fichier partait dès qu'on le choisissait, sans vérifier) :
  * 1. choisir le fichier -> on voit son nom, sa taille, "Preview" pour l'ouvrir ; un fichier qui n'est pas un PDF de
  *    5 Mo au plus est refusé tout de suite ;
- * 2. "Send" l'envoie (Replace : on prévient que le document déjà livré est remplacé) ; "Cancel" n'envoie rien. */
+ * 2. "Send" l'envoie ; "Cancel" n'envoie rien.
+ * Livré, il ne se remplace plus (pas de "Replace" : la trace ; une erreur = une nouvelle demande). */
 import { useEffect, useRef, useState } from 'react'
 import { Eye, FileText, Loader2, Send, Upload, X } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
@@ -21,7 +22,6 @@ export function UploadButton({ document, onUploaded }: { document: DocumentReque
   const [chosen, setChosen] = useState<{ file: File; url: string } | null>(null)  // choisi, pas encore envoyé
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const replacing = document.has_file
 
   // L'adresse d'aperçu du fichier choisi est libérée quand on en choisit un autre ou qu'on quitte.
   useEffect(() => () => { if (chosen) URL.revokeObjectURL(chosen.url) }, [chosen])
@@ -63,14 +63,13 @@ export function UploadButton({ document, onUploaded }: { document: DocumentReque
             <X className="size-3.5" /> Cancel
           </button>
           <button type="button" disabled={busy} onClick={send} className={cn(actionClass, 'bg-[#23355d] text-white hover:bg-[#192646]')}>
-            {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Send className="size-3.5" />} {replacing ? 'Replace and send' : 'Send to the employee'}
+            {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Send className="size-3.5" />} Send to the employee
           </button>
-          {replacing && <span className="w-full text-[10px] text-amber-700">The delivered document will be replaced; the employee is notified again.</span>}
+          <span className="w-full text-[10px] text-slate-500">Once sent, the document cannot be replaced: check it with Preview.</span>
         </span>
       // 1. Choisir le fichier.
-      : <button type="button" onClick={() => input.current?.click()}
-          className={cn(actionClass, !replacing && 'bg-[#23355d] text-white hover:bg-[#192646]')}>
-          <Upload className="size-3.5" /> {replacing ? 'Replace' : 'Upload PDF'}
+      : <button type="button" onClick={() => input.current?.click()} className={cn(actionClass, 'bg-[#23355d] text-white hover:bg-[#192646]')}>
+          <Upload className="size-3.5" /> Upload PDF
         </button>}
     {error && <span role="alert" className="text-[11px] text-red-600">{error}</span>}
   </>
