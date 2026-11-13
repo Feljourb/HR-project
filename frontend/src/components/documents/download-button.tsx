@@ -9,7 +9,7 @@ import { actionClass } from '@/components/expenses/claim-actions'
 
 export function DownloadButton({ document, label = 'Download' }: { document: DocumentRequest; label?: string }) {
   const [error, setError] = useState('')
-  if (!document.has_file) return null
+  if (!document.can_download) return null  // "original" seul : le PDF est la copie à imprimer des RH
   return <>
     <button type="button" className={actionClass}
       onClick={async () => setError(await getFile(fileUrl(document), document.file_name || 'document.pdf', true))}>

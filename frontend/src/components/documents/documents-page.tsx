@@ -10,7 +10,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import Link from 'next/link'
 import { CheckCircle2, FileText, Loader2, Send } from 'lucide-react'
 import { apiFetch, isHr, type Me } from '@/lib/api'
-import { FORMATS, STATE, type DocumentFormat, type DocumentRequest, type DocumentType } from '@/lib/documents'
+import { FORMATS, originalText, stateOf, type DocumentFormat, type DocumentRequest, type DocumentType } from '@/lib/documents'
 import { formatDate } from '@/lib/leaves'
 import { cn } from '@/lib/utils'
 import { sendChange } from '@/lib/workflows'
@@ -52,7 +52,7 @@ export function DocumentsPage({ me }: { me: Me }) {
       { label: 'Requests', value: String(documents.length), hint: 'All my requests' },
       { label: 'In approval', value: String(count('IN_PROGRESS')), hint: 'Waiting for HR' },
       { label: 'Being prepared', value: String(count('TO_PREPARE')), hint: 'Approved, HR prepare it' },
-      { label: 'Ready', value: String(count('READY')), hint: 'To download', strong: true },
+      { label: 'Ready', value: String(count('READY') + count('PICKUP')), hint: 'To download or pick up', strong: true },
     ]} />
 
     <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
@@ -71,7 +71,7 @@ function HowItWorks() {
     'You send your request (document and purpose).',
     'HR of your pôle review it.',
     'The document is delivered: generated at once, or prepared by HR within the announced delay (working days).',
-    'You get a notification and an email, and download it here. You can cancel while it is in approval.',
+    'You get a notification and an email: download the PDF here, or pick up the signed original at the HR office. You can cancel while it is in approval.',
   ]
   return <section className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
     <h2 className="text-sm font-semibold text-[#192646]">How it works</h2>
@@ -168,7 +168,7 @@ function RequestForm({ types, hr, onSent }: { types: DocumentType[]; hr: boolean
 const TABS = [
   { id: 'all', label: 'All', match: () => true },
   { id: 'progress', label: 'In progress', match: (d: DocumentRequest) => d.state === 'IN_PROGRESS' || d.state === 'TO_PREPARE' },
-  { id: 'ready', label: 'Ready', match: (d: DocumentRequest) => d.state === 'READY' },
+  { id: 'ready', label: 'Ready', match: (d: DocumentRequest) => d.state === 'READY' || d.state === 'PICKUP' },
   { id: 'closed', label: 'Closed', match: (d: DocumentRequest) => d.state === 'REJECTED' || d.state === 'CANCELLED' },
 ]
 const FIRST = 5
@@ -213,7 +213,7 @@ function MyDocuments({ documents, onChanged }: { documents: DocumentRequest[]; o
 function DocumentLine({ document, onChanged }: { document: DocumentRequest; onChanged: () => void }) {
   const sent = document.created_at.slice(0, 10)
   const ended = document.state === 'REJECTED' || document.state === 'CANCELLED'
-  const state = STATE[document.state]
+  const state = stateOf(document)
   const waiting = document.state === 'IN_PROGRESS' || document.state === 'TO_PREPARE'
   const extras = [
     document.purpose && `for ${document.purpose}`,
@@ -221,7 +221,8 @@ function DocumentLine({ document, onChanged }: { document: DocumentRequest; onCh
     `requested ${formatDate(sent)}`,
     document.requested_by && `by HR (${document.requested_by})`,
     document.state === 'IN_PROGRESS' && 'waiting for HR',
-    document.state === 'TO_PREPARE' && 'HR are preparing it',
+    document.state === 'TO_PREPARE' && !document.original_state && 'HR are preparing it',
+    originalText(document),  // l'original papier : en signature, prêt au bureau RH, récupéré
     // Le délai promis : "expected by 16/11/2026" tant que le document n'est pas prêt.
     waiting && document.due_date && `expected by ${formatDate(document.due_date)}`,
     document.reference && `ref. ${document.reference}`,

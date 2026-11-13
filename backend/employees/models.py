@@ -678,6 +678,8 @@ class Notification(models.Model):
         DELEGATION_ENDED = "DELEGATION_ENDED", "Délégation terminée"
         # Documents administratifs (2026-11-12) : mon document est prêt à télécharger (généré, ou déposé par les RH).
         DOCUMENT_READY = "DOCUMENT_READY", "Document prêt"
+        # L'original papier signé m'attend au bureau RH (format "original", 2026-11-13).
+        ORIGINAL_READY = "ORIGINAL_READY", "Original prêt au bureau RH"
 
     recipient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notifications",
                                   verbose_name="Destinataire")

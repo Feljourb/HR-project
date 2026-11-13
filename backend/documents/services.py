@@ -58,8 +58,8 @@ def request_document(employee, doc_type, purpose="", by=None, format=DocumentReq
         raise ValidationError({"doc_type": ["Ce document n'est plus proposé."]})
     if format not in DocumentRequest.Format.values:
         raise ValidationError({"format": ["Choisissez le format : PDF, original ou les deux."]})
-    # Une seule demande en cours par type (standard) : à valider, ou validée et pas encore livrée par les RH.
-    waiting = Q(request__status=Request.Status.IN_PROGRESS) | Q(request__status=Request.Status.APPROVED, file="")
+    # Une seule demande en cours par type (standard) : à valider, ou validée et pas encore préparée par les RH.
+    waiting = Q(request__status=Request.Status.IN_PROGRESS) | DocumentRequest.to_prepare_filter()
     if DocumentRequest.objects.filter(waiting, employee=employee, doc_type=doc_type).exists():
         raise ValidationError({"doc_type": ["Une demande est déjà en cours pour ce document."]})
 
@@ -86,15 +86,18 @@ def request_document(employee, doc_type, purpose="", by=None, format=DocumentReq
 
 
 def deliver(document, content, name, user=None):
-    """Range le fichier, donne la référence, et prévient le collaborateur (🔔 + email "Document prêt")."""
+    """Range le fichier, donne la référence, et prévient le collaborateur (🔔 + email "Document prêt").
+    Format "original" seul : le PDF sert aux RH à l'IMPRIMER (le collaborateur veut le papier) : pas de "Document
+    prêt" ; il sera prévenu quand l'original l'attendra au bureau RH (mark_original_ready)."""
     if not document.reference:
         document.reference = f"DOC-{timezone.localdate():%Y}-{document.pk:05d}"  # unique : le numéro de la demande
     document.file.save(name, content, save=False)
     document.file_name = name[:200]
     document.delivered_at, document.delivered_by = timezone.now(), user
     document.save(update_fields=["reference", "file", "file_name", "delivered_at", "delivered_by"])
-    Notification.objects.create(recipient=document.employee.user, employee=document.employee,
-                                kind=Notification.Kind.DOCUMENT_READY, request=document.request)
+    if document.needs_pdf:
+        Notification.objects.create(recipient=document.employee.user, employee=document.employee,
+                                    kind=Notification.Kind.DOCUMENT_READY, request=document.request)
     return document
 
 
@@ -121,6 +124,8 @@ def upload(document, user, file):
         raise PermissionDenied("Seuls les RH du pôle du collaborateur déposent ce document.")
     if document.request.status != Request.Status.APPROVED:
         raise ValidationError("Le document se dépose après la validation de la demande.")
+    if not document.needs_pdf:
+        raise ValidationError("Le collaborateur a demandé l'original papier seulement : pas de PDF à déposer.")
     if file is None:
         raise ValidationError("Choisissez le fichier PDF.")
     if Path(file.name).suffix.lower() != ".pdf":
@@ -128,3 +133,42 @@ def upload(document, user, file):
     if file.size > MAX_FILE_SIZE:
         raise ValidationError("Le document dépasse 5 Mo.")
     return deliver(document, file, file.name, user)
+
+
+def original_to_handle(document, user):
+    """Relit la demande verrouillée et vérifie qu'un RH peut s'occuper de son ORIGINAL papier."""
+    document = DocumentRequest.objects.select_for_update().select_related("request", "employee__user").get(pk=document.pk)
+    if not can_prepare(user, document):
+        raise PermissionDenied("Seuls les RH du pôle du collaborateur s'occupent de l'original.")
+    if not document.needs_original:
+        raise ValidationError("Le collaborateur n'a pas demandé l'original papier.")
+    if document.request.status != Request.Status.APPROVED:
+        raise ValidationError("L'original se prépare après la validation de la demande.")
+    return document
+
+
+@transaction.atomic
+def mark_original_ready(document, user):
+    """Le RH a imprimé, signé et tamponné l'original : il attend au bureau RH. Le collaborateur est prévenu
+    (🔔 + email "Original prêt au bureau RH") : il ne se déplace pas pour rien."""
+    document = original_to_handle(document, user)
+    if document.original_ready_at:
+        raise ValidationError("L'original est déjà prêt.")
+    document.original_ready_at, document.original_ready_by = timezone.now(), user
+    document.save(update_fields=["original_ready_at", "original_ready_by"])
+    Notification.objects.create(recipient=document.employee.user, employee=document.employee,
+                                kind=Notification.Kind.ORIGINAL_READY, request=document.request)
+    return document
+
+
+@transaction.atomic
+def mark_handed_over(document, user):
+    """Le collaborateur est venu : l'original lui est remis (en main propre). La trace : quand, et par quel RH."""
+    document = original_to_handle(document, user)
+    if not document.original_ready_at:
+        raise ValidationError("Marquez d'abord l'original comme prêt.")
+    if document.collected_at:
+        raise ValidationError("L'original est déjà remis.")
+    document.collected_at, document.collected_by = timezone.now(), user
+    document.save(update_fields=["collected_at", "collected_by"])
+    return document

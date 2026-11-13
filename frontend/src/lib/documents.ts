@@ -10,7 +10,8 @@ export type DocumentType = {
   delivery_days: number  // le délai promis, en jours ouvrés (0 : tout de suite)
 }
 
-export type DocumentState = 'IN_PROGRESS' | 'TO_PREPARE' | 'READY' | 'REJECTED' | 'CANCELLED'
+// TO_PREPARE : les RH ont encore à faire (PDF et / ou original) ; PICKUP : l'original attend au bureau RH.
+export type DocumentState = 'IN_PROGRESS' | 'TO_PREPARE' | 'PICKUP' | 'READY' | 'REJECTED' | 'CANCELLED'
 
 // Le format choisi par le collaborateur (standard : une banque, un consulat demandent souvent l'ORIGINAL signé).
 export type DocumentFormat = 'PDF' | 'ORIGINAL' | 'BOTH'
@@ -44,15 +45,39 @@ export type DocumentRequest = {
   due_date: string | null      // prêt au plus tard le (date de la demande + le délai du type)
   late: boolean                // pas livré et le délai est passé
   can_upload: boolean          // celui qui lit peut déposer / remplacer le PDF (RH du pôle, document préparé par les RH)
+  can_download: boolean        // celui qui lit peut télécharger le PDF ("original" seul : seulement les RH, pour l'imprimer)
+  // L'original papier (format ORIGINAL / BOTH) : à signer, prêt au bureau RH, remis ; qui et quand.
+  original_state: 'TO_SIGN' | 'PICKUP' | 'COLLECTED' | null
+  original_ready_at: string | null
+  original_ready_by: string | null
+  collected_at: string | null
+  collected_by: string | null
+  can_handle_original: boolean // boutons "Original ready" / "Handed over" (RH du pôle)
 }
 
 // Les états en anglais (les pages sont en anglais), avec les couleurs des autres pages.
 export const STATE: Record<DocumentState, { label: string; badge: string }> = {
   IN_PROGRESS: { label: 'In approval', badge: 'bg-amber-50 text-amber-700 ring-amber-200' },
   TO_PREPARE: { label: 'Being prepared', badge: 'bg-sky-50 text-sky-700 ring-sky-200' },
+  PICKUP: { label: 'Ready for pickup', badge: 'bg-violet-50 text-violet-700 ring-violet-200' },
   READY: { label: 'Ready', badge: 'bg-emerald-50 text-emerald-700 ring-emerald-200' },
   REJECTED: { label: 'Refused', badge: 'bg-red-50 text-red-700 ring-red-200' },
   CANCELLED: { label: 'Cancelled', badge: 'bg-slate-100 text-slate-500 ring-slate-200' },
+}
+
+/** Le badge d'une demande : un original seul déjà remis s'appelle "Collected" (pas "Ready"). */
+export function stateOf(document: DocumentRequest) {
+  if (document.state === 'READY' && document.format === 'ORIGINAL') return { label: 'Collected', badge: STATE.READY.badge }
+  return STATE[document.state]
+}
+
+/** L'original papier en quelques mots : "original being signed", "original ready at the HR office"... */
+export function originalText(document: DocumentRequest) {
+  if (document.original_state === 'TO_SIGN') return 'original being signed by HR'
+  if (document.original_state === 'PICKUP') return 'original ready at the HR office'
+  if (document.original_state === 'COLLECTED' && document.collected_at)
+    return `original collected ${new Date(document.collected_at).toLocaleDateString('fr-FR')}`
+  return ''
 }
 
 /** Le lien de téléchargement du PDF (à donner à getFile de lib/expenses : il garde les cookies). */

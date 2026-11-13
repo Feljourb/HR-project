@@ -15,6 +15,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import FileExtensionValidator, MaxValueValidator
 from django.db import models
+from django.db.models import Q
 from django.utils import timezone
 
 from employees.models import Employee, Pole, ReferenceItem
@@ -129,6 +130,14 @@ class DocumentRequest(models.Model):
     # Le RH qui a déposé le fichier ; vide pour un document généré par l'application.
     delivered_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
                                      related_name="+", verbose_name="Déposé par")
+    # L'original papier (format ORIGINAL ou BOTH, step 2 du 2026-11-13) : signé et tamponné à la main par les RH,
+    # récupéré au bureau RH. Deux moments, avec qui : "prêt" (le collaborateur est prévenu), puis "remis".
+    original_ready_at = models.DateTimeField("Original prêt le", null=True, blank=True)
+    original_ready_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                                          related_name="+", verbose_name="Original préparé par")
+    collected_at = models.DateTimeField("Original remis le", null=True, blank=True)
+    collected_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                                     related_name="+", verbose_name="Original remis par")
 
     class Meta:
         ordering = ["-id"]
@@ -139,13 +148,49 @@ class DocumentRequest(models.Model):
         return f"{self.doc_type} ({self.employee})"
 
     @property
+    def needs_pdf(self):
+        return self.format in (self.Format.PDF, self.Format.BOTH)
+
+    @property
+    def needs_original(self):
+        return self.format in (self.Format.ORIGINAL, self.Format.BOTH)
+
+    @property
     def state(self):
-        """Où en est la demande, pour les pages : IN_PROGRESS (à valider), TO_PREPARE (validée, les RH préparent),
-        READY (à télécharger), REJECTED, CANCELLED."""
+        """Où en est la demande, pour les pages : IN_PROGRESS (à valider), TO_PREPARE (validée, les RH ont encore
+        quelque chose à faire : le PDF à déposer et / ou l'original à signer), PICKUP (l'original attend au bureau
+        RH), READY (tout est livré), REJECTED, CANCELLED."""
         status = self.request.status
-        if status == Request.Status.APPROVED:
-            return "READY" if self.file else "TO_PREPARE"
-        return status
+        if status != Request.Status.APPROVED:
+            return status
+        if (self.needs_pdf and not self.file) or (self.needs_original and not self.original_ready_at):
+            return "TO_PREPARE"
+        if self.needs_original and not self.collected_at:
+            return "PICKUP"
+        return "READY"
+
+    @property
+    def original_state(self):
+        """L'original papier seul : None (pas demandé), TO_SIGN, PICKUP (prêt au bureau RH) ou COLLECTED."""
+        if not self.needs_original or self.request.status != Request.Status.APPROVED:
+            return None
+        if self.collected_at:
+            return "COLLECTED"
+        return "PICKUP" if self.original_ready_at else "TO_SIGN"
+
+    # Les mêmes règles que `state`, en filtre SQL (listes des RH, "une demande en cours par type").
+    @classmethod
+    def to_prepare_filter(cls):
+        """Validée, et les RH ont encore à faire : le PDF à déposer et / ou l'original à signer."""
+        pdf, original, both = cls.Format.PDF, cls.Format.ORIGINAL, cls.Format.BOTH
+        return Q(request__status=Request.Status.APPROVED) & (
+            Q(format__in=[pdf, both], file="") | Q(format__in=[original, both], original_ready_at__isnull=True))
+
+    @classmethod
+    def pickup_filter(cls):
+        """L'original est prêt au bureau RH et le collaborateur ne l'a pas encore récupéré."""
+        return Q(request__status=Request.Status.APPROVED, original_ready_at__isnull=False, collected_at__isnull=True,
+                 format__in=[cls.Format.ORIGINAL, cls.Format.BOTH])
 
     @property
     def late(self):

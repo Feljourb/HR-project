@@ -18,7 +18,7 @@ from workflows.models import Request
 from workflows.test_engine import EngineTestCase
 
 from .models import DocumentRequest, DocumentType
-from .services import add_working_days, request_document, upload
+from .services import add_working_days, mark_handed_over, mark_original_ready, request_document, upload
 
 User = get_user_model()
 MEDIA = tempfile.mkdtemp()  # les PDF des tests vont ici (effacé à la fin), pas dans media/
@@ -100,6 +100,35 @@ class FlowTests(DocumentTestCase):
         self.assertEqual((document.format, document.request.title), ("BOTH", "Attestation de salaire (Visa) · PDF + original"))
         with self.assertRaisesMessage(ValidationError, "format"):
             request_document(self.sara, DocumentType.objects.get(name="Attestation de congé"), format="FAX")
+
+    def test_the_paper_original(self):
+        # "Original" seul : le PDF généré sert aux RH à l'imprimer ; Sara n'a pas "Document prêt".
+        document = self.approve(request_document(self.sara, self.work, "Consulat", format="ORIGINAL"))
+        self.assertTrue(document.file)
+        self.assertFalse(self.ready_notices().exists())
+        self.assertEqual((document.state, document.original_state), ("TO_PREPARE", "TO_SIGN"))
+        # Sara ne marque rien elle-même ; "remis" avant "prêt" : refusé.
+        with self.assertRaises(PermissionDenied):
+            mark_original_ready(document, self.sara.user)
+        with self.assertRaisesMessage(ValidationError, "d'abord"):
+            mark_handed_over(document, self.nadia.user)
+        # Nadia l'a signé et tamponné : Sara est prévenue ("Original prêt au bureau RH").
+        document = mark_original_ready(document, self.nadia.user)
+        self.assertEqual((document.state, document.original_state), ("PICKUP", "PICKUP"))
+        notice = Notification.objects.get(recipient=self.sara.user, kind=Notification.Kind.ORIGINAL_READY)
+        self.assertIn("bureau RH", message(notice))
+        # Sara est venue : remis (quand, par qui).
+        document = mark_handed_over(document, self.hind.user)
+        self.assertEqual((document.state, document.original_state, document.collected_by), ("READY", "COLLECTED", self.hind.user))
+        # Une demande en PDF seulement : pas d'original à préparer.
+        pdf_only = self.approve(request_document(self.sara, self.work))
+        with self.assertRaisesMessage(ValidationError, "pas demandé"):
+            mark_original_ready(pdf_only, self.nadia.user)
+
+    def test_both_gives_the_pdf_at_once_then_the_original(self):
+        document = self.approve(request_document(self.sara, self.work, format="BOTH"))
+        self.assertTrue(self.ready_notices().exists())  # le PDF tout de suite
+        self.assertEqual((document.state, document.original_state), ("TO_PREPARE", "TO_SIGN"))  # reste l'original
 
     def test_delivery_date_in_working_days(self):
         # Un jeudi + 2 jours ouvrés = le lundi (pas le samedi) ; un document généré : le jour même.
@@ -229,6 +258,17 @@ class ApiTests(DocumentTestCase):
         response = self.client.post(reverse("documents:hr-upload", args=[document.request_id]), {"file": pdf()}, format="multipart")
         self.assertEqual((response.status_code, response.json()["state"]), (200, "READY"))
         self.assertEqual(self.client.get(reverse("documents:hr-list"), {"status": "to_prepare"}).json(), [])
+        # Un original papier : "Original ready" puis "Handed over", et le filtre "à remettre".
+        original = self.approve(request_document(self.sara, self.work, format="ORIGINAL"))
+        self.client.post(reverse("documents:hr-original-ready", args=[original.request_id]))
+        pickup = self.client.get(reverse("documents:hr-list"), {"status": "pickup"}).json()
+        self.assertEqual([(item["request"], item["original_state"]) for item in pickup], [(original.request_id, "PICKUP")])
+        response = self.client.post(reverse("documents:hr-handed-over", args=[original.request_id]))
+        self.assertEqual((response.json()["state"], response.json()["collected_by"] is not None), ("READY", True))
+        # Le PDF d'un "original seul" : pour les RH (à imprimer), pas pour Sara.
+        file_url = reverse("documents:file-detail", args=[original.request_id])
+        self.assertEqual(self.client.get(file_url).status_code, 200)
         # Un collaborateur n'a pas la page RH.
         self.login(self.sara)
         self.assertEqual(self.client.get(reverse("documents:hr-list")).status_code, 403)
+        self.assertEqual(self.client.get(file_url).status_code, 404)

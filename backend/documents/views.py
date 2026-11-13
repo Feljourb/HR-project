@@ -5,12 +5,15 @@ GET  mine/                           -> mes demandes de document
 POST mine/                           -> demander un document {"doc_type": id, "purpose": "Banque", "format": "PDF|ORIGINAL|BOTH"}
 GET  requests/<request>/             -> le document d'une demande (historique, Team approvals ; mêmes droits)
 GET  files/<request>/                -> le PDF (le collaborateur, ses RH, Admin RH, IT ; sinon 404)
-GET  hr/?status=to_prepare|in_progress|ready|all -> les demandes du pôle (RH ; Admin RH et IT : les deux pôles)
+GET  hr/?status=to_prepare|in_progress|pickup|ready|all -> les demandes du pôle (RH ; Admin RH et IT : les deux pôles)
 POST hr/<request>/upload/            -> déposer le PDF signé (multipart "file")
+POST hr/<request>/original-ready/    -> l'original papier signé attend au bureau RH (le collaborateur est prévenu)
+POST hr/<request>/handed-over/       -> l'original est remis au collaborateur
 Valider / refuser : Team approvals (le moteur). Annuler : /api/workflows/requests/<request>/cancel/.
 """
 from django.core.exceptions import PermissionDenied as DjangoPermissionDenied
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db.models import Q
 from django.http import FileResponse, HttpResponse
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -27,7 +30,7 @@ from workflows.models import Request
 from .models import DocumentRequest, DocumentSignatory, DocumentType
 from .pdf import work_certificate
 from .serializers import DocumentRequestSerializer, DocumentTypeSerializer, SignatorySerializer
-from .services import request_document, upload
+from .services import can_prepare, mark_handed_over, mark_original_ready, request_document, upload
 
 
 def run(action):
@@ -158,6 +161,9 @@ class FileViewSet(viewsets.GenericViewSet):
 
     def retrieve(self, request, request_id=None):
         document = self.get_object()
+        # "Original" seul : le PDF est la copie à imprimer des RH, pas pour le collaborateur (il attend le papier).
+        if not document.needs_pdf and not can_prepare(request.user, document):
+            raise NotFound()
         return FileResponse(document.file.open("rb"), as_attachment=True, filename=document.file_name or "document.pdf")
 
 
@@ -170,11 +176,16 @@ class HrDocumentViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     lookup_field = "request"
     lookup_url_kwarg = "request_id"
 
-    FILTERS = {
-        "to_prepare": {"request__status": Request.Status.APPROVED, "file": ""},
-        "in_progress": {"request__status": Request.Status.IN_PROGRESS},
-        "ready": {"request__status": Request.Status.APPROVED, "delivered_at__isnull": False},
-    }
+    @staticmethod
+    def filters():
+        """?status= -> le filtre : à préparer (PDF et / ou original), à valider, original à remettre, tout livré."""
+        to_prepare, pickup = DocumentRequest.to_prepare_filter(), DocumentRequest.pickup_filter()
+        return {
+            "to_prepare": to_prepare,
+            "in_progress": Q(request__status=Request.Status.IN_PROGRESS),
+            "pickup": pickup,
+            "ready": Q(request__status=Request.Status.APPROVED) & ~to_prepare & ~pickup,
+        }
 
     def get_queryset(self):
         queryset = documents()
@@ -184,7 +195,7 @@ class HrDocumentViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
             queryset = queryset.filter(employee__department__direction__entity__pole=pole) if pole else queryset.none()
         if self.action == "list":
             wanted = self.request.query_params.get("status")
-            queryset = queryset.filter(**self.FILTERS.get(wanted, {}))
+            queryset = queryset.filter(self.filters().get(wanted, Q()))
             if wanted in ("to_prepare", "in_progress"):
                 queryset = queryset.order_by("due_date", "id")  # à faire : le délai le plus proche d'abord
         return queryset
@@ -193,4 +204,16 @@ class HrDocumentViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     def upload(self, request, request_id=None):
         document = self.get_object()
         run(lambda: upload(document, request.user, request.FILES.get("file")))
+        return Response(DocumentRequestSerializer(documents().get(pk=document.pk), context={"request": request}).data)
+
+    @action(detail=True, methods=["post"], url_path="original-ready")
+    def original_ready(self, request, request_id=None):
+        document = self.get_object()
+        run(lambda: mark_original_ready(document, request.user))
+        return Response(DocumentRequestSerializer(documents().get(pk=document.pk), context={"request": request}).data)
+
+    @action(detail=True, methods=["post"], url_path="handed-over")
+    def handed_over(self, request, request_id=None):
+        document = self.get_object()
+        run(lambda: mark_handed_over(document, request.user))
         return Response(DocumentRequestSerializer(documents().get(pk=document.pk), context={"request": request}).data)

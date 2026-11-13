@@ -63,17 +63,41 @@ class DocumentRequestSerializer(serializers.ModelSerializer):
     # le bouton "Upload PDF" apparaît aussi dans l'historique et dans Team approvals, là où le RH se trouve.
     can_upload = serializers.SerializerMethodField()
     format_label = serializers.CharField(source="get_format_display", read_only=True)
+    # L'original papier (format ORIGINAL / BOTH) : TO_SIGN, PICKUP, COLLECTED, ou null ; qui l'a préparé / remis.
+    original_state = serializers.CharField(read_only=True)
+    original_ready_by = serializers.SerializerMethodField()
+    collected_by = serializers.SerializerMethodField()
+    can_download = serializers.SerializerMethodField()        # le PDF, pour celui qui lit
+    can_handle_original = serializers.SerializerMethodField()  # boutons "Original ready" / "Handed over" (RH)
 
     class Meta:
         model = DocumentRequest
         fields = ["id", "request", "doc_type", "automatic", "purpose", "format", "format_label", "status", "state", "created_at", "closed_at",
                   "employee", "department", "reference", "file_name", "has_file", "delivered_at", "delivered_by", "refusal",
-                  "requested_by", "due_date", "late", "can_upload"]
+                  "requested_by", "due_date", "late", "can_upload", "can_download",
+                  "original_state", "original_ready_at", "original_ready_by", "collected_at", "collected_by", "can_handle_original"]
+
+    def is_hr(self, document):
+        """Celui qui lit est un RH qui s'occupe de ce document (RH du pôle, Admin RH, IT)."""
+        viewer = self.context.get("request")
+        return bool(viewer and can_prepare(viewer.user, document))
 
     def get_can_upload(self, document):
-        viewer = self.context.get("request")
-        return bool(viewer and not document.doc_type.template and document.state in ("TO_PREPARE", "READY")
-                    and can_prepare(viewer.user, document))
+        return (not document.doc_type.template and document.needs_pdf and document.request.status == "APPROVED"
+                and self.is_hr(document))
+
+    def get_can_download(self, document):
+        # "Original" seul : le PDF sert aux RH à l'imprimer ; le collaborateur attend le papier.
+        return bool(document.file) and (document.needs_pdf or self.is_hr(document))
+
+    def get_can_handle_original(self, document):
+        return document.original_state in ("TO_SIGN", "PICKUP") and self.is_hr(document)
+
+    def get_original_ready_by(self, document):
+        return name_of(document.original_ready_by) if document.original_ready_by_id else None
+
+    def get_collected_by(self, document):
+        return name_of(document.collected_by) if document.collected_by_id else None
 
     def get_requested_by(self, document):
         return name_of(document.requested_by) if document.requested_by_id else None

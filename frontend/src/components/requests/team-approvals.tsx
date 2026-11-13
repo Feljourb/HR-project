@@ -14,7 +14,9 @@ import { apiFetch, type Me } from '@/lib/api'
 import type { DocumentRequest } from '@/lib/documents'
 import { formatDate } from '@/lib/leaves'
 import type { Approval, DecidedStep, WorkflowRequest } from '@/lib/requests'
+import { DownloadButton } from '@/components/documents/download-button'
 import { UploadButton } from '@/components/documents/hr-documents'
+import { OriginalButtons } from '@/components/documents/original-buttons'
 import { cn } from '@/lib/utils'
 import { sendChange } from '@/lib/workflows'
 import { DecidedList } from './decided-list'
@@ -59,7 +61,7 @@ export function TeamApprovals({ me }: { me: Me }) {
       apiFetch(`/api/documents/requests/${approval.request.id}/`)
         .then(async (response) => {
           const document: DocumentRequest | null = response.ok ? await response.json() : null
-          if (document?.state === 'TO_PREPARE' && document.can_upload) setToPrepare(document)
+          if (document?.state === 'TO_PREPARE' && (document.can_upload || document.can_handle_original)) setToPrepare(document)
         })
         .catch(() => { /* pas de document (demande de démo) : rien de plus à faire */ })
     }
@@ -85,15 +87,22 @@ export function TeamApprovals({ me }: { me: Me }) {
       <CheckCheck className="size-4" /> {done}
     </p>}
 
-    {/* Validé : le document n'est pas généré par l'application -> le RH le prépare et dépose le PDF signé. */}
+    {/* Validé, et il reste au RH : le PDF signé à déposer, et / ou l'original papier à signer (le collaborateur l'a
+        demandé). L'étape suivante ici même, ou plus tard dans Document requests. */}
     {toPrepare && <div role="status" className="flex flex-wrap items-center gap-3 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3">
       <FileText className="size-5 shrink-0 text-sky-700" aria-hidden />
       <div className="min-w-0 flex-1 text-xs text-sky-900">
         <p className="font-semibold">Next step: prepare the document</p>
-        <p>{toPrepare.doc_type} for {toPrepare.employee}{toPrepare.due_date ? `, expected by ${formatDate(toPrepare.due_date)}` : ''}.
-          Upload the signed PDF now, or later from <Link href="/document-requests" className="font-semibold underline">Document requests</Link>.</p>
+        <p>{toPrepare.doc_type} for {toPrepare.employee}{toPrepare.due_date ? `, expected by ${formatDate(toPrepare.due_date)}` : ''}.{' '}
+          {[toPrepare.can_upload && !toPrepare.has_file && 'Upload the signed PDF',
+            toPrepare.original_state === 'TO_SIGN' && 'print, sign and stamp the original, then click "Original ready"']
+            .filter(Boolean).join('; ')} now, or later from <Link href="/document-requests" className="font-semibold underline">Document requests</Link>.</p>
       </div>
-      <UploadButton document={toPrepare} onUploaded={() => { setToPrepare(null); setDone(`Document delivered: ${toPrepare.doc_type} for ${toPrepare.employee}`) }} />
+      <div className="flex flex-wrap items-center gap-1">
+        {toPrepare.can_upload && !toPrepare.has_file && <UploadButton document={toPrepare} onUploaded={() => { setToPrepare(null); setDone(`Document delivered: ${toPrepare.doc_type} for ${toPrepare.employee}`) }} />}
+        {toPrepare.original_state === 'TO_SIGN' && <DownloadButton document={toPrepare} label="Print copy" />}
+        <OriginalButtons document={toPrepare} onDone={() => { setToPrepare(null); setDone(`Original ready at the HR office: ${toPrepare.doc_type} for ${toPrepare.employee}`) }} />
+      </div>
     </div>}
 
     {/* Les deux onglets, en pastilles comme "My requests". */}
