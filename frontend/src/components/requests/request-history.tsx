@@ -16,7 +16,7 @@ import { apiFetch } from '@/lib/api'
 import type { DocumentRequest } from '@/lib/documents'
 import { formatDate, formatDays, type Recount } from '@/lib/leaves'
 import { DownloadButton } from '@/components/documents/download-button'
-import { UploadButton } from '@/components/documents/hr-documents'
+import { UploadButton } from '@/components/documents/upload-button'
 import { OriginalButtons } from '@/components/documents/original-buttons'
 import { cn } from '@/lib/utils'
 import { formatDateTime } from '@/components/employees/history-changes'
@@ -234,8 +234,6 @@ export function RequestHistory({ requestId, from = null }: { requestId: number; 
 
   const back = backLink(from, DEFAULT_BACK)
   const status = STATUS[request.status] ?? STATUS.CANCELLED
-  // Les événements ; un document : + sa ligne "en préparation" / "livré", après la validation.
-  const events = [...eventsOf(request, recounts), ...(paper ? documentEvents(paper, loadDocument) : [])]
 
   return <div className="flex flex-col gap-4">
     {/* Le retour, avec le NOM de la page d'où l'on vient (?from=...), comme une note de frais. */}
@@ -249,8 +247,21 @@ export function RequestHistory({ requestId, from = null }: { requestId: number; 
       <span className={cn('rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset', status.badge)}>{status.label}</span>
     </div>
 
-    {/* La ligne du temps : une icône par événement, reliées par un trait vertical. */}
-    <ol className="rounded-xl border border-slate-200/80 bg-white px-4 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+    <RequestTimeline request={request} recounts={recounts} paper={paper} onChanged={loadDocument} />
+  </div>
+}
+
+/**
+ * La ligne du temps d'une demande : une icône par événement, reliées par un trait vertical.
+ * Partagée par la page historique et le panneau d'un document administratif (My documents, Document requests).
+ * paper : le document administratif de la demande (+ ses lignes PDF / original), onChanged : le relire après un clic.
+ */
+export function RequestTimeline({ request, recounts = [], paper = null, onChanged = () => {} }: {
+  request: WorkflowRequest; recounts?: Recount[]; paper?: DocumentRequest | null; onChanged?: () => void
+}) {
+  // Les événements ; un document : + ses lignes "en préparation" / "livré" / "original", après la validation.
+  const events = [...eventsOf(request, recounts), ...(paper ? documentEvents(paper, onChanged) : [])]
+  return <ol className="rounded-xl border border-slate-200/80 bg-white px-4 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
       {events.map((event, index) => {
         const Icon = event.icon
         return <li key={index} className="relative flex gap-3 pb-5 last:pb-0">
@@ -272,5 +283,4 @@ export function RequestHistory({ requestId, from = null }: { requestId: number; 
         </li>
       })}
     </ol>
-  </div>
 }

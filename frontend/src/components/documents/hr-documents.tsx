@@ -9,17 +9,18 @@
  * (le collaborateur est prévenu) -> il vient au bureau RH -> "Handed over" (onglet "To hand over").
  * Chaque demande a un délai promis (jours ouvrés du type) : le plus proche en premier, "Late" en rouge s'il est passé.
  */
-import { useEffect, useRef, useState } from 'react'
-import Link from 'next/link'
-import { FileText, Loader2, Upload } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { FileText, Search, X } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
-import { originalText, stateOf, type DocumentRequest } from '@/lib/documents'
+import { originalText, stateOf, type DocumentRequest, type DocumentType } from '@/lib/documents'
+import { DatePicker } from '@/components/ui/date-picker'
 import { formatDate } from '@/lib/leaves'
 import { cn } from '@/lib/utils'
-import { sendChange } from '@/lib/workflows'
 import { actionClass } from '@/components/expenses/claim-actions'
+import { DocumentPanel } from './document-panel'
 import { DownloadButton } from './download-button'
 import { OriginalButtons } from './original-buttons'
+import { UploadButton } from './upload-button'
 
 const FILTERS = [
   { id: 'to_prepare', label: 'To prepare' },
@@ -34,15 +35,48 @@ export function HrDocuments() {
   const [documents, setDocuments] = useState<DocumentRequest[] | null>(null)
   const [failed, setFailed] = useState(false)
   const [version, setVersion] = useState(0)  // +1 après un dépôt : la liste est relue
+  const [opened, setOpened] = useState<number | null>(null)  // la demande ouverte dans le panneau (son n°)
+  const reload = () => setVersion((old) => old + 1)
+  // Step B : retrouver une demande (nom ou matricule, type, période). Django filtre : la liste reste petite.
+  const [search, setSearch] = useState('')
+  const [typed, setTyped] = useState('')  // la recherche envoyée, 300 ms après la dernière touche
+  const [type, setType] = useState('')
+  const [period, setPeriod] = useState('')  // '' = any time, sinon un choix tout fait ou "custom"
+  const [customFrom, setCustomFrom] = useState('')
+  const [customTo, setCustomTo] = useState('')
+  const [types, setTypes] = useState<DocumentType[]>([])
+  const [from, to] = period === 'custom' ? [customFrom, customTo] : periodDates(period)
+  const filtered = Boolean(typed || type || period)
 
   useEffect(() => {
-    apiFetch(`/api/documents/hr/?status=${filter}`)
+    apiFetch('/api/documents/types/').then(async (response) => { if (response.ok) setTypes(await response.json()) }).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    const timer = setTimeout(() => setTyped(search.trim()), 300)  // pas une requête par lettre tapée
+    return () => clearTimeout(timer)
+  }, [search])
+
+  useEffect(() => {
+    const query = new URLSearchParams({ status: filter, search: typed, type, from, to })
+    const controller = new AbortController()
+    apiFetch(`/api/documents/hr/?${query}`, { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error()
         setDocuments(await response.json())
       })
-      .catch(() => setFailed(true))
-  }, [filter, version])
+      .catch((error) => { if (error?.name !== 'AbortError') setFailed(true) })
+    return () => controller.abort()  // une autre recherche a commencé : l'ancienne réponse ne compte plus
+  }, [filter, version, typed, type, from, to])
+
+  function clearFilters() {
+    setSearch('')
+    setTyped('')
+    setType('')
+    setPeriod('')
+    setCustomFrom('')
+    setCustomTo('')
+  }
 
   return <div className="mx-auto flex w-full max-w-5xl flex-col gap-4">
     <div>
@@ -61,22 +95,71 @@ export function HrDocuments() {
       })}
     </div>
 
+    {/* La recherche, sur UNE ligne (standard Gmail / Linear) : le nom, le type de document, la période. */}
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="relative min-w-56 flex-1">
+        <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" aria-hidden />
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search an employee (name or number)" aria-label="Search an employee"
+          className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-8 pr-3 text-xs outline-none focus:border-[#23355d] focus:ring-3 focus:ring-[#23355d]/15" />
+      </div>
+      <select value={type} onChange={(e) => setType(e.target.value)} aria-label="Document" className={filterClass(Boolean(type))}>
+        <option value="">All documents</option>
+        {types.map((item) => <option key={item.id} value={String(item.id)}>{item.name}</option>)}
+      </select>
+      <select value={period} onChange={(e) => setPeriod(e.target.value)} aria-label="Requested" className={filterClass(Boolean(period))}>
+        {PERIODS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+      </select>
+      {/* "Custom dates" : les deux dates, sur la même ligne. */}
+      {period === 'custom' && <div className="flex items-center gap-1.5">
+        <DatePicker id="doc-from" value={customFrom} onChange={setCustomFrom} max={customTo || undefined} className="mt-0 w-36" />
+        <span className="text-xs text-slate-400">→</span>
+        <DatePicker id="doc-to" value={customTo} onChange={setCustomTo} min={customFrom || undefined} className="mt-0 w-36" />
+      </div>}
+      {filtered && <button type="button" onClick={clearFilters}
+        className="flex h-9 items-center gap-1 rounded-lg px-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-100">
+        <X className="size-3.5" /> Clear
+      </button>}
+    </div>
+
     {documents === null
       ? <Box>{failed ? 'Could not load the document requests. Please try again later.' : 'Loading...'}</Box>
       : documents.length === 0
         ? <Box><FileText className="mx-auto mb-2 size-6 text-[#8C6D52]" />
-            {filter === 'to_prepare' ? 'Nothing to prepare.' : filter === 'pickup' ? 'No original waiting at the HR office.' : 'No request here.'}</Box>
+            {filtered ? 'No request matches these filters.'
+              : filter === 'to_prepare' ? 'Nothing to prepare.' : filter === 'pickup' ? 'No original waiting at the HR office.' : 'No request here.'}</Box>
         : <ul className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-            {documents.map((document) => <Row key={document.id} document={document} onChanged={() => setVersion((old) => old + 1)} />)}
+            {documents.map((document) => <Row key={document.id} document={document} onChanged={reload} onOpen={() => setOpened(document.request)} />)}
           </ul>}
+
+    {/* Le détail d'une demande (résumé, PDF, original, toute la ligne du temps), sans quitter la page. */}
+    <DocumentPanel requestId={opened} onClose={() => setOpened(null)} onChanged={reload} forHr />
   </div>
+}
+
+// Un filtre choisi se voit (bordure bleue), comme dans Gmail / Linear.
+const filterClass = (active: boolean) => cn('h-9 rounded-lg border bg-white px-2.5 text-xs outline-none focus:ring-3 focus:ring-[#23355d]/15',
+  active ? 'border-[#23355d] font-semibold text-[#23355d]' : 'border-slate-200 text-slate-600')
+
+// La période de la demande : des choix tout faits (le plus courant), ou des dates précises.
+const PERIODS: [string, string][] = [
+  ['', 'Any time'], ['month', 'This month'], ['30', 'Last 30 days'], ['year', 'This year'], ['custom', 'Custom dates…'],
+]
+
+/** Un choix tout fait -> [du, au] en "AAAA-MM-JJ" ('' = pas de limite). */
+function periodDates(period: string): [string, string] {
+  const today = new Date()
+  const iso = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+  if (period === 'month') return [iso(new Date(today.getFullYear(), today.getMonth(), 1)), '']
+  if (period === '30') return [iso(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 30)), '']
+  if (period === 'year') return [iso(new Date(today.getFullYear(), 0, 1)), '']
+  return ['', '']
 }
 
 function Box({ children }: { children: React.ReactNode }) {
   return <div className="rounded-xl border border-slate-200 bg-white px-4 py-12 text-center text-sm text-slate-500">{children}</div>
 }
 
-function Row({ document, onChanged }: { document: DocumentRequest; onChanged: () => void }) {
+function Row({ document, onChanged, onOpen }: { document: DocumentRequest; onChanged: () => void; onOpen: () => void }) {
   const state = stateOf(document)
   const waiting = document.state === 'IN_PROGRESS' || document.state === 'TO_PREPARE'
   const extras = [
@@ -94,7 +177,9 @@ function Row({ document, onChanged }: { document: DocumentRequest; onChanged: ()
   return <li className="flex flex-wrap items-center gap-3 px-4 py-3">
     <div className="min-w-0 flex-1">
       <p className="flex min-w-0 items-center gap-2 text-sm font-semibold text-[#192646]">
-        <span className="truncate">{document.doc_type} <span className="font-normal text-slate-500">· {document.employee}</span></span>
+        <button type="button" onClick={onOpen} className="truncate text-left hover:underline">
+          {document.doc_type} <span className="font-normal text-slate-500">· {document.employee}</span>
+        </button>
         {/* Un original papier à signer à la main : visible tout de suite. */}
         {document.format !== 'PDF' && <span className="shrink-0 rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-700 ring-1 ring-inset ring-violet-200">
           {document.format === 'BOTH' ? 'PDF + original' : 'Original'}
@@ -111,39 +196,8 @@ function Row({ document, onChanged }: { document: DocumentRequest; onChanged: ()
       {/* Le PDF : aussi pour l'IMPRIMER quand le collaborateur veut l'original. */}
       <DownloadButton document={document} label={document.original_state === 'TO_SIGN' ? 'Print copy' : 'Download'} />
       <OriginalButtons document={document} onDone={onChanged} />
-      <Link href={`/requests/${document.request}?from=document-requests`} className={actionClass}>History</Link>
+      <button type="button" onClick={onOpen} className={actionClass}>Details</button>
     </div>
   </li>
 }
 
-/** Choisir le PDF signé -> envoyé tout de suite ; le collaborateur est prévenu.
- *  (Aussi dans l'historique de la demande et dans Team approvals : le RH le fait là où il se trouve.) */
-export function UploadButton({ document, onUploaded }: { document: DocumentRequest; onUploaded: () => void }) {
-  const input = useRef<HTMLInputElement>(null)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-
-  async function send(file: File | undefined) {
-    if (!file) return
-    setBusy(true)
-    setError('')
-    const form = new FormData()
-    form.append('file', file)
-    const result = await sendChange(() => apiFetch(`/api/documents/hr/${document.request}/upload/`, { method: 'POST', body: form }),
-      'Only HR of this employee\'s pôle can upload this document.')
-    setBusy(false)
-    if (input.current) input.current.value = ''  // le même fichier peut être choisi à nouveau
-    if ('error' in result) setError(result.error)
-    else onUploaded()
-  }
-
-  return <>
-    {error && <span role="alert" className="text-[11px] text-red-600">{error}</span>}
-    <input ref={input} type="file" accept="application/pdf,.pdf" className="sr-only" aria-label={`PDF for ${document.doc_type}`}
-      onChange={(event) => send(event.target.files?.[0])} />
-    <button type="button" disabled={busy} onClick={() => input.current?.click()}
-      className={cn(actionClass, !document.has_file && 'bg-[#23355d] text-white hover:bg-[#192646]')}>
-      {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />} {document.has_file ? 'Replace' : 'Upload PDF'}
-    </button>
-  </>
-}

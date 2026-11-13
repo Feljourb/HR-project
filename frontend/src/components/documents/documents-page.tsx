@@ -7,7 +7,6 @@
  * dès que les RH valident ; les autres documents sont préparés et déposés par les RH.
  */
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import Link from 'next/link'
 import { CheckCircle2, FileText, Loader2, Send } from 'lucide-react'
 import { apiFetch, isHr, type Me } from '@/lib/api'
 import { FORMATS, originalText, stateOf, type DocumentFormat, type DocumentRequest, type DocumentType } from '@/lib/documents'
@@ -19,6 +18,7 @@ import { CancelClaim, actionClass } from '@/components/expenses/claim-actions'
 import { Message } from '@/components/leaves/leaves-page'
 import { StatTiles } from '@/components/leaves/stat-tiles'
 import { PersonPicker, type Person } from '@/components/requests/out-of-office'
+import { DocumentPanel } from './document-panel'
 import { DownloadButton } from './download-button'
 
 type Loaded = { documents: DocumentRequest[]; types: DocumentType[] }
@@ -28,6 +28,7 @@ export function DocumentsPage({ me }: { me: Me }) {
   const [problem, setProblem] = useState('')
   const [version, setVersion] = useState(0)  // +1 après un envoi / une annulation : tout est relu
   const reload = useCallback(() => setVersion((old) => old + 1), [])
+  const [opened, setOpened] = useState<number | null>(null)  // la demande ouverte dans le panneau (son n°)
 
   useEffect(() => {
     Promise.all([apiFetch('/api/documents/mine/'), apiFetch('/api/documents/types/')])
@@ -60,8 +61,11 @@ export function DocumentsPage({ me }: { me: Me }) {
         <RequestForm types={loaded.types} hr={isHr(me)} onSent={reload} />
         <HowItWorks />
       </div>
-      <MyDocuments documents={documents} onChanged={reload} />
+      <MyDocuments documents={documents} onChanged={reload} onOpen={setOpened} />
     </div>
+
+    {/* Le détail d'une demande : le PDF, l'original, toute la ligne du temps (la trace), sans quitter la page. */}
+    <DocumentPanel requestId={opened} onClose={() => setOpened(null)} onChanged={reload} />
   </div>
 }
 
@@ -174,7 +178,7 @@ const TABS = [
 const FIRST = 5
 const SHORT_MONTH = (iso: string) => new Date(`${iso}T00:00:00`).toLocaleDateString('en-GB', { month: 'short' })
 
-function MyDocuments({ documents, onChanged }: { documents: DocumentRequest[]; onChanged: () => void }) {
+function MyDocuments({ documents, onChanged, onOpen }: { documents: DocumentRequest[]; onChanged: () => void; onOpen: (request: number) => void }) {
   const [tab, setTab] = useState('all')
   const [all, setAll] = useState(false)
   const current = TABS.find((item) => item.id === tab) ?? TABS[0]
@@ -201,7 +205,8 @@ function MyDocuments({ documents, onChanged }: { documents: DocumentRequest[]; o
           </div>
           {shown.length === 0
             ? <p className="px-4 py-8 text-center text-xs text-slate-500">Nothing here.</p>
-            : <ul className="divide-y divide-slate-100">{shown.map((document) => <DocumentLine key={document.id} document={document} onChanged={onChanged} />)}</ul>}
+            : <ul className="divide-y divide-slate-100">{shown.map((document) => <DocumentLine key={document.id} document={document} onChanged={onChanged}
+                onOpen={() => onOpen(document.request)} />)}</ul>}
           {filtered.length > FIRST && <button type="button" onClick={() => setAll((old) => !old)}
             className="w-full border-t border-slate-100 px-4 py-2.5 text-xs font-semibold text-[#23355d] hover:bg-slate-50">
             {all ? 'Show less' : `Show all (${filtered.length})`}
@@ -210,7 +215,7 @@ function MyDocuments({ documents, onChanged }: { documents: DocumentRequest[]; o
   </section>
 }
 
-function DocumentLine({ document, onChanged }: { document: DocumentRequest; onChanged: () => void }) {
+function DocumentLine({ document, onChanged, onOpen }: { document: DocumentRequest; onChanged: () => void; onOpen: () => void }) {
   const sent = document.created_at.slice(0, 10)
   const ended = document.state === 'REJECTED' || document.state === 'CANCELLED'
   const state = stateOf(document)
@@ -234,9 +239,9 @@ function DocumentLine({ document, onChanged }: { document: DocumentRequest; onCh
       <span className="text-base font-semibold leading-tight text-[#192646]">{Number(sent.slice(8, 10))}</span>
     </span>
     <div className="min-w-0 flex-1">
-      <Link href={`/requests/${document.request}?from=documents`} className="block truncate text-sm font-semibold text-[#192646] hover:underline">
+      <button type="button" onClick={onOpen} className="block max-w-full truncate text-left text-sm font-semibold text-[#192646] hover:underline">
         {document.doc_type}
-      </Link>
+      </button>
       <p className="truncate text-[11px] text-slate-400">{extras.join(' · ')}</p>
     </div>
     <div className="flex shrink-0 flex-col items-end gap-1">
@@ -244,7 +249,7 @@ function DocumentLine({ document, onChanged }: { document: DocumentRequest; onCh
       <div className="flex items-center gap-1">
         <DownloadButton document={document} />
         <CancelClaim claim={document} onCancelled={onChanged} />
-        <Link href={`/requests/${document.request}?from=documents`} className={actionClass}>History</Link>
+        <button type="button" onClick={onOpen} className={actionClass}>Details</button>
       </div>
     </div>
   </li>

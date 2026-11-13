@@ -6,6 +6,7 @@ POST mine/                           -> demander un document {"doc_type": id, "p
 GET  requests/<request>/             -> le document d'une demande (historique, Team approvals ; mêmes droits)
 GET  files/<request>/                -> le PDF (le collaborateur, ses RH, Admin RH, IT ; sinon 404)
 GET  hr/?status=to_prepare|in_progress|pickup|ready|all -> les demandes du pôle (RH ; Admin RH et IT : les deux pôles)
+         &search=halima &type=<id> &from=2026-10-01 &to=2026-10-31 -> le nom / matricule, le type, la période
 POST hr/<request>/upload/            -> déposer le PDF signé (multipart "file")
 POST hr/<request>/original-ready/    -> l'original papier signé attend au bureau RH (le collaborateur est prévenu)
 POST hr/<request>/handed-over/       -> l'original est remis au collaborateur
@@ -15,6 +16,7 @@ from django.core.exceptions import PermissionDenied as DjangoPermissionDenied
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Q
 from django.http import FileResponse, HttpResponse
+from django.utils.dateparse import parse_date
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied
@@ -194,8 +196,23 @@ class HrDocumentViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
             pole = user_pole(user)
             queryset = queryset.filter(employee__department__direction__entity__pole=pole) if pole else queryset.none()
         if self.action == "list":
-            wanted = self.request.query_params.get("status")
+            params = self.request.query_params
+            wanted = params.get("status")
             queryset = queryset.filter(self.filters().get(wanted, Q()))
+            # Step B (2026-11-13) : retrouver une demande parmi des centaines. Le nom (ou le matricule) du
+            # collaborateur, le type de document, la période (date de la demande, "du ... au ...").
+            for word in params.get("search", "").split():
+                queryset = queryset.filter(Q(employee__last_name__icontains=word) | Q(employee__first_name__icontains=word)
+                                           | Q(employee__u_number__icontains=word))
+            if params.get("type", "").isdigit():
+                queryset = queryset.filter(doc_type=params["type"])
+            for name, lookup in (("from", "request__created_at__date__gte"), ("to", "request__created_at__date__lte")):
+                try:
+                    day = parse_date(params.get(name, "") or "")
+                except ValueError:  # une date impossible (31/02) : on ignore ce filtre
+                    day = None
+                if day:
+                    queryset = queryset.filter(**{lookup: day})
             if wanted in ("to_prepare", "in_progress"):
                 queryset = queryset.order_by("due_date", "id")  # à faire : le délai le plus proche d'abord
         return queryset

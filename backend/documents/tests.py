@@ -250,6 +250,23 @@ class ApiTests(DocumentTestCase):
         self.login(self.youssef)
         self.assertEqual(self.client.get(url).status_code, 404)    # son N+1 : rien à voir
 
+    def test_hr_search_and_filters(self):
+        work = request_document(self.sara, self.work)
+        request_document(self.sara, self.salary)
+        self.login(self.nadia)
+        url = reverse("documents:hr-list")
+
+        def found(**params):
+            return [item["request"] for item in self.client.get(url, params).json()]
+
+        self.assertEqual(len(found(search=self.sara.last_name.lower())), 2)  # le nom, sans les majuscules
+        self.assertEqual(found(search="personne"), [])
+        self.assertEqual(found(type=self.work.pk), [work.request_id])
+        today = timezone.localdate()
+        self.assertEqual(len(found(**{"from": today.isoformat(), "to": today.isoformat()})), 2)
+        self.assertEqual(found(**{"from": (today + datetime.timedelta(days=1)).isoformat()}), [])
+        self.assertEqual(len(found(**{"from": "2026-02-31"})), 2)  # une date impossible : ignorée
+
     def test_hr_list_and_upload(self):
         document = self.approve(request_document(self.sara, self.salary))
         self.login(self.nadia)
