@@ -5,6 +5,7 @@ GET  mine/                           -> mes demandes de document
 POST mine/                           -> demander un document {"doc_type": id, "purpose": "Banque", "format": "PDF|ORIGINAL|BOTH"}
 GET  requests/<request>/             -> le document d'une demande (historique, Team approvals ; mêmes droits)
 GET  files/<request>/                -> le PDF (le collaborateur, ses RH, Admin RH, IT ; sinon 404)
+GET  files/<request>/?draft=1        -> le brouillon sans signature, à imprimer (les RH seulement)
 GET  hr/?status=to_prepare|in_progress|pickup|ready|all -> les demandes du pôle (RH ; Admin RH et IT : les deux pôles)
          &search=halima &type=<id> &from=2026-10-01 &to=2026-10-31 -> le nom / matricule, le type, la période
 POST hr/<request>/upload/            -> déposer le PDF signé (multipart "file")
@@ -159,12 +160,17 @@ class FileViewSet(viewsets.GenericViewSet):
     lookup_url_kwarg = "request_id"
 
     def get_queryset(self):
-        return DocumentRequest.objects.filter(request__in=engine.requests_visible_to(self.request.user)).exclude(file="")
+        return DocumentRequest.objects.filter(request__in=engine.requests_visible_to(self.request.user))
 
     def retrieve(self, request, request_id=None):
         document = self.get_object()
-        # "Original" seul : le PDF est la copie à imprimer des RH, pas pour le collaborateur (il attend le papier).
-        if not document.needs_pdf and not can_prepare(request.user, document):
+        # ?draft=1 : le brouillon sans signature, à imprimer : les RH seulement (jamais le collaborateur).
+        if request.query_params.get("draft"):
+            if not document.draft or not can_prepare(request.user, document):
+                raise NotFound()
+            return FileResponse(document.draft.open("rb"), as_attachment=True, filename=f"brouillon-{document.reference or document.request_id}.pdf")
+        # "Original" seul : pas de PDF pour le collaborateur (il attend le papier).
+        if not document.file or (not document.needs_pdf and not can_prepare(request.user, document)):
             raise NotFound()
         return FileResponse(document.file.open("rb"), as_attachment=True, filename=document.file_name or "document.pdf")
 

@@ -45,11 +45,11 @@ def picture(field, max_width, max_height):
     return Image(BytesIO(data), width=width * scale, height=height * scale)
 
 
-def signature_block(signatory):
+def signature_block(signatory, signed=True):
     """Sous "Le Directeur des Ressources Humaines" : la signature et le cachet (mode IMAGE, réglé par Admin RH),
-    sinon une place vide pour signer et tamponner à la main."""
+    sinon une place vide pour signer et tamponner à la main (aussi le brouillon : signed=False)."""
     images = []
-    if signatory.mode == DocumentSignatory.Mode.IMAGE:
+    if signed and signatory.mode == DocumentSignatory.Mode.IMAGE:
         images = [image for image in (picture(signatory.stamp, 38 * mm, 38 * mm),
                                       picture(signatory.signature, 55 * mm, 26 * mm)) if image]
     if not images:
@@ -59,8 +59,9 @@ def signature_block(signatory):
     return [Spacer(1, 4), table, Spacer(1, 16)]
 
 
-def work_certificate(document):
-    """L'attestation de travail de cette demande, en octets (le fichier PDF)."""
+def work_certificate(document, signed=True):
+    """L'attestation de travail de cette demande, en octets (le fichier PDF).
+    signed=False : le brouillon des RH (sans les images de signature et de cachet), à signer à la main."""
     employee = document.employee
     company = escape(employee.department.direction.entity.name)
     signatory = signatory_of(employee)
@@ -107,7 +108,7 @@ def work_certificate(document):
     ]
     if signatory.name:
         story.append(Paragraph(escape(signatory.name), right))
-    story += signature_block(signatory)
+    story += signature_block(signatory, signed)
     story += [
         HRFlowable(width="100%", thickness=0.4, color=GREY),
         Spacer(1, 4),

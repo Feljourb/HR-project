@@ -69,12 +69,13 @@ class DocumentRequestSerializer(serializers.ModelSerializer):
     collected_by = serializers.SerializerMethodField()
     can_download = serializers.SerializerMethodField()        # le PDF, pour celui qui lit
     can_handle_original = serializers.SerializerMethodField()  # boutons "Original ready" / "Handed over" (RH)
+    can_print = serializers.SerializerMethodField()           # le brouillon sans signature, à imprimer (RH seulement)
 
     class Meta:
         model = DocumentRequest
         fields = ["id", "request", "doc_type", "automatic", "purpose", "format", "format_label", "status", "state", "created_at", "closed_at",
                   "employee", "department", "reference", "file_name", "has_file", "delivered_at", "delivered_by", "refusal",
-                  "requested_by", "due_date", "late", "can_upload", "can_download",
+                  "requested_by", "due_date", "late", "can_upload", "can_download", "can_print",
                   "original_state", "original_ready_at", "original_ready_by", "collected_at", "collected_by", "can_handle_original"]
 
     def is_hr(self, document):
@@ -83,8 +84,14 @@ class DocumentRequestSerializer(serializers.ModelSerializer):
         return bool(viewer and can_prepare(viewer.user, document))
 
     def get_can_upload(self, document):
-        return (not document.doc_type.template and document.needs_pdf and document.request.status == "APPROVED"
+        # Un document préparé par les RH ; ou généré mais "à signer à la main" (pas encore livré, ou déjà déposé
+        # par un RH : "Replace"). Pas un document signé et livré par l'application.
+        generated_and_signed = document.doc_type.template and document.file and not document.delivered_by_id
+        return (document.needs_pdf and document.request.status == "APPROVED" and not generated_and_signed
                 and self.is_hr(document))
+
+    def get_can_print(self, document):
+        return bool(document.draft) and document.request.status == "APPROVED" and self.is_hr(document)
 
     def get_can_download(self, document):
         # "Original" seul : le PDF sert aux RH à l'imprimer ; le collaborateur attend le papier.

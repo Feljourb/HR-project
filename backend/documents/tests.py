@@ -17,7 +17,7 @@ from workflows import engine
 from workflows.models import Request
 from workflows.test_engine import EngineTestCase
 
-from .models import DocumentRequest, DocumentType
+from .models import DocumentRequest, DocumentSignatory, DocumentType
 from .services import add_working_days, mark_handed_over, mark_original_ready, request_document, upload
 
 User = get_user_model()
@@ -30,7 +30,10 @@ def pdf(name="attestation-salaire.pdf"):
 
 @override_settings(MEDIA_ROOT=MEDIA)
 class DocumentTestCase(EngineTestCase):
-    """Sara (SBD) demande ; Nadia et Hind sont RH de SBD (le circuit : RH du pôle valide)."""
+    """Sara (SBD) demande ; Nadia et Hind sont RH de SBD (le circuit : RH du pôle valide).
+    Par défaut, SBD a choisi "signature et cachet ajoutés par l'application" (auto_sign) ; sinon : "à la main"."""
+
+    auto_sign = True
 
     @classmethod
     def tearDownClass(cls):
@@ -41,6 +44,9 @@ class DocumentTestCase(EngineTestCase):
         super().setUp()
         self.work = DocumentType.objects.get(name="Attestation de travail")   # générée par l'application
         self.salary = DocumentType.objects.get(name="Attestation de salaire")  # préparée par les RH
+        if self.auto_sign:
+            DocumentSignatory.objects.update_or_create(pole=self.sara.department.direction.entity.pole,
+                                                       defaults={"mode": "IMAGE", "signature": png()})
 
     def approve(self, document, by=None):
         step = document.request.steps.get(status="PENDING")
@@ -102,9 +108,10 @@ class FlowTests(DocumentTestCase):
             request_document(self.sara, DocumentType.objects.get(name="Attestation de congé"), format="FAX")
 
     def test_the_paper_original(self):
-        # "Original" seul : le PDF généré sert aux RH à l'imprimer ; Sara n'a pas "Document prêt".
+        # "Original" seul : un brouillon sans signature, que les RH impriment ; Sara n'a pas "Document prêt".
         document = self.approve(request_document(self.sara, self.work, "Consulat", format="ORIGINAL"))
-        self.assertTrue(document.file)
+        self.assertTrue(document.draft)
+        self.assertFalse(document.file)
         self.assertFalse(self.ready_notices().exists())
         self.assertEqual((document.state, document.original_state), ("TO_PREPARE", "TO_SIGN"))
         # Sara ne marque rien elle-même ; "remis" avant "prêt" : refusé.
@@ -173,8 +180,35 @@ def png(name="signature.png"):
     return SimpleUploadedFile(name, buffer.getvalue(), content_type="image/png")
 
 
+class HandSignedTests(DocumentTestCase):
+    """Step D : le pôle a choisi "à signer à la main" : l'application ne livre JAMAIS un document non signé."""
+
+    auto_sign = False
+
+    def test_the_generated_pdf_is_a_draft_for_hr_only(self):
+        document = self.approve(request_document(self.sara, self.work))
+        # Un brouillon pour les RH ; rien pour Sara (pas de fichier, pas de "Document prêt").
+        self.assertEqual((bool(document.draft), bool(document.file), document.state), (True, False, "TO_PREPARE"))
+        self.assertFalse(self.ready_notices().exists())
+        client = APIClient()
+        url = reverse("documents:file-detail", args=[document.request_id]) + "?draft=1"
+        for employee, status_code in ((self.sara, 404), (self.nadia, 200)):
+            employee.user.must_change_password = False
+            employee.user.save()
+            client.force_authenticate(employee.user)
+            self.assertEqual(client.get(url).status_code, status_code)
+        data = client.get(reverse("documents:by-request-detail", args=[document.request_id])).json()
+        self.assertEqual((data["can_print"], data["can_upload"]), (True, True))  # Nadia : imprimer, puis déposer
+        # Nadia l'a signé, tamponné, scanné : Sara le reçoit.
+        document = upload(document, self.nadia.user, pdf())
+        self.assertEqual(document.state, "READY")
+        self.assertTrue(self.ready_notices().exists())
+
+
 class SignatoryTests(DocumentTestCase):
     """Admin RH règle qui signe et comment (à la main, ou signature + cachet posés par l'application)."""
+
+    auto_sign = False
 
     def setUp(self):
         super().setUp()
@@ -282,8 +316,8 @@ class ApiTests(DocumentTestCase):
         self.assertEqual([(item["request"], item["original_state"]) for item in pickup], [(original.request_id, "PICKUP")])
         response = self.client.post(reverse("documents:hr-handed-over", args=[original.request_id]))
         self.assertEqual((response.json()["state"], response.json()["collected_by"] is not None), ("READY", True))
-        # Le PDF d'un "original seul" : pour les RH (à imprimer), pas pour Sara.
-        file_url = reverse("documents:file-detail", args=[original.request_id])
+        # Le brouillon d'un "original seul" : pour les RH (à imprimer), pas pour Sara.
+        file_url = reverse("documents:file-detail", args=[original.request_id]) + "?draft=1"
         self.assertEqual(self.client.get(file_url).status_code, 200)
         # Un collaborateur n'a pas la page RH.
         self.login(self.sara)

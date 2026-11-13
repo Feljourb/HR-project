@@ -50,7 +50,8 @@ export function SignaturesPanel() {
 }
 
 const MODES = [
-  { id: 'HAND' as const, icon: PenLine, title: 'Sign by hand', text: 'The PDF keeps an empty space. HR print it, sign it and stamp it.' },
+  { id: 'HAND' as const, icon: PenLine, title: 'Sign by hand',
+    text: 'The app prepares a draft for HR only. HR print it, sign and stamp it, then upload the scan: the employee never gets an unsigned document.' },
   { id: 'IMAGE' as const, icon: Stamp, title: 'Signature & stamp added by the app',
     text: 'Upload them once: they are added to every certificate, only after HR approval. Needs the signatory\'s agreement.' },
 ]

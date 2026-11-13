@@ -10,7 +10,7 @@
  * Chaque demande a un délai promis (jours ouvrés du type) : le plus proche en premier, "Late" en rouge s'il est passé.
  */
 import { useEffect, useState } from 'react'
-import { FileText, Search, X } from 'lucide-react'
+import { CheckCheck, FileText, Search, X } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 import { originalText, stateOf, type DocumentRequest, type DocumentType } from '@/lib/documents'
 import { DatePicker } from '@/components/ui/date-picker'
@@ -18,7 +18,7 @@ import { formatDate } from '@/lib/leaves'
 import { cn } from '@/lib/utils'
 import { actionClass } from '@/components/expenses/claim-actions'
 import { DocumentPanel } from './document-panel'
-import { DownloadButton } from './download-button'
+import { DownloadButton, PrintButton } from './download-button'
 import { OriginalButtons } from './original-buttons'
 import { UploadButton } from './upload-button'
 
@@ -36,7 +36,9 @@ export function HrDocuments() {
   const [failed, setFailed] = useState(false)
   const [version, setVersion] = useState(0)  // +1 après un dépôt : la liste est relue
   const [opened, setOpened] = useState<number | null>(null)  // la demande ouverte dans le panneau (son n°)
+  const [done, setDone] = useState('')  // "Sent to Halima Arabi: Attestation de travail" (ce qui vient de réussir)
   const reload = () => setVersion((old) => old + 1)
+  const changed = (message: string) => { setDone(message); reload() }
   // Step B : retrouver une demande (nom ou matricule, type, période). Django filtre : la liste reste petite.
   const [search, setSearch] = useState('')
   const [typed, setTyped] = useState('')  // la recherche envoyée, 300 ms après la dernière touche
@@ -87,13 +89,19 @@ export function HrDocuments() {
     <div role="group" aria-label="Filter" className="flex flex-wrap gap-2">
       {FILTERS.map(({ id, label }) => {
         const selected = filter === id
-        return <button key={id} type="button" aria-pressed={selected} onClick={() => { setFilter(id); setDocuments(null) }}
+        // Le même onglet une 2e fois : rien (avant : la liste se vidait et restait sur "Loading...", bug du 2026-11-13).
+        return <button key={id} type="button" aria-pressed={selected} onClick={() => { if (!selected) { setFilter(id); setDocuments(null) } }}
           className={cn('rounded-full border px-3 py-1 text-xs font-semibold transition-colors',
             selected ? 'border-[#23355d] bg-[#23355d] text-white' : 'border-slate-200 bg-white text-slate-600 hover:border-[#23355d]/40 hover:text-[#23355d]')}>
           {label}
         </button>
       })}
     </div>
+
+    {done && <p role="status" className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800">
+      <CheckCheck className="size-4" /> {done}
+      <button type="button" onClick={() => setDone('')} aria-label="Close" className="ml-auto rounded p-0.5 hover:bg-emerald-100"><X className="size-3.5" /></button>
+    </p>}
 
     {/* La recherche, sur UNE ligne (standard Gmail / Linear) : le nom, le type de document, la période. */}
     <div className="flex flex-wrap items-center gap-2">
@@ -128,7 +136,7 @@ export function HrDocuments() {
             {filtered ? 'No request matches these filters.'
               : filter === 'to_prepare' ? 'Nothing to prepare.' : filter === 'pickup' ? 'No original waiting at the HR office.' : 'No request here.'}</Box>
         : <ul className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-            {documents.map((document) => <Row key={document.id} document={document} onChanged={reload} onOpen={() => setOpened(document.request)} />)}
+            {documents.map((document) => <Row key={document.id} document={document} onChanged={changed} onOpen={() => setOpened(document.request)} />)}
           </ul>}
 
     {/* Le détail d'une demande (résumé, PDF, original, toute la ligne du temps), sans quitter la page. */}
@@ -159,7 +167,8 @@ function Box({ children }: { children: React.ReactNode }) {
   return <div className="rounded-xl border border-slate-200 bg-white px-4 py-12 text-center text-sm text-slate-500">{children}</div>
 }
 
-function Row({ document, onChanged, onOpen }: { document: DocumentRequest; onChanged: () => void; onOpen: () => void }) {
+function Row({ document, onChanged, onOpen }: { document: DocumentRequest; onChanged: (message: string) => void; onOpen: () => void }) {
+  const who = `${document.doc_type} for ${document.employee}`
   const state = stateOf(document)
   const waiting = document.state === 'IN_PROGRESS' || document.state === 'TO_PREPARE'
   const extras = [
@@ -192,10 +201,12 @@ function Row({ document, onChanged, onOpen }: { document: DocumentRequest; onCha
     <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset', state.badge)}>{state.label}</span>
     <div className="flex items-center gap-1">
       {/* Un document préparé par les RH : "Upload PDF" une fois validé, "Replace" s'il est déjà livré (ex. une erreur). */}
-      {document.can_upload && <UploadButton document={document} onUploaded={onChanged} />}
-      {/* Le PDF : aussi pour l'IMPRIMER quand le collaborateur veut l'original. */}
-      <DownloadButton document={document} label={document.original_state === 'TO_SIGN' ? 'Print copy' : 'Download'} />
-      <OriginalButtons document={document} onDone={onChanged} />
+      {document.can_upload && <UploadButton document={document} onUploaded={() => onChanged(`Sent to the employee: ${who}. They get a notification and an email.`)} />}
+      {/* À préparer : le brouillon sans signature à imprimer (signer, tamponner) ; livré : le PDF. */}
+      {document.state === 'TO_PREPARE' && <PrintButton document={document} />}
+      <DownloadButton document={document} />
+      <OriginalButtons document={document} onDone={(updated) => onChanged(updated.original_state === 'COLLECTED'
+        ? `Original handed over: ${who}.` : `Original ready at the HR office: ${who}. The employee is notified.`)} />
       <button type="button" onClick={onOpen} className={actionClass}>Details</button>
     </div>
   </li>

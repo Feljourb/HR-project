@@ -22,8 +22,8 @@ from workflows import engine
 from workflows.models import Request, Workflow
 from workflows.serializers import person
 
-from .models import MAX_FILE_SIZE, DocumentRequest
-from .pdf import TEMPLATES
+from .models import MAX_FILE_SIZE, DocumentRequest, DocumentSignatory
+from .pdf import TEMPLATES, signatory_of
 
 
 def add_working_days(start, days):
@@ -101,14 +101,30 @@ def deliver(document, content, name, user=None):
     return document
 
 
+def auto_signed(document):
+    """Le pôle du collaborateur a choisi "signature et cachet ajoutés par l'application" (et la signature existe)."""
+    signatory = signatory_of(document.employee)
+    return signatory.mode == DocumentSignatory.Mode.IMAGE and bool(signatory.signature)
+
+
 def generate(document):
-    """Le type a un modèle : l'application fabrique le PDF (ex. l'attestation de travail)."""
+    """Le type a un modèle : l'application fabrique le PDF (ex. l'attestation de travail), après la validation.
+    - Signature "par l'application" (Admin RH) et le collaborateur veut le PDF : livré tout de suite, signé.
+    - Signature "à la main", ou un original papier demandé : un BROUILLON sans signature pour les RH seulement
+      (step D, 2026-11-13 : jamais un document non signé chez le collaborateur). Ils l'impriment, le signent et
+      le tamponnent ; puis ils scannent et déposent le PDF signé (upload), et / ou remettent l'original."""
     if not document.reference:
         # La référence est écrite DANS le PDF : on la donne avant de le fabriquer.
         document.reference = f"DOC-{timezone.localdate():%Y}-{document.pk:05d}"
-    content = TEMPLATES[document.doc_type.template](document)
-    name = f"{document.doc_type.name} - {document.employee.last_name} {document.employee.first_name}.pdf"
-    return deliver(document, ContentFile(content), name)
+    make = TEMPLATES[document.doc_type.template]
+    name = f"{document.doc_type.name} - {document.employee.last_name} {document.employee.first_name}"
+    signed = auto_signed(document)
+    if document.needs_original or not signed:
+        document.draft.save(f"{name} (brouillon).pdf", ContentFile(make(document, signed=False)), save=False)
+        document.save(update_fields=["reference", "draft"])
+    if document.needs_pdf and signed:
+        return deliver(document, ContentFile(make(document)), f"{name}.pdf")
+    return document
 
 
 def can_prepare(user, document):

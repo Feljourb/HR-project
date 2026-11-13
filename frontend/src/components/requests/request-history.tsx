@@ -15,7 +15,7 @@ import { ArrowLeft, Ban, Check, CheckCheck, Circle, Clock, FileCheck2, HandHelpi
 import { apiFetch } from '@/lib/api'
 import type { DocumentRequest } from '@/lib/documents'
 import { formatDate, formatDays, type Recount } from '@/lib/leaves'
-import { DownloadButton } from '@/components/documents/download-button'
+import { DownloadButton, PrintButton } from '@/components/documents/download-button'
 import { UploadButton } from '@/components/documents/upload-button'
 import { OriginalButtons } from '@/components/documents/original-buttons'
 import { cn } from '@/lib/utils'
@@ -59,7 +59,11 @@ function documentEvents(document: DocumentRequest, onChanged: () => void): Event
         }
       : {
           icon: Clock, tone: 'text-amber-500', title: 'Document being prepared by HR', detail: `${document.doc_type}${due}`,
-          action: document.can_upload ? <UploadButton document={document} onUploaded={onChanged} /> : undefined,
+          // Les RH : imprimer le brouillon (à signer à la main), puis déposer le PDF signé et scanné.
+          action: document.can_upload ? <>
+            <PrintButton document={document} />
+            <UploadButton document={document} onUploaded={onChanged} />
+          </> : undefined,
         })
   }
   // L'original papier (format original / les deux).
@@ -67,7 +71,7 @@ function documentEvents(document: DocumentRequest, onChanged: () => void): Event
     events.push({
       icon: Stamp, tone: 'text-violet-600', title: 'Original being signed by HR', detail: `To pick up at the HR office${due}`,
       action: document.can_handle_original ? <>
-        <DownloadButton document={document} label="Print copy" />
+        <PrintButton document={document} />
         <OriginalButtons document={document} onDone={onChanged} />
       </> : undefined,
     })

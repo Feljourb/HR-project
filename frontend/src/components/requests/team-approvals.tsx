@@ -14,7 +14,7 @@ import { apiFetch, type Me } from '@/lib/api'
 import type { DocumentRequest } from '@/lib/documents'
 import { formatDate } from '@/lib/leaves'
 import type { Approval, DecidedStep, WorkflowRequest } from '@/lib/requests'
-import { DownloadButton } from '@/components/documents/download-button'
+import { PrintButton } from '@/components/documents/download-button'
 import { UploadButton } from '@/components/documents/upload-button'
 import { OriginalButtons } from '@/components/documents/original-buttons'
 import { cn } from '@/lib/utils'
@@ -94,13 +94,14 @@ export function TeamApprovals({ me }: { me: Me }) {
       <div className="min-w-0 flex-1 text-xs text-sky-900">
         <p className="font-semibold">Next step: prepare the document</p>
         <p>{toPrepare.doc_type} for {toPrepare.employee}{toPrepare.due_date ? `, expected by ${formatDate(toPrepare.due_date)}` : ''}.{' '}
-          {[toPrepare.can_upload && !toPrepare.has_file && 'Upload the signed PDF',
+          {[toPrepare.can_upload && !toPrepare.has_file && (toPrepare.can_print
+              ? 'Print the draft, sign and stamp it, then upload the scan' : 'Upload the signed PDF'),
             toPrepare.original_state === 'TO_SIGN' && 'print, sign and stamp the original, then click "Original ready"']
             .filter(Boolean).join('; ')} now, or later from <Link href="/document-requests" className="font-semibold underline">Document requests</Link>.</p>
       </div>
       <div className="flex flex-wrap items-center gap-1">
+        <PrintButton document={toPrepare} />
         {toPrepare.can_upload && !toPrepare.has_file && <UploadButton document={toPrepare} onUploaded={() => { setToPrepare(null); setDone(`Document delivered: ${toPrepare.doc_type} for ${toPrepare.employee}`) }} />}
-        {toPrepare.original_state === 'TO_SIGN' && <DownloadButton document={toPrepare} label="Print copy" />}
         <OriginalButtons document={toPrepare} onDone={() => { setToPrepare(null); setDone(`Original ready at the HR office: ${toPrepare.doc_type} for ${toPrepare.employee}`) }} />
       </div>
     </div>}

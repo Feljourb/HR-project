@@ -45,7 +45,8 @@ export type DocumentRequest = {
   due_date: string | null      // prêt au plus tard le (date de la demande + le délai du type)
   late: boolean                // pas livré et le délai est passé
   can_upload: boolean          // celui qui lit peut déposer / remplacer le PDF (RH du pôle, document préparé par les RH)
-  can_download: boolean        // celui qui lit peut télécharger le PDF ("original" seul : seulement les RH, pour l'imprimer)
+  can_download: boolean        // celui qui lit peut télécharger le PDF livré
+  can_print: boolean           // les RH : le brouillon SANS signature, à imprimer pour signer à la main (step D)
   // L'original papier (format ORIGINAL / BOTH) : à signer, prêt au bureau RH, remis ; qui et quand.
   original_state: 'TO_SIGN' | 'PICKUP' | 'COLLECTED' | null
   original_ready_at: string | null

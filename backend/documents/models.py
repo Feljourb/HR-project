@@ -126,6 +126,10 @@ class DocumentRequest(models.Model):
     file = models.FileField("Fichier", upload_to=document_path, blank=True,
                             validators=[FileExtensionValidator(["pdf"]), document_size])
     file_name = models.CharField("Nom du fichier", max_length=200, blank=True)
+    # Step D (2026-11-13) : le BROUILLON généré SANS signature, pour les RH seulement (jamais pour le collaborateur) :
+    # ils l'impriment pour le signer et le tamponner à la main (mode "à la main" : puis ils scannent et déposent le
+    # PDF signé ; original papier : ils le remettent au bureau RH).
+    draft = models.FileField("Brouillon à imprimer (RH)", upload_to=document_path, blank=True)
     delivered_at = models.DateTimeField("Livré le", null=True, blank=True)
     # Le RH qui a déposé le fichier ; vide pour un document généré par l'application.
     delivered_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
