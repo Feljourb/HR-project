@@ -106,6 +106,7 @@ class RequestApiTests(EngineTestCase):
     # --- Valider / refuser --------------------------------------------------------------------------
 
     def test_approve(self):
+        self.set_circuit("EXPENSE", ("MANAGER", "VALIDATE"), ("HR", "INFORM"))  # la réponse du N+1 suffit
         demand = engine.submit("EXPENSE", self.sara, "Note de frais")
         self.login(self.youssef)
         response = self.client.post(url("approval-approve", self.pending_id(demand)), {"comment": "OK"}, format="json")

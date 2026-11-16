@@ -15,15 +15,17 @@ from django.urls import reverse
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from employees.models import Department, Employee, Grade
+from employees import notifications
+from employees.models import Department, Employee, Grade, Notification
 from workflows import engine
 from workflows.models import Request, RequestStep, WorkflowStep
 from workflows.test_engine import EngineTestCase
 
-from .models import ExpenseCategory, ExpenseClaim, ExpenseScale
+from .models import Currency, ExpenseCategory, ExpenseClaim, ExpenseScale, ExpenseSettings
 from .pdf import claim_pdf
+from .rates import update_rates
 from .serializers import ClaimSerializer
-from .services import mark_reimbursed, submit_claim
+from .services import correct_line, correction_role, mark_reimbursed, submit_claim
 
 User = get_user_model()
 MEDIA = tempfile.mkdtemp()  # les justificatifs des tests vont ici (effacé à la fin), pas dans media/
@@ -53,6 +55,11 @@ class ClaimTestCase(EngineTestCase):
         return {"date": self.yesterday, "category": category or self.taxi, "amount": Decimal(amount),
                 "description": "", "receipts": [ticket()] if receipts == "default" else receipts, **fields}
 
+    def approve_all(self, claim):
+        """Le circuit complet (2026-11-16) : le N+1 (Youssef) valide, puis le contrôle RH (Nadia) valide."""
+        engine.approve(claim.request.steps.get(status="PENDING"), self.youssef.user)
+        engine.approve(claim.request.steps.get(status="PENDING"), self.nadia.user)
+
     def errors_of(self, lines, title="Mission Agadir", employee=None):
         with self.assertRaises(ValidationError) as error:
             submit_claim(employee or self.sara, title, lines)
@@ -78,10 +85,10 @@ class RulesTests(ClaimTestCase):
         claim = submit_claim(self.sara, "Mission Agadir", [self.line(amount="120"), self.line(self.hotel, "380.50")])
         self.assertEqual(claim.total, Decimal("500.50"))
         self.assertEqual(claim.request.title, "Note de frais : Mission Agadir (500,50 MAD)")
-        # Circuit (décision du 2026-11-03) : N+1 valide, puis RH informée.
+        # Circuit (2026-11-16, remarque de la réunion) : N+1 valide, puis les RH VALIDENT (le contrôle).
         self.assertEqual([(s.approver, s.mode, s.status) for s in claim.request.steps.all()], [
             (WorkflowStep.Approver.MANAGER, WorkflowStep.Mode.VALIDATE, RequestStep.Status.PENDING),
-            (WorkflowStep.Approver.HR, WorkflowStep.Mode.INFORM, RequestStep.Status.WAITING),
+            (WorkflowStep.Approver.HR, WorkflowStep.Mode.VALIDATE, RequestStep.Status.WAITING),
         ])
         self.assertEqual(claim.request.steps.first().assignee, self.youssef)
         self.assertTrue(claim.lines.first().receipts.get().file.name.startswith("receipts/"))
@@ -141,6 +148,10 @@ class RulesTests(ClaimTestCase):
     def test_line_rules(self):
         tomorrow = timezone.localdate() + datetime.timedelta(days=1)
         self.assertIn("futur", self.errors_of([self.line(date=tomorrow)])["line_0"][0])
+        # Le justificatif : facultatif par défaut (2026-11-16) ; obligatoire si Admin RH coche la case de la catégorie.
+        submit_claim(self.sara, "Sans ticket", [self.line(receipts=[])])
+        ExpenseCategory.objects.filter(pk=self.taxi.pk).update(receipt_required=True)
+        self.taxi.refresh_from_db()
         self.assertIn("Justificatif obligatoire", self.errors_of([self.line(receipts=[])])["line_0"][0])
         self.assertIn("5 Mo", self.errors_of([self.line(receipts=[ticket(size=6 * 1024 * 1024)])])["line_0"][0])
         self.assertIn("line_0", self.errors_of([self.line(receipts=[ticket("virus.exe")])]))
@@ -162,12 +173,143 @@ class RulesTests(ClaimTestCase):
         with self.assertRaises(ValidationError):
             mark_reimbursed(claim, self.nadia.user)  # pas encore validée
         engine.approve(claim.request.steps.get(status="PENDING"), self.youssef.user)
+        with self.assertRaises(ValidationError):
+            mark_reimbursed(claim, self.nadia.user)  # le N+1 a validé, mais pas encore le contrôle RH
+        engine.approve(claim.request.steps.get(status="PENDING"), self.nadia.user)
         with self.assertRaises(PermissionDenied):
             mark_reimbursed(claim, self.youssef.user)  # le N+1 n'est pas RH
         claim = mark_reimbursed(claim, self.nadia.user)
         self.assertEqual((claim.reimbursed_at, claim.reimbursed_by), (timezone.localdate(), self.nadia.user))
         with self.assertRaises(ValidationError):
             mark_reimbursed(claim, self.hind.user)  # déjà remboursée
+
+
+class CurrencyTests(ClaimTestCase):
+    """Remarque des RH (2026-11-16) : un reçu en EUR / USD ; le montant du reçu est converti en MAD au taux du jour."""
+
+    def test_a_line_paid_in_euros_is_converted_to_mad(self):
+        eur = Currency.objects.get(name="EUR")
+        Currency.objects.filter(pk=eur.pk).update(rate_to_mad=Decimal("10.9553"))
+        eur.refresh_from_db()
+        claim = submit_claim(self.sara, "Paris", [self.line(amount="20", currency=eur), self.line(self.fuel, "100")])
+        line = claim.lines.get(currency=eur)
+        self.assertEqual((line.original_amount, line.rate, line.amount), (Decimal("20"), Decimal("10.9553"), Decimal("219.11")))
+        self.assertEqual(claim.total, Decimal("319.11"))  # le total en MAD
+        # Le taux change demain : la note garde celui de l'envoi.
+        Currency.objects.filter(pk=eur.pk).update(rate_to_mad=Decimal("12"))
+        line.refresh_from_db()
+        self.assertEqual(line.amount, Decimal("219.11"))
+        data = ClaimSerializer(claim).data["lines"]
+        self.assertEqual((data[0]["currency_code"], data[0]["original_amount"]), ("EUR", 20))
+        self.assertTrue(claim_pdf(claim).startswith(b"%PDF"))
+
+    def test_the_ceiling_is_compared_in_mad(self):
+        # Grade E, taxi : 350 MAD. 40 EUR = 438,21 MAD -> au-dessus (refusé : la catégorie ne le permet pas).
+        eur = Currency.objects.get(name="EUR")
+        self.assertIn("Plafond transport", self.errors_of([self.line(amount="40", currency=eur)])["line_0"][0])
+        # MAD (ou rien) : le montant tel quel.
+        mad = Currency.objects.get(name="MAD")
+        line = submit_claim(self.sara, "Rabat", [self.line(amount="100", currency=mad)]).lines.get()
+        self.assertEqual((line.amount, line.currency, line.original_amount), (Decimal("100"), None, None))
+
+    def test_rates_are_updated_by_themselves(self):
+        # Ce que le site renvoie : combien de devise pour 1 MAD (1 MAD = 0,09128 EUR -> 1 EUR = 10,9553 MAD).
+        updated = update_rates({"EUR": Decimal("0.09128"), "USD": Decimal("0.100781"), "MAD": Decimal("1")})
+        self.assertEqual(sorted(updated), ["EUR", "USD"])
+        self.assertEqual(Currency.objects.get(name="EUR").rate_to_mad, Decimal("10.9553"))
+        self.assertIsNotNone(Currency.objects.get(name="EUR").rate_updated_at)
+        # Admin RH corrige à la main (décoche "automatique") : l'application n'y touche plus.
+        Currency.objects.filter(name="USD").update(automatic=False, rate_to_mad=Decimal("10"))
+        update_rates({"EUR": Decimal("0.1"), "USD": Decimal("0.2")})
+        self.assertEqual(Currency.objects.get(name="USD").rate_to_mad, Decimal("10"))
+        self.assertEqual(Currency.objects.get(name="EUR").rate_to_mad, Decimal("10"))
+        self.assertEqual(Currency.objects.get(name="MAD").rate_to_mad, Decimal("1"))  # le MAD ne bouge jamais
+
+
+class CorrectionTests(ClaimTestCase):
+    """Remarque de la réunion (2026-11-16) : un valideur DIMINUE un montant (le ticket dit 150, la ligne dit 200)."""
+
+    def setUp(self):
+        super().setUp()
+        self.claim = submit_claim(self.sara, "Mission", [self.line(amount="200"), self.line(self.fuel, "300")])
+        self.taxi_line = self.claim.lines.get(category=self.taxi)
+
+    def test_the_n_plus_1_reduces_an_amount_with_a_reason(self):
+        correct_line(self.taxi_line, self.youssef.user, Decimal("150"), "Le reçu indique 150 MAD")
+        self.claim.refresh_from_db()
+        self.taxi_line.refresh_from_db()
+        self.assertEqual((self.taxi_line.amount, self.claim.total), (Decimal("150"), Decimal("450")))
+        self.assertEqual(self.claim.request.title, "Note de frais : Mission (450,00 MAD)")  # le total refait
+        trace = self.taxi_line.corrections.get()
+        self.assertEqual((trace.old_amount, trace.new_amount, trace.as_role, trace.corrected_by),
+                         (Decimal("200"), Decimal("150"), "N+1", self.youssef.user))
+        # Sara est prévenue (🔔 + email), avec l'ancien, le nouveau montant et le motif.
+        bell = Notification.objects.get(recipient=self.sara.user, kind=Notification.Kind.EXPENSE_CORRECTED)
+        self.assertIn("200,00 -> 150,00 MAD. Motif : Le reçu indique 150 MAD", notifications.message(bell))
+        self.assertEqual(notifications.link(bell), f"/expenses/{self.claim.request_id}?from=expenses")
+        self.assertTrue(claim_pdf(self.claim).startswith(b"%PDF"))  # le PDF montre "Demandé 200,00, corrigé par ..."
+
+    def test_only_lower_with_a_reason(self):
+        with self.assertRaises(ValidationError):
+            correct_line(self.taxi_line, self.youssef.user, Decimal("250"), "Plus")  # jamais plus haut
+        with self.assertRaises(ValidationError):
+            correct_line(self.taxi_line, self.youssef.user, Decimal("200"), "Pareil")
+        with self.assertRaises(ValidationError):
+            correct_line(self.taxi_line, self.youssef.user, Decimal("150"), "   ")  # motif obligatoire
+        # 0 = la dépense est refusée (le reste de la note continue).
+        correct_line(self.taxi_line, self.youssef.user, Decimal("0"), "Pas de reçu valable")
+        self.claim.refresh_from_db()
+        self.assertEqual(self.claim.total, Decimal("300"))
+
+    def test_only_the_person_who_must_answer_now(self):
+        with self.assertRaises(PermissionDenied):
+            correct_line(self.taxi_line, self.nadia.user, Decimal("150"), "RH trop tôt")  # l'étape RH n'est pas encore là
+        with self.assertRaises(PermissionDenied):
+            correct_line(self.taxi_line, self.sara.user, Decimal("150"), "Moi-même")
+        engine.approve(self.claim.request.steps.get(status="PENDING"), self.youssef.user)
+        with self.assertRaises(PermissionDenied):
+            correct_line(self.taxi_line, self.youssef.user, Decimal("150"), "Le N+1 a déjà répondu")
+        # Le contrôle RH : Nadia corrige ce que le N+1 n'a pas vu.
+        correct_line(self.taxi_line, self.nadia.user, Decimal("150"), "Le reçu indique 150 MAD")
+        self.assertEqual(self.taxi_line.corrections.get().as_role, "RH")
+        engine.approve(self.claim.request.steps.get(status="PENDING"), self.nadia.user)
+        with self.assertRaises(PermissionDenied):
+            correct_line(self.taxi_line, self.nadia.user, Decimal("100"), "Note déjà acceptée")
+
+    def test_admin_rh_chooses_who_can_correct(self):
+        ExpenseSettings.objects.update_or_create(pk=1, defaults={"who_can_correct": "HR_ONLY"})
+        self.assertIsNone(correction_role(self.youssef.user, self.claim))
+        with self.assertRaises(PermissionDenied):
+            correct_line(self.taxi_line, self.youssef.user, Decimal("150"), "Le N+1 n'a pas le droit")
+        engine.approve(self.claim.request.steps.get(status="PENDING"), self.youssef.user)
+        self.assertEqual(correction_role(self.nadia.user, self.claim), "RH")
+        ExpenseSettings.objects.update(who_can_correct="NOBODY")
+        self.assertIsNone(correction_role(self.nadia.user, self.claim))
+
+    def test_api(self):
+        api = APIClient()
+        for employee in (self.sara, self.youssef):
+            employee.user.must_change_password = False
+            employee.user.save()
+        url = reverse("expenses:line-correct", args=[self.taxi_line.pk])
+        api.force_authenticate(self.sara.user)
+        self.assertFalse(api.get(reverse("expenses:claim-detail", args=[self.claim.request_id])).json()["can_correct"])
+        self.assertEqual(api.post(url, {"amount": "150", "reason": "x"}, format="json").status_code, 403)
+        api.force_authenticate(self.youssef.user)
+        self.assertTrue(api.get(reverse("expenses:claim-detail", args=[self.claim.request_id])).json()["can_correct"])
+        self.assertEqual(api.post(url, {"amount": "250", "reason": "x"}, format="json").status_code, 400)
+        data = api.post(url, {"amount": "150", "reason": "Le reçu indique 150"}, format="json").json()
+        self.assertEqual(data["total"], 450)
+        line = next(line for line in data["lines"] if line["id"] == self.taxi_line.pk)
+        self.assertEqual((line["amount"], line["corrections"][0]["old_amount"], line["corrections"][0]["as_role"]), (150, 200, "N+1"))
+        # Les réglages : Admin RH seulement.
+        settings_url = reverse("expenses:settings")
+        self.assertEqual(api.get(settings_url).status_code, 403)
+        self.youssef.user.role = User.Role.HR_ADMIN
+        self.youssef.user.save()
+        response = api.patch(settings_url, {"who_can_correct": "HR_ONLY"}, format="json")
+        self.assertEqual((response.status_code, response.json()["who_can_correct"]), (200, "HR_ONLY"))
+        self.assertEqual(ExpenseSettings.load().updated_by, self.youssef.user)
 
 
 class ApiTests(ClaimTestCase):
@@ -228,6 +370,8 @@ class ApiTests(ClaimTestCase):
         self.assertEqual(self.client.get(pdf).status_code, 400)  # pas encore validée
         claim = ExpenseClaim.objects.get(request=request_id)
         engine.approve(claim.request.steps.get(status="PENDING"), self.youssef.user)
+        self.assertEqual(self.client.get(pdf).status_code, 400)  # le N+1 seul ne suffit plus : le contrôle RH d'abord
+        engine.approve(claim.request.steps.get(status="PENDING"), self.nadia.user)
         response = self.client.get(pdf)
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.content.startswith(b"%PDF"))
@@ -244,7 +388,7 @@ class ApiTests(ClaimTestCase):
     def test_hr_lists_and_reimburses(self):
         request_id = self.send([self.raw()]).json()["request"]
         claim = ExpenseClaim.objects.get(request=request_id)
-        engine.approve(claim.request.steps.get(status="PENDING"), self.youssef.user)
+        self.approve_all(claim)
         self.login(self.nadia, User.Role.HR)
         hr = reverse("expenses:hr-list")
         self.assertEqual([c["request"] for c in self.client.get(hr, {"status": "to_reimburse"}).json()], [request_id])

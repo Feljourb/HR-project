@@ -14,6 +14,8 @@ from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
+from workflows.serializers import name_of
+
 from .services import money
 
 NAVY = colors.HexColor("#192646")
@@ -56,13 +58,23 @@ def claim_pdf(claim):
     # Les dépenses, puis le total.
     story.append(Paragraph("Dépenses", heading))
     rows = [["Date", "Catégorie", "Détail", "Justificatifs", "Montant (MAD)"]]
-    for line in claim.lines.select_related("category").prefetch_related("receipts"):
+    for line in claim.lines.select_related("category", "currency").prefetch_related("receipts", "corrections__corrected_by"):
         count = len(line.receipts.all())  # le nombre de pièces à joindre (ex. facture + ticket de carte = 2)
         detail = escape(line.description or "-")
+        if line.currency_id:
+            # Payée dans une autre devise : le montant du reçu et le taux appliqué (20,00 EUR × 10,9553).
+            detail += f"<br/><font color='#64748B'>{money(line.original_amount)} {escape(line.currency.name)} × {line.rate}</font>"
         if line.above_ceiling:
             # Le dépassement et sa justification, sur le papier aussi (les RH le voient en contrôlant).
             detail += (f"<br/><font color='#B45309'>Au-dessus du plafond ({money(line.ceiling)}) : "
                        f"+{money(line.above_ceiling)}. {escape(line.justification)}</font>")
+        corrections = list(line.corrections.all())
+        if corrections:
+            # Le montant a été DIMINUÉ par un valideur : le montant demandé et le dernier motif (la trace).
+            last = corrections[-1]
+            who = name_of(last.corrected_by) if last.corrected_by else "?"  # "Nadia Rh", pas "nadia.rh"
+            detail += (f"<br/><font color='#64748B'>Demandé {money(corrections[0].old_amount)}, corrigé par {escape(who)} "
+                       f"({escape(last.as_role)}) : {escape(last.reason)}</font>")
         rows.append([f"{line.date:%d/%m/%Y}", Paragraph(str(line.category), normal), Paragraph(detail, normal),
                      str(count) if count else "Non", money(line.amount)])
     rows.append(["", "", "", "Total", money(claim.total)])

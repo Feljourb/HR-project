@@ -1,17 +1,19 @@
-"""Notes de frais : envoyer une note (step 4) et la marquer remboursée (step 5).
+"""Notes de frais : envoyer une note (step 4), corriger un montant (2026-11-16) et la marquer remboursée (step 5).
 
 Comme les congés : le module vérifie SES règles (lignes, plafonds du grade, justificatifs), puis il donne
-la demande au moteur des circuits (engine.submit("EXPENSE")) : N+1 valide, puis RH informée.
+la demande au moteur des circuits (engine.submit("EXPENSE")) : N+1 valide, puis RH valide (le contrôle, 2026-11-16).
 """
+from decimal import ROUND_HALF_UP, Decimal
+
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.utils import timezone
 
-from employees.models import Employee
+from employees.models import Employee, Notification
 from workflows import engine
-from workflows.models import Request, Workflow
+from workflows.models import Request, Workflow, WorkflowStep
 
-from .models import ExpenseClaim, ExpenseLine, ExpenseReceipt
+from .models import ExpenseClaim, ExpenseCorrection, ExpenseLine, ExpenseReceipt, ExpenseSettings
 
 MAX_LINES = 50
 
@@ -43,8 +45,20 @@ def submit_claim(employee, title, lines):
     built = []
     for index, data in enumerate(lines or []):
         files = list(data.get("receipts") or [])
+        # Une autre devise (2026-11-16) : le montant tapé est celui du REÇU (ex. 20 EUR) ; on le convertit en MAD avec
+        # le taux du jour (gardé sur la ligne) : le plafond, le total et le remboursement sont en MAD.
+        amount, currency, original, rate = data.get("amount"), data.get("currency"), None, None
+        if currency is not None and currency.name.upper() != "MAD":
+            if not currency.is_active:
+                errors[f"line_{index}"] = [f"La devise {currency} n'est plus proposée."]
+                continue
+            original, rate = amount, currency.rate_to_mad
+            amount = (original * rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) if original is not None else None
+        else:
+            currency = None  # payée en MAD : rien à convertir
         line = ExpenseLine(
-            claim=claim, date=data.get("date"), category=data.get("category"), amount=data.get("amount"),
+            claim=claim, date=data.get("date"), category=data.get("category"), amount=amount,
+            currency=currency, original_amount=original, rate=rate,
             description=(data.get("description") or "").strip(),
             justification=data.get("justification") or "",  # seulement si la dépense dépasse son plafond
         )
@@ -67,6 +81,7 @@ def submit_claim(employee, title, lines):
     # Une dépense au-dessus du plafond : le titre le dit, donc le N+1 le voit dès la cloche / Team approvals.
     above = " · au-dessus du plafond" if any(line.above_ceiling for line, _ in built) else ""
     claim.request = engine.submit(Workflow.Code.EXPENSE, employee, f"Note de frais : {title} ({money(claim.total)} MAD){above}")
+    # (Après une correction, le titre est refait par claim_title : la même forme.)
     claim.save()
     for line, files in built:
         line.claim = claim
@@ -74,6 +89,62 @@ def submit_claim(employee, title, lines):
         for file in files:  # chaque fichier est écrit dans media/receipts/... à ce moment-là
             ExpenseReceipt.objects.create(line=line, file=file, name=file.name[:200])
     return claim
+
+
+def claim_title(claim):
+    """Le titre de la demande : "Note de frais : Mission Agadir (500,00 MAD)" (+ "· au-dessus du plafond").
+    Refait après une correction : le total a changé (la cloche, Team approvals, My requests le montrent)."""
+    above = " · au-dessus du plafond" if any(line.above_ceiling for line in claim.lines.all()) else ""
+    return f"Note de frais : {claim.title} ({money(claim.total)} MAD){above}"
+
+
+def correction_role(user, claim):
+    """À quel titre CET utilisateur peut corriger cette note MAINTENANT : "N+1" / "N+2" / "DG" / "RH", ou None.
+    Il faut que la note attende SA réponse (l'étape VALIDATE en cours, `engine.can_decide`) ET que le réglage
+    d'Admin RH le permette (N+1 et RH / RH seulement / personne)."""
+    request = claim.request
+    if request.status != Request.Status.IN_PROGRESS:
+        return None
+    step = request.steps.filter(status="PENDING").select_related("assignee", "request__requester").first()
+    if step is None or step.mode != WorkflowStep.Mode.VALIDATE or not engine.can_decide(user, step):
+        return None
+    who = ExpenseSettings.load().who_can_correct
+    hr_step = step.approver == WorkflowStep.Approver.HR
+    if who == ExpenseSettings.Correctors.NOBODY or (who == ExpenseSettings.Correctors.HR_ONLY and not hr_step):
+        return None
+    return "RH" if hr_step else step.get_approver_display()
+
+
+@transaction.atomic
+def correct_line(line, user, new_amount, reason):
+    """Un valideur DIMINUE le montant d'une dépense (jamais plus haut ; 0 = la dépense est refusée), avec un motif.
+    La trace (ExpenseCorrection), le nouveau total, le titre refait, et une 🔔 + email au collaborateur."""
+    claim = ExpenseClaim.objects.select_for_update().select_related("request", "employee").get(pk=line.claim_id)
+    line = ExpenseLine.objects.select_related("category").get(pk=line.pk)
+    role = correction_role(user, claim)
+    if role is None:
+        raise PermissionDenied("Vous ne pouvez pas corriger cette note maintenant (ce n'est pas à vous de répondre, "
+                               "ou Admin RH ne permet pas la correction à votre étape).")
+    reason = (reason or "").strip()
+    if not reason:
+        raise ValidationError({"reason": ["Donnez le motif de la correction (ex. « Le reçu indique 150 MAD »)."]})
+    if new_amount is None or new_amount < 0:
+        raise ValidationError({"amount": ["Le nouveau montant ne peut pas être négatif."]})
+    if new_amount >= line.amount:
+        # Standard : le valideur DIMINUE seulement ; un oubli du collaborateur = une nouvelle note.
+        raise ValidationError({"amount": [f"Le nouveau montant doit être plus petit que {money(line.amount)} MAD "
+                                          "(on ne peut que diminuer)."]})
+    ExpenseCorrection.objects.create(line=line, old_amount=line.amount, new_amount=new_amount, reason=reason[:300],
+                                     corrected_by=user, as_role=role)
+    line.amount = new_amount
+    line.save(update_fields=["amount"])
+    claim.total = sum(other.amount for other in claim.lines.all())
+    claim.save(update_fields=["total"])
+    claim.request.title = claim_title(claim)
+    claim.request.save(update_fields=["title"])
+    Notification.objects.create(recipient=claim.employee.user, employee=claim.employee,
+                                kind=Notification.Kind.EXPENSE_CORRECTED, request=claim.request)
+    return line
 
 
 def can_reimburse(user, claim):

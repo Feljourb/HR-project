@@ -150,6 +150,8 @@ def link(notification):
         return "/leaves"  # ma page Congés : mon solde et la section "Balance changes"
     if notification.kind in (Kind.DOCUMENT_READY, Kind.ORIGINAL_READY, Kind.REQUESTED_FOR, Kind.ORIGINAL_HANDED):
         return "/documents"  # ma page Administrative documents : le bouton Download, l'état de l'original
+    if notification.kind == Kind.EXPENSE_CORRECTED:
+        return f"/expenses/{notification.request_id}?from=expenses"  # ma note : l'ancien et le nouveau montant
     if notification.kind == Kind.DELEGATION_ENDED:
         # Ce que j'ai répondu en remplacement : My requests -> Received (collaborateur), Team approvals -> History.
         return "/requests?tab=received" if notification.recipient.role == get_user_model().Role.COLLABORATOR else "/approvals"
@@ -252,6 +254,8 @@ def message(notification):
         if not for_me:
             return f"L'original signé de {name} attend au bureau RH : {what}. Prévenez-le de passer le récupérer."
         return f"L'original signé de votre document vous attend au bureau RH : {what}. Passez le récupérer."
+    if notification.kind == Kind.EXPENSE_CORRECTED:
+        return expense_correction_message(notification)
     if notification.kind == Kind.DELEGATION_ENDED:
         from workflows.models import Delegation
         delegation = (Delegation.objects.filter(delegator=employee, delegate__user=notification.recipient_id,
@@ -323,6 +327,25 @@ def balance_change_message(notification):
     if item is None:
         return "Votre droit annuel de congé a été modifié par les RH."
     return f"Votre droit annuel est de {days_label(item.annual_days)} j à partir du {item.effective_from:%d/%m/%Y}. Motif : {item.reason}."
+
+
+def expense_correction_message(notification):
+    """Ex. "Nadia Rh (RH) a corrigé une dépense de votre note « Mission Agadir » : Hébergement du 14/11/2026,
+    600,00 -> 400,00 MAD. Motif : Le reçu indique 400 MAD."."""
+    # Importé ici : l'app expenses importe déjà employees (sinon une boucle d'imports).
+    from expenses.models import ExpenseCorrection
+    from expenses.services import money
+    from workflows.serializers import name_of
+
+    # La correction qui a créé CETTE notification : la dernière enregistrée avant elle, sur cette note.
+    item = (ExpenseCorrection.objects.filter(line__claim__request=notification.request_id, corrected_at__lte=notification.created_at)
+            .select_related("line__category", "line__claim", "corrected_by").order_by("-corrected_at", "-id").first())
+    if item is None:
+        return f"Une dépense de votre note de frais a été corrigée : {notification.request.title}."
+    who = name_of(item.corrected_by) if item.corrected_by else "Un valideur"
+    line = item.line
+    return (f"{who} ({item.as_role}) a corrigé une dépense de votre note « {line.claim.title} » : {line.category} du "
+            f"{line.date:%d/%m/%Y}, {money(item.old_amount)} -> {money(item.new_amount)} MAD. Motif : {item.reason}")
 
 
 def recount_message(notification, name):

@@ -11,17 +11,18 @@
 import { useState, type FormEvent } from 'react'
 import { CheckCircle2, FileText, Loader2, Paperclip, Plus, Trash2, X } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
-import { MAX_RECEIPTS, ceilingOf, formatMad, type ExpenseCategory, type ExpenseClaim, type Scale } from '@/lib/expenses'
+import { MAX_RECEIPTS, ceilingOf, formatMad, type Currency, type ExpenseCategory, type ExpenseClaim, type Scale } from '@/lib/expenses'
 import { isoDate } from '@/lib/leaves'
 import { cn } from '@/lib/utils'
 import { controlClass } from '@/components/employees/form-fields'
 import { DatePicker } from '@/components/ui/date-picker'
 
 // justification : seulement quand la dépense dépasse le plafond ET qu'Admin RH le permet pour sa catégorie.
-type Line = { key: number; date: string; category: string; amount: string; description: string; justification: string; files: File[] }
+// currency : la devise du REÇU (id ; '' = MAD, le défaut) ; amount = le montant du reçu.
+type Line = { key: number; date: string; category: string; amount: string; currency: string; description: string; justification: string; files: File[] }
 
 let nextKey = 1
-const emptyLine = (): Line => ({ key: nextKey++, date: '', category: '', amount: '', description: '', justification: '', files: [] })
+const emptyLine = (): Line => ({ key: nextKey++, date: '', category: '', amount: '', currency: '', description: '', justification: '', files: [] })
 const MAX_LINES = 20
 // Le même maximum que Django (MAX_LINE_AMOUNT) : une sécurité contre un zéro de trop.
 const MAX_AMOUNT = 100000
@@ -29,8 +30,8 @@ const MAX_AMOUNT = 100000
 const PER: Record<string, string> = { DAILY_ALLOWANCE: 'per day', TRANSPORT: 'per trip', HOTEL: 'per night' }
 
 // inPanel : le formulaire est dans le panneau "New expense claim" (le panneau a déjà le titre et l'aide).
-export function ClaimForm({ categories, scale, onSent, inPanel = false }: {
-  categories: ExpenseCategory[]; scale: Scale | null; onSent: (claim: ExpenseClaim) => void; inPanel?: boolean
+export function ClaimForm({ categories, scale, currencies = [], onSent, inPanel = false }: {
+  categories: ExpenseCategory[]; scale: Scale | null; currencies?: Currency[]; onSent: (claim: ExpenseClaim) => void; inPanel?: boolean
 }) {
   const [title, setTitle] = useState('')
   const [lines, setLines] = useState<Line[]>(() => [emptyLine()])
@@ -38,7 +39,16 @@ export function ClaimForm({ categories, scale, onSent, inPanel = false }: {
   const [busy, setBusy] = useState(false)
   const [sent, setSent] = useState<ExpenseClaim | null>(null)
   const today = isoDate(new Date())
-  const total = lines.reduce((sum, line) => sum + (Number(line.amount) || 0), 0)
+  // Les devises autres que le MAD (le MAD = la valeur vide de la liste, le défaut).
+  const foreign = currencies.filter((currency) => currency.name !== 'MAD')
+  const currencyOf = (line: Line) => foreign.find((currency) => String(currency.id) === line.currency)
+  // Le montant en MAD d'une ligne (un aperçu : Django refait le calcul avec le taux du jour à l'envoi).
+  const madOf = (line: Line) => {
+    const currency = currencyOf(line)
+    const amount = Number(line.amount) || 0
+    return currency ? Math.round(amount * currency.rate_to_mad * 100) / 100 : amount
+  }
+  const total = lines.reduce((sum, line) => sum + madOf(line), 0)
 
   function change(key: number, field: keyof Line, value: string | File[]) {
     setLines((old) => old.map((line) => (line.key === key ? { ...line, [field]: value } : line)))
@@ -57,8 +67,8 @@ export function ClaimForm({ categories, scale, onSent, inPanel = false }: {
     setErrors({})
     const body = new FormData()
     body.append('title', title)
-    body.append('lines', JSON.stringify(lines.map(({ date, category, amount, description, justification }) =>
-      ({ date, category, amount, description, justification }))))
+    body.append('lines', JSON.stringify(lines.map(({ date, category, amount, currency, description, justification }) =>
+      ({ date, category, amount, currency: currency || null, description, justification }))))
     // Le même nom (receipt_<n°>) pour chaque fichier d'une ligne : Django les lit avec getlist.
     lines.forEach((line, index) => line.files.forEach((file) => body.append(`receipt_${index}`, file)))
     try {
@@ -85,12 +95,16 @@ export function ClaimForm({ categories, scale, onSent, inPanel = false }: {
     {!inPanel && <header className="border-b border-slate-100 px-4 py-3">
       <h2 className="text-sm font-semibold text-[#192646]">New expense claim</h2>
       <p className="text-[11px] text-slate-500">
-        One line per expense (one day, one trip, one night), with its receipts (e.g. the invoice and the card slip). Your N+1 validates, then HR is informed.
+        One line per expense (one day, one trip, one night), with its receipts (e.g. the invoice and the card slip). Your N+1 validates, then HR checks it.
         {scale && <> Your grade: <b className="font-semibold text-slate-700">{scale.grade_label}</b>.</>}
       </p>
     </header>}
 
     <div className="flex flex-col gap-3 p-4">
+      {/* La règle de l'entreprise (comme leur outil actuel, demandé par les RH le 2026-11-16). */}
+      <p className="rounded-lg border border-red-100 bg-red-50/60 px-3 py-2 text-[11px] font-medium text-red-700">
+        Il faut remettre les notes de frais au plus tard le 10 du mois suivant.
+      </p>
       <div>
         <label htmlFor="claim-title" className="block text-xs font-semibold text-slate-700">Purpose <span className="text-red-500" aria-hidden>*</span></label>
         <input id="claim-title" required value={title} maxLength={150} placeholder="e.g. Mission Agadir, client visit..."
@@ -101,14 +115,16 @@ export function ClaimForm({ categories, scale, onSent, inPanel = false }: {
       {lines.map((line, index) => {
         const category = categories.find((c) => String(c.id) === line.category)
         const ceiling = ceilingOf(scale, category)
-        const over = ceiling !== null && Number(line.amount) > ceiling
+        const currency = currencyOf(line)
+        const mad = madOf(line)  // le plafond se compare en MAD
+        const over = ceiling !== null && mad > ceiling
         // Au-dessus du plafond, mais permis par Admin RH pour cette catégorie : on demande pourquoi (orange, pas rouge).
         const allowed = over && Boolean(category?.above_ceiling_allowed)
-        const tooHigh = Number(line.amount) > MAX_AMOUNT
+        const tooHigh = mad > MAX_AMOUNT
         const lineErrors = errors[`line_${index}`]
         return <fieldset key={line.key} className={cn('rounded-lg border p-3', lineErrors ? 'border-red-200 bg-red-50/30' : 'border-slate-200')}>
           <legend className="px-1 text-[11px] font-semibold text-slate-500">Expense {index + 1}</legend>
-          <div className="grid gap-2 sm:grid-cols-[150px_minmax(0,1fr)_110px]">
+          <div className={cn('grid gap-2', foreign.length ? 'sm:grid-cols-[150px_minmax(0,1fr)_100px_80px]' : 'sm:grid-cols-[150px_minmax(0,1fr)_110px]')}>
             <div>
               <label htmlFor={`date-${line.key}`} className="sr-only">Date</label>
               <DatePicker id={`date-${line.key}`} required max={today} value={line.date}
@@ -124,9 +140,18 @@ export function ClaimForm({ categories, scale, onSent, inPanel = false }: {
             </div>
             <div>
               <label htmlFor={`amount-${line.key}`} className="sr-only">Amount (MAD)</label>
-              <input id={`amount-${line.key}`} type="number" required min="0.01" max={MAX_AMOUNT} step="0.01" placeholder="MAD" value={line.amount}
+              <input id={`amount-${line.key}`} type="number" required min="0.01" max={MAX_AMOUNT} step="0.01" placeholder={currency?.name ?? 'MAD'} value={line.amount}
                 aria-invalid={(over && !allowed) || tooHigh || undefined} onChange={(e) => change(line.key, 'amount', e.target.value)} className={cn(controlClass, 'mt-0')} />
             </div>
+            {/* La devise du reçu (MAD par défaut), comme l'outil NOOR des RH. */}
+            {foreign.length > 0 && <div>
+              <label htmlFor={`currency-${line.key}`} className="sr-only">Currency</label>
+              <select id={`currency-${line.key}`} value={line.currency} onChange={(e) => change(line.key, 'currency', e.target.value)}
+                className={cn(controlClass, 'mt-0 px-2')}>
+                <option value="">MAD</option>
+                {foreign.map((option) => <option key={option.id} value={String(option.id)}>{option.name}</option>)}
+              </select>
+            </div>}
           </div>
           <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
             <label htmlFor={`description-${line.key}`} className="sr-only">Detail</label>
@@ -162,6 +187,11 @@ export function ClaimForm({ categories, scale, onSent, inPanel = false }: {
             </li>)}
             <li className="text-[11px] text-slate-400">{line.files.length} / {MAX_RECEIPTS}</li>
           </ul>}
+          {/* Une autre devise : la conversion en MAD, au taux du jour. */}
+          {currency && Number(line.amount) > 0 && <p className="mt-1.5 text-[11px] text-slate-600">
+            {line.amount} {currency.name} × {currency.rate_to_mad.toLocaleString('fr-FR')} = <b className="font-semibold text-[#192646]">{formatMad(mad)}</b>
+            <span className="text-slate-400"> (rate of the day)</span>
+          </p>}
           {/* L'aide du barème (le plafond de MON grade), puis les messages de Django pour cette ligne. */}
           {tooHigh && <p className="mt-1.5 text-[11px] font-medium text-red-600">
             Too high: at most {formatMad(MAX_AMOUNT)} per expense (check the amount).
@@ -172,7 +202,7 @@ export function ClaimForm({ categories, scale, onSent, inPanel = false }: {
           {/* Le dépassement permis : la raison est obligatoire, le N+1 et les RH la lisent avant de décider. */}
           {allowed && !tooHigh && <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50/60 p-2.5">
             <label htmlFor={`justification-${line.key}`} className="block text-[11px] font-semibold text-amber-800">
-              Above your ceiling ({formatMad(ceiling!)} {PER[category!.ceiling]}) by {formatMad(Number(line.amount) - ceiling!)}: why? <span className="text-red-500" aria-hidden>*</span>
+              Above your ceiling ({formatMad(ceiling!)} {PER[category!.ceiling]}) by {formatMad(mad - ceiling!)}: why? <span className="text-red-500" aria-hidden>*</span>
             </label>
             <input id={`justification-${line.key}`} required value={line.justification} maxLength={300}
               placeholder="e.g. Only hotel available during the festival"
@@ -188,7 +218,7 @@ export function ClaimForm({ categories, scale, onSent, inPanel = false }: {
           className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-semibold text-[#23355d] hover:bg-slate-50 disabled:opacity-50">
           <Plus className="size-3.5" /> Add an expense
         </button>
-        <p className="text-sm text-slate-600">Total: <b className="font-semibold tabular-nums text-[#192646]">{formatMad(total)}</b></p>
+        <p className="text-sm text-slate-600">Total to reimburse: <b className="font-semibold tabular-nums text-[#192646]">{formatMad(total)}</b></p>
       </div>
     </div>
 

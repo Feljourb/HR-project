@@ -8,6 +8,7 @@ export type ListValue = ReferenceItem & {
   code?: string; head?: number | null; head_label?: string | null
   deducts_balance?: boolean; max_days?: string | null; max_days_back?: number; counting?: string; document_from_days?: number | null; date?: string; estimated?: boolean; fixed?: boolean
   ceiling?: string; receipt_required?: boolean; above_ceiling_allowed?: boolean
+  rate_to_mad?: string; automatic?: boolean  // devises : le taux (1 unité = ... MAD), mis à jour tout seul ou à la main
   template?: string  // types de document : "WORK" = généré par l'application, "" = préparé par les RH
   delivery_days?: number  // types de document : le délai promis, en jours ouvrés
   manager_can_request?: boolean  // types de document : le manager peut le demander pour son équipe
@@ -17,7 +18,7 @@ export type ListValue = ReferenceItem & {
 // Un champ en plus du nom (listes des modules Congés, Notes de frais, Documents) : affiché en colonne, modifiable avec le nom.
 export type ExtraField = {
   name: 'deducts_balance' | 'max_days' | 'max_days_back' | 'counting' | 'document_from_days' | 'date' | 'estimated' | 'ceiling' | 'receipt_required'
-    | 'template' | 'delivery_days' | 'manager_can_request' | 'hr_review' | 'above_ceiling_allowed'
+    | 'template' | 'delivery_days' | 'manager_can_request' | 'hr_review' | 'above_ceiling_allowed' | 'rate_to_mad' | 'automatic'
   label: string
   type: 'checkbox' | 'number' | 'date' | 'select'
   required?: boolean
@@ -43,7 +44,7 @@ export type ListConfig = {
   headFilter?: 'direction' | 'department'
   extra?: ExtraField[]  // des champs en plus du nom
   byDate?: boolean      // trier par date (jours fériés), pas par nom
-  panel?: 'holidays' | 'settings' | 'signatures'  // une page à part (jours fériés ; réglages des congés ; signatures)
+  panel?: 'holidays' | 'settings' | 'signatures' | 'expense-settings'  // une page à part (jours fériés ; réglages ; signatures)
 }
 
 // Les listes du module Congés (adresse /api/leaves/lists/...).
@@ -84,6 +85,14 @@ export const EXPENSE_LISTS: ListConfig[] = [
     // Dépasser le plafond du grade est permis, avec une justification que le N+1 et les RH lisent (sinon refusé).
     { name: 'above_ceiling_allowed', label: 'Above ceiling allowed', type: 'checkbox' },
   ] },
+  // Les devises (2026-11-16) : le taux "1 EUR = ... MAD", mis à jour tout seul chaque matin si "Automatic" est coché ;
+  // décocher = Admin RH garde son propre taux. Le MAD vaut toujours 1.
+  { name: 'currencies', api: '/api/expenses/lists', title: 'Devises', singular: 'Devise', extra: [
+    { name: 'rate_to_mad', label: '1 unit = ... MAD', type: 'number', required: true, min: 0.0001, step: 0.0001, placeholder: '10.95' },
+    { name: 'automatic', label: 'Updated automatically (every morning)', type: 'checkbox' },
+  ] },
+  // Qui peut diminuer un montant pendant la validation (le N+1 et les RH / les RH / personne) : Admin RH.
+  { name: 'expense-settings', title: 'Réglages des notes de frais', singular: 'Réglage', panel: 'expense-settings' },
 ]
 
 // La liste du module Documents administratifs (adresse /api/documents/lists/...) : les documents qu'on peut demander.

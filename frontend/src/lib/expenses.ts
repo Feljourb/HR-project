@@ -20,6 +20,18 @@ export type ExpenseLine = {
   ceiling: number | null        // le plafond appliqué à l'envoi
   above_ceiling: number | null  // de combien la dépense le dépasse (ex. 200), ou null
   justification: string         // pourquoi (seulement quand elle le dépasse)
+  corrections: Correction[]     // un valideur a diminué le montant (la première dit le montant demandé)
+  // Payée dans une autre devise (2026-11-16) : "20,00 EUR × 10,9553" ; null = en MAD. `amount` = la conversion en MAD.
+  currency_code: string | null; original_amount: number | null; rate: number | null
+}
+
+// Une devise et son taux du jour : 1 EUR = 10,9553 MAD (mis à jour tout seul chaque matin).
+export type Currency = { id: number; name: string; rate_to_mad: number; rate_updated_at: string | null }
+
+// Une correction d'un montant par un valideur (2026-11-16) : la trace.
+export type Correction = {
+  id: number; old_amount: number; new_amount: number; reason: string
+  corrected_by: string | null; as_role: string; corrected_at: string
 }
 
 // Le même maximum que Django (MAX_RECEIPTS).
@@ -41,6 +53,7 @@ export type ExpenseClaim = {
   pole: string
   grade: string | null
   lines: ExpenseLine[]
+  can_correct: boolean     // celui qui lit peut diminuer un montant maintenant (bouton "Correct")
 }
 
 /** Le plafond d'une catégorie dans un barème (null : pas de plafond). */

@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ReceiptText } from 'lucide-react'
 import { apiFetch, seesBothPoles, type Me } from '@/lib/api'
-import { claimStatus, formatMad, type ExpenseCategory, type ExpenseClaim, type Scale } from '@/lib/expenses'
+import { claimStatus, formatMad, type Currency, type ExpenseCategory, type ExpenseClaim, type Scale } from '@/lib/expenses'
 import { formatDate } from '@/lib/leaves'
 import { cn } from '@/lib/utils'
 import { SidePanel } from '@/components/ui/side-panel'
@@ -22,7 +22,8 @@ import { ClaimForm } from './claim-form'
 import { ScaleCard } from './scale-card'
 
 // grade : le nom de MON grade, ou null (ancienne fiche sans grade : les catégories plafonnées sont refusées).
-type Loaded = { claims: ExpenseClaim[]; categories: ExpenseCategory[]; grade: string | null; scale: Scale | null; scales: Scale[] }
+// currencies : les devises et leur taux du jour (MAD, EUR, USD), pour la liste à côté du montant.
+type Loaded = { claims: ExpenseClaim[]; categories: ExpenseCategory[]; grade: string | null; scale: Scale | null; scales: Scale[]; currencies: Currency[] }
 
 export function ExpensesPage({ me }: { me: Me }) {
   const [loaded, setLoaded] = useState<Loaded | null>(null)
@@ -34,13 +35,15 @@ export function ExpensesPage({ me }: { me: Me }) {
   const [openedId, setOpenedId] = useState<number | null>(null)
 
   useEffect(() => {
-    Promise.all(['/api/expenses/mine/', '/api/expenses/categories/', '/api/expenses/mine/scale/', '/api/expenses/scales/'].map((path) => apiFetch(path)))
-      .then(async ([claims, categories, scale, scales]) => {
+    const paths = ['/api/expenses/mine/', '/api/expenses/categories/', '/api/expenses/mine/scale/', '/api/expenses/scales/', '/api/expenses/currencies/']
+    Promise.all(paths.map((path) => apiFetch(path)))
+      .then(async ([claims, categories, scale, scales, currencies]) => {
         // 404 sur MON barème : un compte sans dossier RH (ex. un compte IT) n'a pas de notes de frais.
         if (scale.status === 404) return setProblem('No HR file is linked to this account: there is no expense claim to show.')
         if (![claims, categories, scale, scales].every((r) => r.ok)) throw new Error()
         const mine: { grade: string | null; scale: Scale | null } = await scale.json()
-        setLoaded({ claims: await claims.json(), categories: await categories.json(), grade: mine.grade, scale: mine.scale, scales: await scales.json() })
+        setLoaded({ claims: await claims.json(), categories: await categories.json(), grade: mine.grade, scale: mine.scale,
+          scales: await scales.json(), currencies: currencies.ok ? await currencies.json() : [] })
       })
       .catch(() => setProblem('Could not load your expense claims. Please try again later.'))
   }, [version])
@@ -71,7 +74,7 @@ export function ExpensesPage({ me }: { me: Me }) {
     <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
       {/* À gauche : la note à remplir, et juste dessous MES plafonds (ce qui sert en la remplissant). */}
       <div className="flex min-w-0 flex-col gap-4">
-        <ClaimForm categories={loaded.categories} scale={loaded.scale} onSent={reload} />
+        <ClaimForm categories={loaded.categories} scale={loaded.scale} currencies={loaded.currencies} onSent={reload} />
         <ScaleCard scales={loaded.scales} myGrade={loaded.scale?.grade ?? null} editable={seesBothPoles(me)} />
       </div>
       <MyClaims claims={claims} onOpen={(claim) => setOpenedId(claim.request)} onChanged={reload} />

@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 import os
+import sys
 from pathlib import Path
 from datetime import timedelta
 
@@ -175,6 +176,10 @@ EMAIL_TIMEOUT = 10  # secondes : un serveur email lent ne bloque pas la page
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL") or "Intranet RH <no-reply@silent-believers.com>"
 # L'adresse de l'application, pour les liens dans les emails ("Ouvrir la demande").
 FRONTEND_URL = os.environ.get("FRONTEND_URL") or "http://localhost:3000"
+# Les taux de change des notes de frais (expenses/rates.py) ; vide = open.er-api.com (gratuite, sans compte).
+RATES_URL = os.environ.get("RATES_URL", "")
+# "python manage.py test" : les tests n'appellent jamais internet (le tour du matin ne cherche pas les taux).
+TESTING = len(sys.argv) > 1 and sys.argv[1] == "test"
 
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),

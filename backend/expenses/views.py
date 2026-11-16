@@ -11,6 +11,8 @@ GET  claims/<request>/pdf/            -> son PDF, une fois validée (à imprimer
 GET  receipts/<id>/                   -> un justificatif d'une dépense (mêmes droits que la note)
 GET  hr/?status=to_reimburse|reimbursed|in_progress|all -> les notes du pôle (RH)
 POST hr/<request>/reimburse/          -> la marquer remboursée (RH)
+POST lines/<id>/correct/              -> {amount, reason} : le valideur diminue un montant (2026-11-16) ; répond la note
+GET / PATCH settings/                 -> {who_can_correct} : Admin RH (et l'IT)
 Annuler : /api/workflows/requests/<request>/cancel/ (le moteur, comme pour toutes les demandes).
 """
 import json
@@ -24,6 +26,7 @@ from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import SAFE_METHODS
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from accounts.permissions import IsHR, IsHRAdmin
 from employees.models import Employee
@@ -31,10 +34,11 @@ from employees.services import limited_to_own_pole, user_pole
 from workflows import engine
 from workflows.models import Request
 
-from .models import ExpenseCategory, ExpenseClaim, ExpenseReceipt, ExpenseScale
+from .models import Currency, ExpenseCategory, ExpenseClaim, ExpenseLine, ExpenseReceipt, ExpenseScale, ExpenseSettings
 from .pdf import claim_pdf
-from .serializers import CategorySerializer, ClaimSerializer, LineInputSerializer, ScaleSerializer
-from .services import mark_reimbursed, submit_claim
+from .serializers import (CategorySerializer, ClaimSerializer, CorrectInputSerializer, CurrencySerializer,
+                          ExpenseSettingsSerializer, LineInputSerializer, ScaleSerializer)
+from .services import correct_line, mark_reimbursed, submit_claim
 
 
 def run(action):
@@ -52,12 +56,18 @@ def claims():
     """Les notes avec tout ce que le JSON lit, en peu de requêtes SQL."""
     return (ExpenseClaim.objects
             .select_related("request", "employee__department__direction__entity__pole", "employee__grade", "reimbursed_by")
-            .prefetch_related("lines__category", "lines__receipts", "request__steps__assignee"))
+            .prefetch_related("lines__category", "lines__currency", "lines__receipts", "lines__corrections__corrected_by", "request__steps__assignee"))
 
 
 class CategoryViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = ExpenseCategory.objects.filter(is_active=True)
     serializer_class = CategorySerializer
+
+
+class CurrencyViewSet(viewsets.ReadOnlyModelViewSet):
+    """Les devises actives et leur taux du jour (le formulaire : la liste à côté du montant, MAD par défaut)."""
+    queryset = Currency.objects.filter(is_active=True).order_by("name")
+    serializer_class = CurrencySerializer
 
 
 class ScaleViewSet(mixins.ListModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet):
@@ -151,6 +161,38 @@ class ReceiptViewSet(viewsets.GenericViewSet):
     def retrieve(self, request, pk=None):
         receipt = self.get_object()
         return FileResponse(receipt.file.open("rb"), as_attachment=False, filename=receipt.name or receipt.file.name)
+
+
+class LineViewSet(viewsets.GenericViewSet):
+    """POST lines/<id>/correct/ {amount, reason} : le valideur qui doit répondre DIMINUE le montant d'une dépense
+    (si Admin RH le permet à son étape). Seulement les dépenses des notes qu'il voit (sinon 404)."""
+
+    def get_queryset(self):
+        return ExpenseLine.objects.filter(claim__request__in=engine.requests_visible_to(self.request.user))
+
+    @action(detail=True, methods=["post"])
+    def correct(self, request, pk=None):
+        line = self.get_object()
+        data = CorrectInputSerializer(data=request.data)
+        data.is_valid(raise_exception=True)
+        run(lambda: correct_line(line, request.user, data.validated_data["amount"], data.validated_data["reason"]))
+        claim = claims().get(pk=line.claim_id)
+        return Response(ClaimSerializer(claim, context={"request": request}).data)
+
+
+class ExpenseSettingsView(APIView):
+    """Les réglages des notes de frais (page Reference lists -> Expenses), Admin RH et l'IT seulement."""
+
+    permission_classes = [IsHRAdmin]
+
+    def get(self, request):
+        return Response(ExpenseSettingsSerializer(ExpenseSettings.load()).data)
+
+    def patch(self, request):
+        data = ExpenseSettingsSerializer(ExpenseSettings.load(), data=request.data, partial=True)
+        data.is_valid(raise_exception=True)
+        data.save(updated_by=request.user)
+        return Response(data.data)
 
 
 class HrClaimViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):

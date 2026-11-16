@@ -684,6 +684,8 @@ class Notification(models.Model):
         REQUESTED_FOR = "REQUESTED_FOR", "Demande faite pour vous"
         # Mon original a été remis à mon manager, venu le chercher pour moi (2026-11-16).
         ORIGINAL_HANDED = "ORIGINAL_HANDED", "Original remis à votre manager"
+        # Notes de frais (2026-11-16) : un valideur a DIMINUÉ le montant d'une de mes dépenses (avec le motif).
+        EXPENSE_CORRECTED = "EXPENSE_CORRECTED", "Note de frais corrigée"
 
     recipient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notifications",
                                   verbose_name="Destinataire")

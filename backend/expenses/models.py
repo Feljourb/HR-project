@@ -8,6 +8,9 @@ Grade C : au plus 700 MAD).
 
 Step 2-3 : ExpenseClaim (la note de frais, attachée à une demande du moteur) et ExpenseLine (une dépense
 et son justificatif).
+
+Remarques de la réunion (2026-11-16) : dépasser le plafond avec une justification (par catégorie), et un valideur
+qui DIMINUE un montant (ExpenseCorrection), selon le réglage d'Admin RH (ExpenseSettings).
 """
 import uuid
 from decimal import Decimal
@@ -44,7 +47,8 @@ class ExpenseCategory(ReferenceItem):
 
     ceiling = models.CharField("Plafond du barème", max_length=20, choices=Ceiling.choices, default=Ceiling.NONE)
     # Un justificatif (photo du ticket, facture PDF) obligatoire pour chaque dépense de cette catégorie.
-    receipt_required = models.BooleanField("Justificatif obligatoire", default=True)
+    # Décoché par défaut (remarque des RH, 2026-11-16 : pas obligatoire, comme leur outil) ; Admin RH peut le cocher.
+    receipt_required = models.BooleanField("Justificatif obligatoire", default=False)
     # Remarque de la réunion (2026-11-16), standard SAP Concur ("soft limit") : Admin RH choisit, par catégorie,
     # si une dépense peut dépasser le plafond du barème. Oui -> permis AVEC une justification, et les valideurs
     # le voient (puce orange) ; non (par défaut) -> refusé, comme avant.
@@ -53,6 +57,29 @@ class ExpenseCategory(ReferenceItem):
     class Meta(ReferenceItem.Meta):
         verbose_name = "Catégorie de dépense"
         verbose_name_plural = "Catégories de dépense"
+
+
+class Currency(ReferenceItem):
+    """Une devise (remarque des RH, 2026-11-16, comme leur outil NOOR) : le collaborateur tape le montant DU REÇU
+    (ex. 20 EUR) ; l'application le convertit en MAD (le remboursement, le plafond et le total sont en MAD).
+    `name` = le code ("EUR"). Le taux = combien de MAD pour 1 unité (1 EUR = 10,96 MAD) : écrit dans ce sens pour
+    éviter l'erreur de leur outil (USD 1,1315 donnait 20 USD = 17 MAD).
+    Mis à jour TOUT SEUL chaque matin (expenses/rates.py, le tour du matin du facteur) ; Admin RH peut le corriger
+    à la main en décochant "automatique" (alors l'application n'y touche plus)."""
+
+    rate_to_mad = models.DecimalField("1 unité = ... MAD", max_digits=12, decimal_places=4, default=Decimal("1"),
+                                      validators=[MinValueValidator(Decimal("0.0001"))])
+    automatic = models.BooleanField("Taux mis à jour automatiquement", default=True)
+    rate_updated_at = models.DateTimeField("Taux mis à jour le", null=True, blank=True)
+
+    class Meta(ReferenceItem.Meta):
+        verbose_name = "Devise"
+        verbose_name_plural = "Devises"
+
+    def clean(self):
+        super().clean()
+        if (self.name or "").strip().upper() == "MAD" and self.rate_to_mad != 1:
+            raise ValidationError({"rate_to_mad": "Le dirham (MAD) vaut toujours 1."})
 
 
 class ExpenseScale(models.Model):
@@ -128,6 +155,12 @@ class ExpenseLine(models.Model):
     date = models.DateField("Date")
     category = models.ForeignKey(ExpenseCategory, on_delete=models.PROTECT, related_name="lines", verbose_name="Catégorie")
     amount = models.DecimalField("Montant (MAD)", max_digits=10, decimal_places=2, validators=POSITIVE)
+    # Une dépense payée dans une autre devise (2026-11-16) : le montant DU REÇU (ex. 20 EUR) et le taux du jour
+    # de l'envoi (une photo, comme le plafond) ; `amount` = la conversion en MAD (20 × 10,96 = 219,20).
+    # Vide = payée en MAD (le cas normal, et toutes les anciennes lignes).
+    currency = models.ForeignKey(Currency, on_delete=models.PROTECT, null=True, blank=True, related_name="+", verbose_name="Devise")
+    original_amount = models.DecimalField("Montant du reçu", max_digits=12, decimal_places=2, null=True, blank=True)
+    rate = models.DecimalField("Taux appliqué (1 unité = ... MAD)", max_digits=12, decimal_places=4, null=True, blank=True)
     description = models.CharField("Détail", max_length=200, blank=True)
     # Le plafond du grade AU MOMENT de l'envoi (une photo, comme le total) : si Admin RH change le barème plus
     # tard, la note garde le plafond qui lui a été appliqué. Vide = pas de plafond.
@@ -197,6 +230,64 @@ class ExpenseLine(models.Model):
                 messages += [f"{file.name} : {message}" for message in problem.messages]
         if messages:
             raise ValidationError(messages)
+
+
+class ExpenseSettings(models.Model):
+    """Les réglages des notes de frais (2026-11-16, remarque de la réunion) : UNE ligne, changée par Admin RH dans la
+    page Reference lists -> Expenses -> "Réglages des notes de frais" (pas dans le code)."""
+
+    class Correctors(models.TextChoices):
+        # Qui peut DIMINUER le montant d'une dépense pendant la validation (standard SAP Concur : "approver adjust").
+        MANAGER_AND_HR = "MANAGER_AND_HR", "Le N+1 et les RH"
+        HR_ONLY = "HR_ONLY", "Seulement les RH"
+        NOBODY = "NOBODY", "Personne (valider ou refuser seulement)"
+
+    who_can_correct = models.CharField("Qui peut corriger un montant", max_length=20, choices=Correctors.choices,
+                                       default=Correctors.MANAGER_AND_HR)
+    # La trace : qui a changé le réglage en dernier, et quand.
+    updated_at = models.DateTimeField("Modifié le", auto_now=True)
+    updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name="+", verbose_name="Modifié par")
+
+    class Meta:
+        verbose_name = "Réglages des notes de frais"
+        verbose_name_plural = "Réglages des notes de frais"
+
+    def __str__(self):
+        return "Réglages des notes de frais"
+
+    def save(self, *args, **kwargs):
+        self.pk = 1  # toujours la même ligne
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def load(cls):
+        current, _ = cls.objects.get_or_create(pk=1)
+        return current
+
+
+class ExpenseCorrection(models.Model):
+    """Un valideur (N+1 ou RH) a DIMINUÉ le montant d'une dépense (ex. 200 -> 150 : le ticket dit 150).
+    La trace (standard) : l'ancien et le nouveau montant, le motif, qui et quand ; jamais modifiée ni supprimée.
+    La ligne garde le montant actuel (ExpenseLine.amount) : le total, le PDF et le remboursement l'utilisent."""
+
+    line = models.ForeignKey(ExpenseLine, on_delete=models.CASCADE, related_name="corrections", verbose_name="Dépense")
+    old_amount = models.DecimalField("Ancien montant (MAD)", max_digits=10, decimal_places=2)
+    new_amount = models.DecimalField("Nouveau montant (MAD)", max_digits=10, decimal_places=2)
+    reason = models.CharField("Motif", max_length=300)
+    corrected_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True,
+                                     related_name="+", verbose_name="Corrigé par")
+    # "N+1" ou "RH" : à quel titre (l'étape du circuit à laquelle il répondait).
+    as_role = models.CharField("En tant que", max_length=40)
+    corrected_at = models.DateTimeField("Le", auto_now_add=True)
+
+    class Meta:
+        ordering = ["corrected_at", "id"]
+        verbose_name = "Correction d'un montant"
+        verbose_name_plural = "Corrections des montants"
+
+    def __str__(self):
+        return f"{self.old_amount} -> {self.new_amount} MAD ({self.reason})"
 
 
 class ExpenseReceipt(models.Model):

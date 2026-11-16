@@ -74,13 +74,16 @@ def demo_receipts(category, text):
 
 
 def validate_by_n_plus_1(request):
-    """Le N+1 (la personne trouvée à l'envoi) valide l'étape qui attend ; sinon un RH du pôle."""
-    request.refresh_from_db()
-    step = request.steps.filter(status="PENDING").first()
-    if step is None:
-        return
-    user = step.assignee.user if step.assignee_id else engine.hr_validators(request.requester).first()
-    if user is not None:
+    """Tout le circuit valide : le N+1 (la personne trouvée à l'envoi), puis le contrôle RH (2026-11-16 : l'étape RH
+    VALIDE aussi), étape par étape, jusqu'à ce que plus rien n'attende."""
+    for _ in range(10):  # une sécurité : jamais une boucle sans fin
+        request.refresh_from_db()
+        step = request.steps.filter(status="PENDING").first()
+        if step is None:
+            return
+        user = step.assignee.user if step.assignee_id else engine.hr_validators(request.requester).first()
+        if user is None:
+            return
         engine.approve(step, user, "Validé (démo)")
 
 

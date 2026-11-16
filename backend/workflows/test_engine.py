@@ -294,6 +294,7 @@ class DecideTests(EngineTestCase):
             engine.cancel(request, self.youssef.user)
 
     def test_a_finished_request_cannot_be_cancelled(self):
+        self.set_circuit("EXPENSE", ("MANAGER", "VALIDATE"), ("HR", "INFORM"))  # une seule réponse suffit
         request = engine.submit("EXPENSE", self.sara, "Note de frais")
         engine.approve(self.pending(request), self.youssef.user)
         with self.assertRaisesMessage(ValidationError, "Cette demande est déjà terminée."):
@@ -305,6 +306,7 @@ class DecideTests(EngineTestCase):
         called = []
         engine.HANDLERS["EXPENSE"] = called.append          # un faux module "Note de frais"
         self.addCleanup(engine.HANDLERS.pop, "EXPENSE")      # on le retire après le test
+        self.set_circuit("EXPENSE", ("MANAGER", "VALIDATE"), ("HR", "INFORM"))
         request = engine.submit("EXPENSE", self.sara, "Note de frais")
         self.assertEqual(called, [])                         # pas encore acceptée
         engine.approve(self.pending(request), self.youssef.user)

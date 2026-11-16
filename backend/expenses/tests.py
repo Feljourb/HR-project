@@ -11,9 +11,9 @@ from .models import ExpenseCategory, ExpenseScale
 
 class InitialValuesTests(TestCase):
     def test_initial_categories(self):
-        # La migration 0002 : 11 catégories, toutes avec justificatif.
+        # La migration 0002 : 11 catégories ; 0010 (remarque des RH, 2026-11-16) : justificatif facultatif partout.
         self.assertEqual(ExpenseCategory.objects.count(), 11)
-        self.assertFalse(ExpenseCategory.objects.filter(receipt_required=False).exists())
+        self.assertFalse(ExpenseCategory.objects.filter(receipt_required=True).exists())
         # Seules l'indemnité, le transport et l'hôtel suivent le barème.
         self.assertEqual(ExpenseCategory.objects.exclude(ceiling=ExpenseCategory.Ceiling.NONE).count(), 3)
 

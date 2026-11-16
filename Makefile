@@ -57,6 +57,10 @@ test-email:
 reminders:
 	$(DC) exec backend python manage.py send_emails --reminders
 
+# The exchange rates of the expense claims NOW (EUR, USD -> MAD). The "mailer" does it by itself every morning.
+rates:
+	$(DC) exec backend python manage.py update_rates
+
 migrate:
 	$(DC) exec backend python manage.py migrate
 
@@ -72,4 +76,4 @@ test:
 clean:
 	$(DC) down -v --remove-orphans
 
-.PHONY: up down build restart logs ps startapp migrations export-lists seed seed-requests seed-leaves seed-expenses send-request migrate superuser shell test clean
+.PHONY: up down build restart logs ps startapp migrations export-lists seed seed-requests seed-leaves seed-expenses send-request reminders rates migrate superuser shell test clean
