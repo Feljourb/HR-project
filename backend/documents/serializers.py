@@ -12,7 +12,7 @@ class DocumentTypeSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DocumentType
-        fields = ["id", "name", "template", "automatic", "delivery_days", "manager_can_request"]
+        fields = ["id", "name", "template", "automatic", "delivery_days", "manager_can_request", "hr_review"]
 
     def get_automatic(self, doc_type):
         return bool(doc_type.template)
@@ -70,6 +70,13 @@ class DocumentRequestSerializer(serializers.ModelSerializer):
     can_download = serializers.SerializerMethodField()        # le PDF, pour celui qui lit
     can_handle_original = serializers.SerializerMethodField()  # boutons "Original ready" / "Handed over" (RH)
     can_print = serializers.SerializerMethodField()           # le brouillon sans signature, à imprimer (RH seulement)
+    # Step 3 : le texte d'un document généré, relu par les RH avant l'envoi.
+    needs_review = serializers.SerializerMethodField()   # "Relecture RH" demandée et pas encore faite (rien n'est fabriqué)
+    can_edit_text = serializers.SerializerMethodField()  # le RH peut relire / modifier le texte (pas encore livré)
+    # Qui a relu le texte, et quand : une étape INTERNE des RH (2026-11-16 : le collaborateur et son manager ne la
+    # voient pas) -> null pour eux, seulement les RH la reçoivent.
+    text_reviewed_by = serializers.SerializerMethodField()
+    body_edited_at = serializers.SerializerMethodField()
     handed_to = serializers.SerializerMethodField()   # à qui l'original a été remis (le collaborateur ou son manager)
     manager = serializers.SerializerMethodField()     # son manager (N+1), pour "Handed over to: ... his manager"
 
@@ -79,7 +86,21 @@ class DocumentRequestSerializer(serializers.ModelSerializer):
                   "employee", "department", "reference", "file_name", "has_file", "delivered_at", "delivered_by", "refusal",
                   "requested_by", "due_date", "late", "can_upload", "can_download", "can_print",
                   "original_state", "original_ready_at", "original_ready_by", "collected_at", "collected_by", "can_handle_original",
-                  "handed_to", "manager"]
+                  "handed_to", "manager", "needs_review", "can_edit_text", "text_reviewed_by", "body_edited_at"]
+
+    def get_needs_review(self, document):
+        return bool(document.doc_type.template and document.doc_type.hr_review and document.request.status == "APPROVED"
+                    and not document.file and not document.body_edited_at)
+
+    def get_can_edit_text(self, document):
+        return bool(document.doc_type.template and document.request.status == "APPROVED" and not document.file
+                    and self.is_hr(document))
+
+    def get_text_reviewed_by(self, document):
+        return name_of(document.body_edited_by) if document.body_edited_by_id and self.is_hr(document) else None
+
+    def get_body_edited_at(self, document):
+        return document.body_edited_at if document.body_edited_at and self.is_hr(document) else None
 
     def get_handed_to(self, document):
         return person(document.handed_to) if document.handed_to_id else None
@@ -100,7 +121,7 @@ class DocumentRequestSerializer(serializers.ModelSerializer):
         # Le PDF signé pas encore livré (préparé par les RH, ou généré "à signer à la main"). Livré : il ne change
         # plus (2026-11-13) ; une correction = une nouvelle demande.
         return (document.needs_pdf and document.request.status == "APPROVED" and not document.file
-                and self.is_hr(document))
+                and not self.get_needs_review(document) and self.is_hr(document))
 
     def get_can_print(self, document):
         return bool(document.draft) and document.request.status == "APPROVED" and self.is_hr(document)
@@ -113,7 +134,9 @@ class DocumentRequestSerializer(serializers.ModelSerializer):
         return bool(document.file) and ((mine and document.needs_pdf) or self.is_hr(document))
 
     def get_can_handle_original(self, document):
-        return document.original_state in ("TO_SIGN", "PICKUP") and self.is_hr(document)
+        # Pas avant la relecture du texte (step 3) : on imprime le texte relu.
+        return (document.original_state in ("TO_SIGN", "PICKUP") and not self.get_needs_review(document)
+                and self.is_hr(document))
 
     def get_original_ready_by(self, document):
         return name_of(document.original_ready_by) if document.original_ready_by_id else None

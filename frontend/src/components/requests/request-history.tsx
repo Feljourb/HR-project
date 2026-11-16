@@ -11,13 +11,14 @@
  */
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Ban, Check, CheckCheck, Circle, Clock, FileCheck2, HandHelping, Info, Minus, RefreshCw, Send, Stamp, X, XCircle, type LucideIcon } from 'lucide-react'
+import { ArrowLeft, Ban, Check, CheckCheck, Circle, Clock, FileCheck2, HandHelping, Info, Minus, PenLine, RefreshCw, Send, Stamp, X, XCircle, type LucideIcon } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 import type { DocumentRequest } from '@/lib/documents'
 import { formatDate, formatDays, type Recount } from '@/lib/leaves'
 import { DownloadButton, PrintButton } from '@/components/documents/download-button'
 import { UploadButton } from '@/components/documents/upload-button'
 import { OriginalButtons } from '@/components/documents/original-buttons'
+import { TextEditorButton } from '@/components/documents/text-editor'
 import { cn } from '@/lib/utils'
 import { formatDateTime } from '@/components/employees/history-changes'
 import { backLink } from '@/lib/back-links'
@@ -44,6 +45,14 @@ function documentEvents(document: DocumentRequest, onChanged: () => void): Event
   if (document.status !== 'APPROVED') return []
   const events: Event[] = []
   const due = `${document.due_date ? ` · expected by ${formatDate(document.due_date)}` : ''}${document.late ? ' · late' : ''}`
+  // Step 3 : le texte d'un document généré, relu par les RH avant l'envoi (la trace : qui, quand).
+  const editor = document.can_edit_text ? <TextEditorButton document={document} onSaved={onChanged} /> : undefined
+  if (document.body_edited_at) {
+    events.push({ icon: PenLine, tone: 'text-sky-600', title: 'Text reviewed by HR',
+      detail: document.text_reviewed_by ? `by ${document.text_reviewed_by}` : undefined, at: document.body_edited_at, action: editor })
+  } else if (document.needs_review && editor) {
+    events.push({ icon: PenLine, tone: 'text-amber-500', title: 'Text to review by HR before sending', action: editor })
+  }
   // Le PDF (format PDF / les deux).
   if (document.format !== 'ORIGINAL') {
     events.push(document.has_file

@@ -41,6 +41,9 @@ class DocumentType(ReferenceItem):
     # (ex. un ouvrier qui n'utilise pas l'application). Admin RH choisit les types (pas l'attestation de salaire :
     # le salaire ne regarde pas le manager). La demande passe quand même par les RH.
     manager_can_request = models.BooleanField("Demandable par le manager pour son équipe", default=False)
+    # Step 3 (2026-11-16, standard Workday "Review document") : un document GÉNÉRÉ n'est pas envoyé tout de suite :
+    # les RH relisent son texte (et peuvent ajouter une phrase), voient l'aperçu, puis l'envoient.
+    hr_review = models.BooleanField("Relecture RH avant l'envoi", default=False)
 
     class Meta(ReferenceItem.Meta):
         verbose_name = "Type de document"
@@ -134,6 +137,12 @@ class DocumentRequest(models.Model):
     # ils l'impriment pour le signer et le tamponner à la main (mode "à la main" : puis ils scannent et déposent le
     # PDF signé ; original papier : ils le remettent au bureau RH).
     draft = models.FileField("Brouillon à imprimer (RH)", upload_to=document_path, blank=True)
+    # Step 3 (2026-11-16) : le TEXTE du document généré, relu / modifié par un RH (vide : le texte de la fiche).
+    # Seulement le corps : l'en-tête, la référence et la signature ne changent jamais. Qui l'a relu, et quand.
+    body = models.TextField("Texte relu par les RH", blank=True, max_length=5000)
+    body_edited_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                                       related_name="+", verbose_name="Texte relu par")
+    body_edited_at = models.DateTimeField("Texte relu le", null=True, blank=True)
     delivered_at = models.DateTimeField("Livré le", null=True, blank=True)
     # Le RH qui a déposé le fichier ; vide pour un document généré par l'application.
     delivered_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,

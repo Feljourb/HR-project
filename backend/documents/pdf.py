@@ -4,6 +4,7 @@ Aujourd'hui un seul modèle : l'attestation de travail (le texte standard maroca
 collaborateur (la société : "Silent Believers Distribution", "Eureka"...), le signataire celui de son pôle
 (DocumentSignatory). Quand les RH donneront LEUR modèle, on change seulement ce fichier.
 """
+import re
 from io import BytesIO
 from xml.sax.saxutils import escape  # un "&" ou un "<" dans un nom ne casse pas le PDF (Paragraph lit du "HTML")
 
@@ -59,14 +60,43 @@ def signature_block(signatory, signed=True):
     return [Spacer(1, 4), table, Spacer(1, 16)]
 
 
-def work_certificate(document, signed=True):
+def work_certificate_text(document):
+    """Le TEXTE de l'attestation de travail (le corps, sans l'en-tête, la référence ni la signature), rempli avec la
+    fiche. Du texte simple : une ligne vide = un nouveau paragraphe, **mot** = en gras. C'est ce que les RH peuvent
+    relire et modifier avant l'envoi (step 3, 2026-11-16) ; le cadre du document, lui, ne change jamais."""
+    employee = document.employee
+    company = employee.department.direction.entity.name
+    e = "e" if employee.title == Employee.Title.MRS else ""  # les accords : "employée", "l'intéressée"
+    civility = "Madame" if e else "Monsieur"
+    hired = f"{employee.hire_date:%d/%m/%Y}"
+    if employee.status == Employee.Status.LEFT and employee.departure_date:
+        work = (f"a été employé{e} au sein de notre société du {hired} au {employee.departure_date:%d/%m/%Y}, "
+                f"en qualité de **{employee.position.name}** (service {employee.department.name}).")
+    else:
+        work = (f"est employé{e} au sein de notre société depuis le {hired}, en qualité de **{employee.position.name}** "
+                f"(service {employee.department.name}).")
+    return (f"Nous soussignés, **{company}**, attestons par la présente que {civility} "
+            f"**{employee.last_name.upper()} {employee.first_name}**, titulaire de la carte d'identité nationale "
+            f"n° **{employee.cin}**, {work}\n\n"
+            f"Cette attestation est délivrée à l'intéressé{e}, sur sa demande, pour servir et valoir ce que de droit.")
+
+
+def paragraphs(text, style):
+    """Le texte simple -> les paragraphes du PDF : une ligne vide = un paragraphe, **mot** = gras. Échappé d'abord
+    (un "<" tapé par un RH ne casse pas le PDF), puis les ** deviennent <b>."""
+    blocks = [block.strip() for block in re.split(r"\n\s*\n", text.replace("\r", "")) if block.strip()]
+    return [Paragraph(re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", escape(block)).replace("\n", "<br/>"), style)
+            for block in blocks]
+
+
+def work_certificate(document, signed=True, text=None):
     """L'attestation de travail de cette demande, en octets (le fichier PDF).
-    signed=False : le brouillon des RH (sans les images de signature et de cachet), à signer à la main."""
+    signed=False : le brouillon des RH (sans les images de signature et de cachet), à signer à la main.
+    text : le corps à utiliser (un aperçu) ; sinon celui relu par les RH (document.body), sinon le texte de la fiche."""
     employee = document.employee
     company = escape(employee.department.direction.entity.name)
     signatory = signatory_of(employee)
-    woman = employee.title == Employee.Title.MRS
-    e = "e" if woman else ""  # les accords : "employée", "l'intéressée"
+    body_text = text if text is not None else (document.body or work_certificate_text(document))
 
     buffer = BytesIO()
     pdf = SimpleDocTemplate(buffer, pagesize=A4, leftMargin=25 * mm, rightMargin=25 * mm, topMargin=22 * mm,
@@ -78,15 +108,6 @@ def work_certificate(document, signed=True):
     body = styles["Normal"].clone("body", fontSize=11, leading=18, alignment=TA_JUSTIFY, spaceAfter=10)
     right = styles["Normal"].clone("right", fontSize=11, leading=16, alignment=TA_RIGHT)
 
-    name = f"{'Madame' if woman else 'Monsieur'} <b>{escape(employee.last_name.upper())} {escape(employee.first_name)}</b>"
-    hired = f"{employee.hire_date:%d/%m/%Y}"
-    position, department = escape(employee.position.name), escape(employee.department.name)
-    if employee.status == Employee.Status.LEFT and employee.departure_date:
-        work = (f"a été employé{e} au sein de notre société du {hired} au {employee.departure_date:%d/%m/%Y}, "
-                f"en qualité de <b>{position}</b> (service {department}).")
-    else:
-        work = (f"est employé{e} au sein de notre société depuis le {hired}, en qualité de <b>{position}</b> "
-                f"(service {department}).")
     today = timezone.localdate()
 
     story = [
@@ -97,10 +118,7 @@ def work_certificate(document, signed=True):
         Paragraph("ATTESTATION DE TRAVAIL", title),
         Paragraph(f"Réf. : {document.reference}", styles["Normal"].clone("ref", fontSize=9, textColor=GREY, alignment=TA_CENTER)),
         Spacer(1, 26),
-        Paragraph(f"Nous soussignés, <b>{company}</b>, attestons par la présente que {name}, titulaire de la carte "
-                  f"d'identité nationale n° <b>{escape(employee.cin)}</b>, {work}", body),
-        Paragraph(f"Cette attestation est délivrée à l'intéressé{e}, sur sa demande, pour servir et valoir ce que "
-                  "de droit.", body),
+        *paragraphs(body_text, body),  # le corps : le seul morceau que les RH peuvent modifier
         Spacer(1, 22),
         Paragraph(f"Fait à {escape(signatory.city)}, le {today:%d/%m/%Y}", right),
         Spacer(1, 16),
@@ -119,5 +137,6 @@ def work_certificate(document, signed=True):
     return buffer.getvalue()
 
 
-# Le modèle (DocumentType.template) -> la fonction qui fabrique son PDF.
+# Le modèle (DocumentType.template) -> la fonction qui fabrique son PDF, et celle qui donne son texte modifiable.
 TEMPLATES = {"WORK": work_certificate}
+TEXTS = {"WORK": work_certificate_text}

@@ -9,6 +9,7 @@ export type DocumentType = {
   automatic: boolean  // true : l'application génère le PDF dès la validation des RH
   delivery_days: number  // le délai promis, en jours ouvrés (0 : tout de suite)
   manager_can_request: boolean  // le N+1 peut le demander pour son équipe (choisi par Admin RH)
+  hr_review: boolean            // un document généré : les RH relisent son texte avant l'envoi
 }
 
 /** Une personne de MON équipe (je suis son N+1) : "For" dans le formulaire d'un manager. */
@@ -58,6 +59,10 @@ export type DocumentRequest = {
   collected_at: string | null
   collected_by: string | null
   can_handle_original: boolean // boutons "Original ready" / "Handed over" (RH du pôle)
+  needs_review: boolean        // "Relecture RH" demandée, pas encore faite : rien n'est fabriqué
+  can_edit_text: boolean       // le RH peut relire / modifier le texte (document généré, pas encore livré)
+  text_reviewed_by: string | null
+  body_edited_at: string | null
   handed_to: string | null     // à qui l'original a été remis : le collaborateur, ou son manager venu pour lui
   manager: string | null       // son manager (N+1), quand l'original attend : "Handed over to ... his manager"
 }

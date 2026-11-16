@@ -22,6 +22,7 @@ import type { Approval, DecidedStep, WorkflowRequest } from '@/lib/requests'
 import { PrintButton } from '@/components/documents/download-button'
 import { UploadButton } from '@/components/documents/upload-button'
 import { OriginalButtons } from '@/components/documents/original-buttons'
+import { TextEditorButton } from '@/components/documents/text-editor'
 import { cn } from '@/lib/utils'
 import { sendChange } from '@/lib/workflows'
 import { DecidedList } from './decided-list'
@@ -85,7 +86,7 @@ export function TeamApprovals({ me }: { me: Me }) {
     apiFetch(`/api/documents/requests/${approval.request.id}/`)
       .then(async (response) => {
         const document: DocumentRequest | null = response.ok ? await response.json() : null
-        if (document?.state === 'TO_PREPARE' && (document.can_upload || document.can_handle_original)) {
+        if (document?.state === 'TO_PREPARE' && (document.can_upload || document.can_handle_original || document.can_edit_text)) {
           setNextSteps((old) => ({ ...old, [approval.id]: document }))
           setDone('')  // la carte elle-même dit "Approved"
         } else remove(approval)
@@ -181,6 +182,7 @@ function NextStepCard({ approval, document, onFinished }: {
 }) {
   const who = `${document.doc_type} for ${document.employee}`
   const todo = [
+    document.needs_review && 'review the text, then send it ("Review & send")',
     document.can_upload && !document.has_file && (document.can_print ? 'print the draft, sign and stamp it, then upload the scan' : 'upload the signed PDF'),
     document.original_state === 'TO_SIGN' && 'print, sign and stamp the original, then click "Original ready"',
   ].filter(Boolean).join('; ')
@@ -197,6 +199,9 @@ function NextStepCard({ approval, document, onFinished }: {
       <FileText className="size-4 shrink-0 text-sky-700" aria-hidden />
       <p className="min-w-0 flex-1 text-xs text-slate-700"><span className="font-semibold text-[#192646]">Next step:</span> {todo}.</p>
       <div className="flex flex-wrap items-center gap-1">
+        {/* Relu et envoyé : la carte s'en va ; relu (à la main) : le brouillon est refait, la carte reste. */}
+        <TextEditorButton document={document} onSaved={(updated) => updated.state === 'READY'
+          ? onFinished(`Sent to the employee: ${who}.`) : onFinished(`Text saved: ${who}. Print the new draft in Document requests.`)} />
         <PrintButton document={document} />
         {document.can_upload && !document.has_file && <UploadButton document={document}
           onUploaded={() => onFinished(`Sent to the employee: ${who}.`)} />}

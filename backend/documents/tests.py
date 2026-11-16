@@ -20,7 +20,7 @@ from workflows.models import Request
 from workflows.test_engine import EngineTestCase
 
 from .models import DocumentRequest, DocumentSignatory, DocumentType
-from .services import add_working_days, mark_handed_over, mark_original_ready, request_document, upload
+from .services import add_working_days, mark_handed_over, mark_original_ready, request_document, save_text, upload
 
 User = get_user_model()
 MEDIA = tempfile.mkdtemp()  # les PDF des tests vont ici (effacé à la fin), pas dans media/
@@ -230,6 +230,11 @@ class HandSignedTests(DocumentTestCase):
             self.assertEqual(client.get(url).status_code, status_code)
         data = client.get(reverse("documents:by-request-detail", args=[document.request_id])).json()
         self.assertEqual((data["can_print"], data["can_upload"]), (True, True))  # Nadia : imprimer, puis déposer
+        # Avant d'imprimer, Nadia peut modifier le texte : le brouillon est refait (toujours rien pour Sara).
+        draft_before = document.draft.name
+        document = save_text(document, self.nadia.user, "Texte corrigé par les RH.")
+        self.assertNotEqual(document.draft.name, draft_before)
+        self.assertFalse(document.file)
         # Nadia l'a signé, tamponné, scanné : Sara le reçoit.
         document = upload(document, self.nadia.user, pdf())
         self.assertEqual(document.state, "READY")
@@ -381,6 +386,38 @@ class ApiTests(DocumentTestCase):
         # Sara, elle, le télécharge.
         self.login(self.sara)
         self.assertEqual(self.client.get(reverse("documents:file-detail", args=[document.request_id])).status_code, 200)
+
+    def test_hr_review_before_sending(self):
+        # Step 3 : "Relecture RH avant l'envoi" sur l'attestation de travail : rien ne part à la validation.
+        DocumentType.objects.filter(pk=self.work.pk).update(hr_review=True)
+        document = self.approve(request_document(self.sara, self.work))
+        self.assertEqual((bool(document.file), bool(document.draft), document.state), (False, False, "TO_PREPARE"))
+        self.assertFalse(self.ready_notices().exists())
+        self.login(self.nadia)
+        text_url = reverse("documents:hr-text", args=[document.request_id])
+        data = self.client.get(reverse("documents:by-request-detail", args=[document.request_id])).json()
+        self.assertEqual((data["needs_review"], data["can_edit_text"]), (True, True))
+        # Le texte de la fiche (avec le CIN), qu'elle complète ; l'aperçu, puis l'envoi.
+        text = self.client.get(text_url).json()["text"]
+        self.assertIn(self.sara.cin, text)
+        text += "\n\nL'intéressée est affectée au site de Tanger."
+        # Rien ne part avant la relecture (ni un PDF déposé à la place).
+        with self.assertRaisesMessage(ValidationError, "Relisez d'abord"):
+            upload(document, self.nadia.user, pdf())
+        preview = self.client.post(reverse("documents:hr-preview-text", args=[document.request_id]), {"text": text})
+        self.assertEqual((preview.status_code, preview["Content-Type"]), (200, "application/pdf"))
+        sent = self.client.post(text_url, {"text": text}).json()
+        self.assertEqual((sent["state"], sent["text_reviewed_by"] is not None), ("READY", True))  # signé : livré
+        document.refresh_from_db()
+        self.assertIn("site de Tanger", document.body)
+        self.assertTrue(self.ready_notices().exists())
+        # Livré : le texte ne change plus ; un collaborateur n'a pas accès.
+        self.assertEqual(self.client.post(text_url, {"text": "autre"}).status_code, 400)
+        self.login(self.sara)
+        self.assertEqual(self.client.post(text_url, {"text": "x"}).status_code, 403)
+        # La relecture est une étape interne des RH : Sara ne la voit pas.
+        mine = self.client.get(reverse("documents:by-request-detail", args=[document.request_id])).json()
+        self.assertEqual((mine["text_reviewed_by"], mine["body_edited_at"]), (None, None))
 
     def test_hr_search_and_filters(self):
         work = request_document(self.sara, self.work)

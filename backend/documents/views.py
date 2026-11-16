@@ -10,6 +10,8 @@ GET  files/<request>/?draft=1        -> le brouillon sans signature, à imprimer
 GET  hr/?status=to_prepare|in_progress|pickup|ready|all -> les demandes du pôle (RH ; Admin RH et IT : les deux pôles)
          &search=halima &type=<id> &from=2026-10-01 &to=2026-10-31 -> le nom / matricule, le type, la période
 POST hr/<request>/upload/            -> déposer le PDF signé (multipart "file")
+GET/POST hr/<request>/text/          -> le texte d'un document généré, à relire / modifier avant l'envoi (step 3)
+POST hr/<request>/preview-text/      -> l'aperçu PDF avec ce texte (rien n'est enregistré)
 POST hr/<request>/original-ready/    -> l'original papier signé attend au bureau RH (le collaborateur est prévenu)
 POST hr/<request>/handed-over/       -> l'original est remis au collaborateur ({"to": "manager"} : à son manager)
 Valider / refuser : Team approvals (le moteur). Annuler : /api/workflows/requests/<request>/cancel/.
@@ -33,9 +35,11 @@ from workflows import engine
 from workflows.models import Request
 
 from .models import DocumentRequest, DocumentSignatory, DocumentType
-from .pdf import work_certificate
+from .pdf import TEMPLATES, work_certificate
 from .serializers import DocumentRequestSerializer, DocumentTypeSerializer, SignatorySerializer
-from .services import can_prepare, mark_handed_over, mark_original_ready, request_document, upload
+from .services import (
+    MAX_TEXT, auto_signed, can_prepare, mark_handed_over, mark_original_ready, request_document, save_text, text_of, upload,
+)
 
 
 def run(action):
@@ -249,6 +253,32 @@ class HrDocumentViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         document = self.get_object()
         run(lambda: upload(document, request.user, request.FILES.get("file")))
         return Response(DocumentRequestSerializer(documents().get(pk=document.pk), context={"request": request}).data)
+
+    @action(detail=True, methods=["get", "post"])
+    def text(self, request, request_id=None):
+        """Step 3 : GET -> le texte à relire (relu, sinon celui de la fiche) ; POST {"text"} -> l'enregistrer et
+        (re)fabriquer le document : livré s'il est signé par l'application, sinon le brouillon à imprimer."""
+        document = self.get_object()
+        if request.method == "GET":
+            if not document.doc_type.template:
+                raise NotFound("Pas de texte généré pour ce document.")
+            return Response({"text": text_of(document)})
+        run(lambda: save_text(document, request.user, request.data.get("text", "")))
+        return Response(DocumentRequestSerializer(documents().get(pk=document.pk), context={"request": request}).data)
+
+    @action(detail=True, methods=["post"], url_path="preview-text")
+    def preview_text(self, request, request_id=None):
+        """L'aperçu du document avec CE texte (rien n'est enregistré), comme il sera envoyé."""
+        document = self.get_object()
+        if not document.doc_type.template:
+            raise NotFound("Pas de texte généré pour ce document.")
+        text = str(request.data.get("text", "")).strip()[:MAX_TEXT] or text_of(document)
+        if not document.reference:
+            document.reference = "APERÇU"
+        content = TEMPLATES[document.doc_type.template](document, signed=auto_signed(document), text=text)
+        response = HttpResponse(content, content_type="application/pdf")
+        response["Content-Disposition"] = 'inline; filename="apercu.pdf"'
+        return response
 
     @action(detail=True, methods=["post"], url_path="original-ready")
     def original_ready(self, request, request_id=None):

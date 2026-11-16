@@ -20,6 +20,7 @@ import { actionClass } from '@/components/expenses/claim-actions'
 import { DocumentPanel } from './document-panel'
 import { DownloadButton, PrintButton } from './download-button'
 import { OriginalButtons } from './original-buttons'
+import { TextEditorButton } from './text-editor'
 import { UploadButton } from './upload-button'
 
 const FILTERS = [
@@ -204,6 +205,9 @@ function Row({ document, onChanged, onOpen }: { document: DocumentRequest; onCha
     <div className="flex items-center gap-1">
       {/* Le PDF signé pas encore livré : "Upload PDF". Livré, il ne se remplace plus (une erreur = une nouvelle demande). */}
       {document.can_upload && <UploadButton document={document} onUploaded={() => onChanged(`Sent to the employee: ${who}. They get a notification and an email.`)} />}
+      {/* Step 3 : relire / compléter le texte d'un document généré ("Review & send" quand c'est demandé). */}
+      {document.state === 'TO_PREPARE' && <TextEditorButton document={document} onSaved={(updated) => onChanged(updated.state === 'READY'
+        ? `Sent to the employee: ${who}.` : `Text saved: ${who}. Print the new draft.`)} />}
       {/* À préparer : le brouillon sans signature à imprimer (signer, tamponner) ; livré : le PDF. */}
       {document.state === 'TO_PREPARE' && <PrintButton document={document} />}
       <DownloadButton document={document} />

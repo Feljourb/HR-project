@@ -23,7 +23,7 @@ from workflows.models import Request, Workflow
 from workflows.serializers import person
 
 from .models import MAX_FILE_SIZE, DocumentRequest, DocumentSignatory
-from .pdf import TEMPLATES, signatory_of
+from .pdf import TEMPLATES, TEXTS, signatory_of
 
 
 def add_working_days(start, days):
@@ -136,8 +136,10 @@ def auto_signed(document):
     return signatory.mode == DocumentSignatory.Mode.IMAGE and bool(signatory.signature)
 
 
-def generate(document):
+def generate(document, reviewed=False):
     """Le type a un modèle : l'application fabrique le PDF (ex. l'attestation de travail), après la validation.
+    - "Relecture RH avant l'envoi" (Admin RH, step 3) et pas encore relu : RIEN n'est fabriqué ; les RH relisent le
+      texte (save_text), qui rappelle generate(reviewed=True).
     - Signature "par l'application" (Admin RH) et le collaborateur veut le PDF : livré tout de suite, signé.
     - Signature "à la main", ou un original papier demandé : un BROUILLON sans signature pour les RH seulement
       (step D, 2026-11-13 : jamais un document non signé chez le collaborateur). Ils l'impriment, le signent et
@@ -145,6 +147,9 @@ def generate(document):
     if not document.reference:
         # La référence est écrite DANS le PDF : on la donne avant de le fabriquer.
         document.reference = f"DOC-{timezone.localdate():%Y}-{document.pk:05d}"
+    if document.doc_type.hr_review and not reviewed:
+        document.save(update_fields=["reference"])
+        return document  # "To prepare" : les RH relisent d'abord
     make = TEMPLATES[document.doc_type.template]
     name = f"{document.doc_type.name} - {document.employee.last_name} {document.employee.first_name}"
     signed = auto_signed(document)
@@ -154,6 +159,39 @@ def generate(document):
     if document.needs_pdf and signed:
         return deliver(document, ContentFile(make(document)), f"{name}.pdf")
     return document
+
+
+MAX_TEXT = 5000  # le texte d'une attestation : quelques paragraphes
+
+
+def text_of(document):
+    """Le texte à relire : celui déjà relu par un RH, sinon celui de la fiche (le modèle rempli)."""
+    return document.body or TEXTS[document.doc_type.template](document)
+
+
+@transaction.atomic
+def save_text(document, user, text):
+    """Step 3 (2026-11-16) : un RH relit / modifie le TEXTE d'un document généré pas encore livré (seulement le
+    corps : l'en-tête, la référence et la signature ne changent pas), puis le document est (re)fabriqué :
+    signé par l'application -> livré au collaborateur ; à signer à la main -> le brouillon à imprimer est refait.
+    La trace : qui a relu, et quand."""
+    document = DocumentRequest.objects.select_for_update().select_related("request", "doc_type", "employee__user").get(pk=document.pk)
+    if not can_prepare(user, document):
+        raise PermissionDenied("Seuls les RH du pôle du collaborateur relisent ce document.")
+    if not document.doc_type.template:
+        raise ValidationError("Ce document est préparé par les RH (pas de texte généré à relire).")
+    if document.request.status != Request.Status.APPROVED:
+        raise ValidationError("Le texte se relit après la validation de la demande.")
+    if document.file:
+        raise ValidationError("Ce document est déjà livré : il ne change plus.")
+    text = (text or "").strip()
+    if not text:
+        raise ValidationError("Le texte ne peut pas être vide.")
+    if len(text) > MAX_TEXT:
+        raise ValidationError(f"Le texte est trop long (au plus {MAX_TEXT} caractères).")
+    document.body, document.body_edited_by, document.body_edited_at = text, user, timezone.now()
+    document.save(update_fields=["body", "body_edited_by", "body_edited_at"])
+    return generate(document, reviewed=True)
 
 
 def can_prepare(user, document):
@@ -171,6 +209,7 @@ def upload(document, user, file):
         raise ValidationError("Le document se dépose après la validation de la demande.")
     if not document.needs_pdf:
         raise ValidationError("Le collaborateur a demandé l'original papier seulement : pas de PDF à déposer.")
+    must_review_first(document)
     # Un document livré ne change plus (décision de l'utilisatrice, 2026-11-13 : la trace d'abord ; le collaborateur
     # l'a peut-être déjà donné à sa banque). Une erreur -> une NOUVELLE demande (les RH : "Employee (HR)"), nouvelle
     # référence ; l'ancienne reste dans l'historique.
@@ -184,6 +223,12 @@ def upload(document, user, file):
     if file.size > MAX_FILE_SIZE:
         raise ValidationError("Le document dépasse 5 Mo.")
     return deliver(document, file, file.name, user)
+
+
+def must_review_first(document):
+    """Step 3 : un type "Relecture RH" pas encore relu : rien ne part (ni PDF déposé, ni original) avant la relecture."""
+    if document.doc_type.template and document.doc_type.hr_review and not document.body_edited_at:
+        raise ValidationError("Relisez d'abord le texte du document (Review & send).")
 
 
 def original_to_handle(document, user):
@@ -204,6 +249,7 @@ def mark_original_ready(document, user):
     """Le RH a imprimé, signé et tamponné l'original : il attend au bureau RH. Le collaborateur est prévenu
     (🔔 + email "Original prêt au bureau RH") : il ne se déplace pas pour rien."""
     document = original_to_handle(document, user)
+    must_review_first(document)
     if document.original_ready_at:
         raise ValidationError("L'original est déjà prêt.")
     document.original_ready_at, document.original_ready_by = timezone.now(), user
