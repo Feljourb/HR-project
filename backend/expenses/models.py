@@ -45,6 +45,10 @@ class ExpenseCategory(ReferenceItem):
     ceiling = models.CharField("Plafond du barème", max_length=20, choices=Ceiling.choices, default=Ceiling.NONE)
     # Un justificatif (photo du ticket, facture PDF) obligatoire pour chaque dépense de cette catégorie.
     receipt_required = models.BooleanField("Justificatif obligatoire", default=True)
+    # Remarque de la réunion (2026-11-16), standard SAP Concur ("soft limit") : Admin RH choisit, par catégorie,
+    # si une dépense peut dépasser le plafond du barème. Oui -> permis AVEC une justification, et les valideurs
+    # le voient (puce orange) ; non (par défaut) -> refusé, comme avant.
+    above_ceiling_allowed = models.BooleanField("Dépassement du plafond autorisé (avec justification)", default=False)
 
     class Meta(ReferenceItem.Meta):
         verbose_name = "Catégorie de dépense"
@@ -125,6 +129,11 @@ class ExpenseLine(models.Model):
     category = models.ForeignKey(ExpenseCategory, on_delete=models.PROTECT, related_name="lines", verbose_name="Catégorie")
     amount = models.DecimalField("Montant (MAD)", max_digits=10, decimal_places=2, validators=POSITIVE)
     description = models.CharField("Détail", max_length=200, blank=True)
+    # Le plafond du grade AU MOMENT de l'envoi (une photo, comme le total) : si Admin RH change le barème plus
+    # tard, la note garde le plafond qui lui a été appliqué. Vide = pas de plafond.
+    ceiling = models.DecimalField("Plafond appliqué (MAD)", max_digits=10, decimal_places=2, null=True, blank=True)
+    # Pourquoi cette dépense dépasse le plafond (obligatoire dans ce cas, sinon vide).
+    justification = models.CharField("Justification du dépassement", max_length=300, blank=True)
 
     class Meta:
         ordering = ["date", "id"]
@@ -132,6 +141,13 @@ class ExpenseLine(models.Model):
 
     def __str__(self):
         return f"{self.date:%d/%m/%Y} - {self.category} - {self.amount} MAD"
+
+    @property
+    def above_ceiling(self):
+        """De combien la dépense dépasse son plafond (ex. 200), ou None (pas de plafond, ou en dessous)."""
+        if self.ceiling is None or self.amount is None or self.amount <= self.ceiling:
+            return None
+        return self.amount - self.ceiling
 
     def clean(self):
         if self.date is None or self.category_id is None or self.amount is None:
@@ -147,17 +163,24 @@ class ExpenseLine(models.Model):
             raise ValidationError({"category": "Cette catégorie n'est plus proposée."})
         # (Règle 3, les justificatifs : check_receipts, car ils sont enregistrés APRÈS la ligne.)
         # Règle 4 : le plafond du barème, selon le grade du collaborateur (ex. Grade E, hôtel : 400 MAD par nuit).
+        self.ceiling = None
         if self.category.ceiling != ExpenseCategory.Ceiling.NONE:
             grade = self.claim.employee.grade
             if grade is None:
                 raise ValidationError("Votre fiche n'a pas de grade : demandez aux RH de le compléter.")
             scale = ExpenseScale.objects.filter(grade=grade).first()
-            ceiling = scale.ceiling_for(self.category) if scale else None
-            if ceiling is not None and self.amount > ceiling:
-                raise ValidationError({"amount": (
-                    f"Plafond {self.category.get_ceiling_display().lower()} pour votre grade : {ceiling:.2f} MAD "
-                    f"(cette dépense : {self.amount:.2f} MAD)."
-                )})
+            self.ceiling = scale.ceiling_for(self.category) if scale else None
+        self.justification = (self.justification or "").strip()
+        if self.above_ceiling is None:
+            self.justification = ""  # pas de dépassement : rien à justifier
+            return
+        limit = f"Plafond {self.category.get_ceiling_display().lower()} pour votre grade : {self.ceiling:.2f} MAD"
+        if not self.category.above_ceiling_allowed:
+            # La catégorie ne permet pas de dépasser (le choix d'Admin RH) : refusé, comme avant.
+            raise ValidationError({"amount": f"{limit} (cette dépense : {self.amount:.2f} MAD)."})
+        if not self.justification:
+            # Permis, mais il faut dire pourquoi : le N+1 et les RH le lisent avant de décider.
+            raise ValidationError({"justification": f"{limit} : expliquez pourquoi cette dépense le dépasse."})
 
     def check_receipts(self, files):
         """Règle 3 : les justificatifs envoyés pour cette dépense (files = les fichiers, pas encore enregistrés).

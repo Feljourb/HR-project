@@ -7,8 +7,8 @@ from .models import ExpenseCategory, ExpenseClaim, ExpenseLine, ExpenseScale
 
 @admin.register(ExpenseCategory)
 class ExpenseCategoryAdmin(ReferenceAdmin):
-    list_display = ("name", "ceiling", "receipt_required", "is_active")
-    list_filter = ("ceiling", "receipt_required", "is_active")
+    list_display = ("name", "ceiling", "receipt_required", "above_ceiling_allowed", "is_active")
+    list_filter = ("ceiling", "receipt_required", "above_ceiling_allowed", "is_active")
 
 
 @admin.register(ExpenseScale)
@@ -24,7 +24,7 @@ class ExpenseScaleAdmin(admin.ModelAdmin):
 class ExpenseLineInline(admin.TabularInline):
     model = ExpenseLine
     extra = 0
-    fields = ("date", "category", "amount", "description", "receipt_names")
+    fields = ("date", "category", "amount", "ceiling", "justification", "description", "receipt_names")
     readonly_fields = fields
     can_delete = False
 

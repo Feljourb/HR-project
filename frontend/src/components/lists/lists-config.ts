@@ -7,7 +7,7 @@ import type { ReferenceItem } from '@/lib/employees'
 export type ListValue = ReferenceItem & {
   code?: string; head?: number | null; head_label?: string | null
   deducts_balance?: boolean; max_days?: string | null; max_days_back?: number; counting?: string; document_from_days?: number | null; date?: string; estimated?: boolean; fixed?: boolean
-  ceiling?: string; receipt_required?: boolean
+  ceiling?: string; receipt_required?: boolean; above_ceiling_allowed?: boolean
   template?: string  // types de document : "WORK" = généré par l'application, "" = préparé par les RH
   delivery_days?: number  // types de document : le délai promis, en jours ouvrés
   manager_can_request?: boolean  // types de document : le manager peut le demander pour son équipe
@@ -17,7 +17,7 @@ export type ListValue = ReferenceItem & {
 // Un champ en plus du nom (listes des modules Congés, Notes de frais, Documents) : affiché en colonne, modifiable avec le nom.
 export type ExtraField = {
   name: 'deducts_balance' | 'max_days' | 'max_days_back' | 'counting' | 'document_from_days' | 'date' | 'estimated' | 'ceiling' | 'receipt_required'
-    | 'template' | 'delivery_days' | 'manager_can_request' | 'hr_review'
+    | 'template' | 'delivery_days' | 'manager_can_request' | 'hr_review' | 'above_ceiling_allowed'
   label: string
   type: 'checkbox' | 'number' | 'date' | 'select'
   required?: boolean
@@ -81,6 +81,8 @@ export const EXPENSE_LISTS: ListConfig[] = [
       { id: 'HOTEL', name: 'Hotel (per night)' },
     ] },
     { name: 'receipt_required', label: 'Receipt required', type: 'checkbox' },
+    // Dépasser le plafond du grade est permis, avec une justification que le N+1 et les RH lisent (sinon refusé).
+    { name: 'above_ceiling_allowed', label: 'Above ceiling allowed', type: 'checkbox' },
   ] },
 ]
 

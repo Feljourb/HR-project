@@ -46,6 +46,7 @@ def submit_claim(employee, title, lines):
         line = ExpenseLine(
             claim=claim, date=data.get("date"), category=data.get("category"), amount=data.get("amount"),
             description=(data.get("description") or "").strip(),
+            justification=data.get("justification") or "",  # seulement si la dépense dépasse son plafond
         )
         messages = []
         try:
@@ -63,7 +64,9 @@ def submit_claim(employee, title, lines):
         raise ValidationError(errors)
 
     claim.total = sum(line.amount for line, _ in built)
-    claim.request = engine.submit(Workflow.Code.EXPENSE, employee, f"Note de frais : {title} ({money(claim.total)} MAD)")
+    # Une dépense au-dessus du plafond : le titre le dit, donc le N+1 le voit dès la cloche / Team approvals.
+    above = " · au-dessus du plafond" if any(line.above_ceiling for line, _ in built) else ""
+    claim.request = engine.submit(Workflow.Code.EXPENSE, employee, f"Note de frais : {title} ({money(claim.total)} MAD){above}")
     claim.save()
     for line, files in built:
         line.claim = claim

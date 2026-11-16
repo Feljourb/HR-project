@@ -86,7 +86,18 @@ export function ClaimView({ claim, actions }: { claim: ExpenseClaim; actions?: R
             {claim.lines.map((line) => <tr key={line.id} className="border-t border-slate-100">
               <td className="px-4 py-2.5 text-slate-600">{formatDate(line.date, true)}</td>
               <td className="px-4 py-2.5 text-slate-700">{line.category_label}</td>
-              <td className="px-4 py-2.5 text-slate-600">{line.description || '—'}</td>
+              <td className="px-4 py-2.5 text-slate-600">
+                {line.description || '—'}
+                {/* Au-dessus du plafond (permis par Admin RH) : le N+1 et les RH voient de combien, et pourquoi. */}
+                {line.above_ceiling !== null && <span className="mt-1 block">
+                  <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800 ring-1 ring-inset ring-amber-200">
+                    Above ceiling +{formatMad(line.above_ceiling)}
+                  </span>
+                  <span className="mt-0.5 block text-[11px] text-amber-800">
+                    Ceiling {formatMad(line.ceiling ?? 0)} · “{line.justification}”
+                  </span>
+                </span>}
+              </td>
               <td className="px-4 py-2.5">
                 {/* Chaque justificatif de la dépense (ex. la facture + le ticket de carte) : un clic l'ouvre. */}
                 {line.receipts.length > 0

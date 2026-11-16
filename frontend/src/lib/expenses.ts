@@ -5,7 +5,8 @@ import { apiFetch } from './api'
 
 export type Ceiling = 'NONE' | 'DAILY_ALLOWANCE' | 'TRANSPORT' | 'HOTEL'
 
-export type ExpenseCategory = { id: number; name: string; ceiling: Ceiling; ceiling_label: string; receipt_required: boolean }
+// above_ceiling_allowed : Admin RH permet de dépasser le plafond, avec une justification (2026-11-16).
+export type ExpenseCategory = { id: number; name: string; ceiling: Ceiling; ceiling_label: string; receipt_required: boolean; above_ceiling_allowed: boolean }
 
 // Le barème d'un grade (MAD) : indemnité par jour, transport par trajet, hôtel par nuit.
 export type Scale = { id: number; grade: number; grade_label: string; daily_allowance: number; transport: number; hotel: number }
@@ -16,6 +17,9 @@ export type Receipt = { id: number; name: string }
 export type ExpenseLine = {
   id: number; date: string; category: number; category_label: string; amount: number
   description: string; receipts: Receipt[]  // 0 à 5 (ex. la facture + le ticket de carte)
+  ceiling: number | null        // le plafond appliqué à l'envoi
+  above_ceiling: number | null  // de combien la dépense le dépasse (ex. 200), ou null
+  justification: string         // pourquoi (seulement quand elle le dépasse)
 }
 
 // Le même maximum que Django (MAX_RECEIPTS).

@@ -20,7 +20,9 @@ from workflows import engine
 from workflows.models import Request, RequestStep, WorkflowStep
 from workflows.test_engine import EngineTestCase
 
-from .models import ExpenseCategory, ExpenseClaim
+from .models import ExpenseCategory, ExpenseClaim, ExpenseScale
+from .pdf import claim_pdf
+from .serializers import ClaimSerializer
 from .services import mark_reimbursed, submit_claim
 
 User = get_user_model()
@@ -103,6 +105,32 @@ class RulesTests(ClaimTestCase):
         submit_claim(sara, "Mission Agadir", [self.line(self.hotel, "450")])
         # Le carburant n'a pas de plafond.
         submit_claim(sara, "Plein", [self.line(self.fuel, "5000")])
+
+    def test_above_the_ceiling_when_admin_rh_allows_it(self):
+        # Remarque de la réunion (2026-11-16) : Admin RH permet le dépassement pour l'hôtel (Grade E : 400 par nuit).
+        ExpenseCategory.objects.filter(pk=self.hotel.pk).update(above_ceiling_allowed=True)
+        self.hotel.refresh_from_db()
+        # Sans justification : refusé, le message le demande.
+        self.assertIn("expliquez pourquoi", self.errors_of([self.line(self.hotel, "600")])["line_0"][0])
+        self.assertIn("expliquez pourquoi", self.errors_of([self.line(self.hotel, "600", justification="   ")])["line_0"][0])
+        # Avec : envoyé ; la ligne garde le plafond appliqué, le dépassement et la raison ; le titre le dit.
+        claim = submit_claim(self.sara, "Mission", [self.line(self.hotel, "600", justification="Festival, seul hôtel libre"),
+                                                    self.line(amount="50", justification="inutile")])
+        hotel, taxi = claim.lines.all().order_by("id")
+        self.assertEqual((hotel.ceiling, hotel.above_ceiling, hotel.justification), (Decimal("400"), Decimal("200"), "Festival, seul hôtel libre"))
+        self.assertEqual((taxi.above_ceiling, taxi.justification), (None, ""))  # sous le plafond : rien à justifier
+        self.assertTrue(claim.request.title.endswith("· au-dessus du plafond"))
+        # Le barème change plus tard : la note garde le plafond de l'envoi.
+        ExpenseScale.objects.update(hotel=Decimal("900"))
+        hotel.refresh_from_db()
+        self.assertEqual(hotel.above_ceiling, Decimal("200"))
+        # L'API le montre (la puce orange), et le PDF se fabrique avec.
+        line = ClaimSerializer(claim).data["lines"][0]
+        self.assertEqual((line["ceiling"], line["above_ceiling"]), (400, 200))
+        self.assertEqual(line["justification"], "Festival, seul hôtel libre")
+        self.assertTrue(claim_pdf(claim).startswith(b"%PDF"))
+        # Une autre catégorie (taxi) ne le permet pas : toujours refusé.
+        self.assertIn("Plafond transport", self.errors_of([self.line(amount="500", justification="Urgent")])["line_0"][0])
 
     def test_no_grade_no_ceiling_category(self):
         Employee.objects.filter(pk=self.sara.pk).update(grade=None)  # une ancienne fiche

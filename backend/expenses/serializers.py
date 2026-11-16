@@ -14,13 +14,14 @@ def amount_field(**kwargs):
 
 
 class CategorySerializer(serializers.ModelSerializer):
-    """{"id", "name", "ceiling": "HOTEL", "ceiling_label": "Hôtel (par nuit)", "receipt_required": true}."""
+    """{"id", "name", "ceiling": "HOTEL", "ceiling_label": "Hôtel (par nuit)", "receipt_required": true,
+    "above_ceiling_allowed": false}."""
 
     ceiling_label = serializers.CharField(source="get_ceiling_display", read_only=True)
 
     class Meta:
         model = ExpenseCategory
-        fields = ["id", "name", "ceiling", "ceiling_label", "receipt_required"]
+        fields = ["id", "name", "ceiling", "ceiling_label", "receipt_required", "above_ceiling_allowed"]
 
 
 class ScaleSerializer(serializers.ModelSerializer):
@@ -47,6 +48,7 @@ class LineInputSerializer(serializers.Serializer):
     amount = serializers.DecimalField(max_digits=10, decimal_places=2,
                                       error_messages={"max_digits": TOO_HIGH, "max_whole_digits": TOO_HIGH})
     description = serializers.CharField(required=False, allow_blank=True, default="", max_length=200)
+    justification = serializers.CharField(required=False, allow_blank=True, default="", max_length=300)
 
 
 class ReceiptSerializer(serializers.ModelSerializer):
@@ -61,10 +63,14 @@ class LineSerializer(serializers.ModelSerializer):
     category_label = serializers.StringRelatedField(source="category")
     amount = amount_field()
     receipts = ReceiptSerializer(many=True, read_only=True)  # 0 à 5 (ex. la facture + le ticket de carte)
+    # Le plafond appliqué à l'envoi, et le dépassement (ex. 200) ou null : la puce orange "Above ceiling".
+    ceiling = amount_field(allow_null=True)
+    above_ceiling = amount_field(allow_null=True, read_only=True)
 
     class Meta:
         model = ExpenseLine
-        fields = ["id", "date", "category", "category_label", "amount", "description", "receipts"]
+        fields = ["id", "date", "category", "category_label", "amount", "description", "receipts",
+                  "ceiling", "above_ceiling", "justification"]
 
 
 class ClaimSerializer(serializers.ModelSerializer):

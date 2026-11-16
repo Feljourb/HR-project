@@ -5,6 +5,7 @@ Fait avec reportlab (une bibliothèque Python qui dessine des PDF) : un titre, q
 le total, le circuit (qui a validé, quand), et deux cases de signature.
 """
 from io import BytesIO
+from xml.sax.saxutils import escape  # le texte tapé (< & >) ne doit pas casser le PDF
 
 from django.utils import timezone
 from reportlab.lib import colors
@@ -57,7 +58,12 @@ def claim_pdf(claim):
     rows = [["Date", "Catégorie", "Détail", "Justificatifs", "Montant (MAD)"]]
     for line in claim.lines.select_related("category").prefetch_related("receipts"):
         count = len(line.receipts.all())  # le nombre de pièces à joindre (ex. facture + ticket de carte = 2)
-        rows.append([f"{line.date:%d/%m/%Y}", Paragraph(str(line.category), normal), Paragraph(line.description or "-", normal),
+        detail = escape(line.description or "-")
+        if line.above_ceiling:
+            # Le dépassement et sa justification, sur le papier aussi (les RH le voient en contrôlant).
+            detail += (f"<br/><font color='#B45309'>Au-dessus du plafond ({money(line.ceiling)}) : "
+                       f"+{money(line.above_ceiling)}. {escape(line.justification)}</font>")
+        rows.append([f"{line.date:%d/%m/%Y}", Paragraph(str(line.category), normal), Paragraph(detail, normal),
                      str(count) if count else "Non", money(line.amount)])
     rows.append(["", "", "", "Total", money(claim.total)])
     lines_table = Table(rows, colWidths=[22 * mm, 50 * mm, 52 * mm, 22 * mm, 28 * mm], repeatRows=1)
