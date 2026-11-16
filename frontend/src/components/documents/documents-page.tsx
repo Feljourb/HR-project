@@ -46,6 +46,10 @@ export function DocumentsPage({ me }: { me: Me }) {
   if (loaded === null) return <Message>{problem || 'Loading...'}</Message>
   const { documents } = loaded
   const count = (state: string) => documents.filter((document) => document.state === state).length
+  // "Ready" = ce qui m'attend encore : un original à récupérer, ou un document prêt et pas encore récupéré
+  // (un original déjà remis ne compte plus : rien à faire).
+  const waitingForMe = documents.filter((document) =>
+    document.state === 'PICKUP' || (document.state === 'READY' && !document.collected_at)).length
 
   return <div className="flex flex-col gap-4">
     <div>
@@ -57,7 +61,7 @@ export function DocumentsPage({ me }: { me: Me }) {
       { label: 'Requests', value: String(documents.length), hint: 'All my requests' },
       { label: 'In approval', value: String(count('IN_PROGRESS')), hint: 'Waiting for HR' },
       { label: 'Being prepared', value: String(count('TO_PREPARE')), hint: 'Approved, HR prepare it' },
-      { label: 'Ready', value: String(count('READY') + count('PICKUP')), hint: 'To download or pick up', strong: true },
+      { label: 'Ready', value: String(waitingForMe), hint: 'To download or pick up', strong: true },
     ]} />
 
     <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
@@ -265,20 +269,19 @@ function DocumentLine({ document, onChanged, onOpen }: { document: DocumentReque
   const ended = document.state === 'REJECTED' || document.state === 'CANCELLED'
   const state = stateOf(document)
   const waiting = document.state === 'IN_PROGRESS' || document.state === 'TO_PREPARE'
+  // Le détail en petit, sans répéter : la date est déjà dans le calendrier à gauche, la référence dans "Details".
   const extras = [
     document.purpose && `for ${document.purpose}`,
     document.format !== 'PDF' && FORMATS.find((option) => option.id === document.format)?.short,
-    `requested ${formatDate(sent)}`,
     document.requested_by && `requested by ${document.requested_by}`,  // un RH, ou mon manager
     document.state === 'IN_PROGRESS' && 'waiting for HR',
     document.state === 'TO_PREPARE' && !document.original_state && 'HR are preparing it',
     originalText(document),  // l'original papier : en signature, prêt au bureau RH, récupéré
     // Le délai promis : "expected by 16/11/2026" tant que le document n'est pas prêt.
     waiting && document.due_date && `expected by ${formatDate(document.due_date)}`,
-    document.reference && `ref. ${document.reference}`,
     document.refusal && `reason: ${document.refusal}`,
   ].filter(Boolean)
-  return <li className={cn('flex items-start gap-3 px-4 py-3', ended && 'opacity-60')}>
+  return <li className={cn('flex items-center gap-3 px-4 py-3', ended && 'opacity-60')}>
     <span className="flex w-11 shrink-0 flex-col items-center rounded-lg border border-slate-200 bg-slate-50 py-1" aria-hidden>
       <span className="text-[9px] font-bold uppercase tracking-wide text-[#8C6D52]">{SHORT_MONTH(sent)}</span>
       <span className="text-base font-semibold leading-tight text-[#192646]">{Number(sent.slice(8, 10))}</span>
@@ -289,13 +292,12 @@ function DocumentLine({ document, onChanged, onOpen }: { document: DocumentReque
       </button>
       <p className="truncate text-[11px] text-slate-400">{extras.join(' · ')}</p>
     </div>
-    <div className="flex shrink-0 flex-col items-end gap-1">
-      <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset', state.badge)}>{state.label}</span>
-      <div className="flex items-center gap-1">
-        <DownloadButton document={document} />
-        <CancelClaim claim={document} onCancelled={onChanged} />
-        <button type="button" onClick={onOpen} className={actionClass}>Details</button>
-      </div>
+    {/* Le statut et les actions sur UNE ligne, au milieu : la ligne est moins haute et l'œil va à un seul endroit. */}
+    <div className="flex shrink-0 items-center gap-1">
+      <span className={cn('mr-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset', state.badge)}>{state.label}</span>
+      <DownloadButton document={document} />
+      <CancelClaim claim={document} onCancelled={onChanged} />
+      <button type="button" onClick={onOpen} className={actionClass}>Details</button>
     </div>
   </li>
 }
