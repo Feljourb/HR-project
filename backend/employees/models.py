@@ -680,6 +680,10 @@ class Notification(models.Model):
         DOCUMENT_READY = "DOCUMENT_READY", "Document prêt"
         # L'original papier signé m'attend au bureau RH (format "original", 2026-11-13).
         ORIGINAL_READY = "ORIGINAL_READY", "Original prêt au bureau RH"
+        # Mon manager a demandé un document POUR moi (2026-11-16) : je le sais (la demande est faite en mon nom).
+        REQUESTED_FOR = "REQUESTED_FOR", "Demande faite pour vous"
+        # Mon original a été remis à mon manager, venu le chercher pour moi (2026-11-16).
+        ORIGINAL_HANDED = "ORIGINAL_HANDED", "Original remis à votre manager"
 
     recipient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notifications",
                                   verbose_name="Destinataire")

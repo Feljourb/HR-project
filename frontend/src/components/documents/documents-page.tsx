@@ -7,9 +7,10 @@
  * dès que les RH valident ; les autres documents sont préparés et déposés par les RH.
  */
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { CheckCircle2, FileText, Loader2, Send } from 'lucide-react'
+import Link from 'next/link'
+import { CheckCircle2, ChevronRight, FileText, Loader2, Send, UsersRound } from 'lucide-react'
 import { apiFetch, isHr, type Me } from '@/lib/api'
-import { FORMATS, originalText, stateOf, type DocumentFormat, type DocumentRequest, type DocumentType } from '@/lib/documents'
+import { FORMATS, originalText, stateOf, type DocumentFormat, type DocumentRequest, type DocumentType, type TeamMember } from '@/lib/documents'
 import { formatDate } from '@/lib/leaves'
 import { cn } from '@/lib/utils'
 import { sendChange } from '@/lib/workflows'
@@ -21,7 +22,8 @@ import { PersonPicker, type Person } from '@/components/requests/out-of-office'
 import { DocumentPanel } from './document-panel'
 import { DownloadButton } from './download-button'
 
-type Loaded = { documents: DocumentRequest[]; types: DocumentType[] }
+// team : MON équipe (je suis leur N+1) ; forTeam : ce que j'ai demandé pour elle (2026-11-16, "Manager Self-Service").
+type Loaded = { documents: DocumentRequest[]; types: DocumentType[]; team: TeamMember[]; forTeam: DocumentRequest[] }
 
 export function DocumentsPage({ me }: { me: Me }) {
   const [loaded, setLoaded] = useState<Loaded | null>(null)
@@ -31,10 +33,12 @@ export function DocumentsPage({ me }: { me: Me }) {
   const [opened, setOpened] = useState<number | null>(null)  // la demande ouverte dans le panneau (son n°)
 
   useEffect(() => {
-    Promise.all([apiFetch('/api/documents/mine/'), apiFetch('/api/documents/types/')])
-      .then(async ([documents, types]) => {
+    const paths = ['/api/documents/mine/', '/api/documents/types/', '/api/documents/mine/team-members/', '/api/documents/mine/for-team/']
+    Promise.all(paths.map((path) => apiFetch(path)))
+      .then(async ([documents, types, team, forTeam]) => {
         if (!documents.ok || !types.ok) throw new Error()
-        setLoaded({ documents: await documents.json(), types: await types.json() })
+        setLoaded({ documents: await documents.json(), types: await types.json(),
+          team: team.ok ? await team.json() : [], forTeam: forTeam.ok ? await forTeam.json() : [] })
       })
       .catch(() => setProblem('Could not load your documents. Please try again later.'))
   }, [version])
@@ -58,15 +62,35 @@ export function DocumentsPage({ me }: { me: Me }) {
 
     <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
       <div className="flex min-w-0 flex-col gap-4">
-        <RequestForm types={loaded.types} hr={isHr(me)} onSent={reload} />
+        <RequestForm types={loaded.types} hr={isHr(me)} team={loaded.team} onSent={reload} />
         <HowItWorks />
       </div>
-      <MyDocuments documents={documents} onChanged={reload} onOpen={setOpened} />
+      <div className="flex min-w-0 flex-col gap-4">
+        <MyDocuments documents={documents} onChanged={reload} onOpen={setOpened} />
+        {/* Ce que j'ai demandé pour mon équipe : sa place est Team approvals -> "For my team" (une chose, une place) ;
+            ici seulement un lien, avec ce qui demande une action (un original à faire récupérer). */}
+        {loaded.forTeam.length > 0 && <TeamLink documents={loaded.forTeam} />}
+      </div>
     </div>
 
     {/* Le détail d'une demande : le PDF, l'original, toute la ligne du temps (la trace), sans quitter la page. */}
     <DocumentPanel requestId={opened} onClose={() => setOpened(null)} onChanged={reload} />
   </div>
+}
+
+/** Un lien vers Team approvals -> "For my team" : combien de demandes, et combien d'originaux à faire récupérer. */
+function TeamLink({ documents }: { documents: DocumentRequest[] }) {
+  const pickups = documents.filter((document) => document.state === 'PICKUP').length
+  return <Link href="/approvals?tab=team"
+    className="flex items-center gap-3 rounded-xl border border-slate-200/80 bg-white px-4 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)] hover:border-[#23355d]/30 hover:bg-slate-50">
+    <span className="flex size-8 items-center justify-center rounded-lg bg-[#E4E9F2] text-[#23355d]" aria-hidden><UsersRound className="size-4" /></span>
+    <span className="min-w-0 flex-1">
+      <span className="block text-sm font-semibold text-[#192646]">Requested for my team</span>
+      <span className="block text-[11px] text-slate-500">{documents.length} request{documents.length > 1 ? 's' : ''} · follow them in Team approvals</span>
+    </span>
+    {pickups > 0 && <span className="rounded-full bg-violet-600 px-2 py-0.5 text-[10px] font-bold text-white">{pickups} to pick up</span>}
+    <ChevronRight className="size-4 text-slate-400" aria-hidden />
+  </Link>
 }
 
 /** Le circuit d'une demande, en 4 étapes (comme l'outil actuel des RH) : chacun sait ce qui va se passer. */
@@ -96,8 +120,10 @@ function delayHint(type: DocumentType) {
 }
 
 /** "Request a document" : le type, et pour qui / pourquoi (facultatif, ex. "Banque").
- *  Un RH peut demander POUR un collaborateur de son pôle (champ "Employee", comme l'outil actuel) : acceptée tout de suite. */
-function RequestForm({ types, hr, onSent }: { types: DocumentType[]; hr: boolean; onSent: () => void }) {
+ *  Un RH peut demander POUR un collaborateur de son pôle (champ "Employee", comme l'outil actuel) : acceptée tout de suite.
+ *  Un manager (2026-11-16) : "For" = moi-même ou quelqu'un de son équipe (ex. un ouvrier qui n'utilise pas l'application) ;
+ *  seulement les types choisis par Admin RH, l'original papier par défaut, et les RH valident comme d'habitude. */
+function RequestForm({ types, hr, team, onSent }: { types: DocumentType[]; hr: boolean; team: TeamMember[]; onSent: () => void }) {
   const [typeId, setTypeId] = useState('')
   const [purpose, setPurpose] = useState('')
   const [format, setFormat] = useState<DocumentFormat>('PDF')
@@ -105,7 +131,19 @@ function RequestForm({ types, hr, onSent }: { types: DocumentType[]; hr: boolean
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [sent, setSent] = useState('')
-  const chosen = types.find((type) => String(type.id) === typeId)
+  // Un manager qui demande pour son équipe : seulement les documents permis par Admin RH.
+  const forTeam = !hr && forEmployee !== null
+  const choices = forTeam ? types.filter((type) => type.manager_can_request) : types
+  const chosen = choices.find((type) => String(type.id) === typeId)
+
+  function chooseFor(id: string) {
+    const member = team.find((person) => String(person.id) === id) ?? null
+    setForEmployee(member)
+    setTypeId('')
+    setFormat(member ? 'ORIGINAL' : 'PDF')  // pour un membre de l'équipe : le papier, qu'il récupère au bureau RH
+    setError('')
+    setSent('')
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -117,7 +155,9 @@ function RequestForm({ types, hr, onSent }: { types: DocumentType[]; hr: boolean
       'You cannot request this document.')
     setBusy(false)
     if ('error' in result) return setError(result.error)
-    setSent(forEmployee ? `${result.data.doc_type} for ${result.data.employee} (see Document requests)` : result.data.doc_type)
+    setSent(!forEmployee ? result.data.doc_type
+      : hr ? `${result.data.doc_type} for ${result.data.employee} (see Document requests)`
+      : `${result.data.doc_type} for ${result.data.employee} (follow it in Team approvals → For my team)`)
     setTypeId('')
     setPurpose('')
     setFormat('PDF')
@@ -135,8 +175,13 @@ function RequestForm({ types, hr, onSent }: { types: DocumentType[]; hr: boolean
         source={(search) => `/api/employees/?search=${search}`} />
       <p className="mt-1 text-[11px] text-slate-500">{forEmployee ? 'Requested by HR: approved at once, the employee is notified.' : 'Empty = for yourself.'}</p>
     </div>}
+    {/* Un manager : pour moi, ou pour quelqu'un de mon équipe (je suis son N+1). */}
+    {!hr && team.length > 0 && <SelectField id="doc-for" label="For" value={forEmployee ? String(forEmployee.id) : ''} onChange={chooseFor}
+      options={team.map((person) => ({ id: String(person.id), name: `${person.first_name} ${person.last_name} · ${person.position}` }))}
+      placeholder="Myself"
+      hint={forTeam ? 'For your team: HR approve it, the employee is notified. You follow the progress; the document goes to the employee.' : undefined} />}
     <SelectField id="doc-type" label="Document" required value={typeId} onChange={(value) => { setTypeId(value); setError(''); setSent('') }}
-      options={types.map((type) => ({ id: String(type.id), name: type.name }))} placeholder="Choose a document"
+      options={choices.map((type) => ({ id: String(type.id), name: type.name }))} placeholder="Choose a document"
       hint={chosen ? delayHint(chosen) : undefined} />
     <TextField id="doc-purpose" label="For / purpose" value={purpose} onChange={setPurpose} placeholder="e.g. Bank, visa, rental (optional)" />
     {/* Le format : une banque ou un consulat demandent souvent l'ORIGINAL signé et tamponné à la main. */}
@@ -224,7 +269,7 @@ function DocumentLine({ document, onChanged, onOpen }: { document: DocumentReque
     document.purpose && `for ${document.purpose}`,
     document.format !== 'PDF' && FORMATS.find((option) => option.id === document.format)?.short,
     `requested ${formatDate(sent)}`,
-    document.requested_by && `by HR (${document.requested_by})`,
+    document.requested_by && `requested by ${document.requested_by}`,  // un RH, ou mon manager
     document.state === 'IN_PROGRESS' && 'waiting for HR',
     document.state === 'TO_PREPARE' && !document.original_state && 'HR are preparing it',
     originalText(document),  // l'original papier : en signature, prêt au bureau RH, récupéré
@@ -254,3 +299,4 @@ function DocumentLine({ document, onChanged, onOpen }: { document: DocumentReque
     </div>
   </li>
 }
+

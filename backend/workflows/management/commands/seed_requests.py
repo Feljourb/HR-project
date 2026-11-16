@@ -45,7 +45,16 @@ class Command(BaseCommand):
             if Request.objects.filter(requester=requester, title=title).exists():
                 self.stdout.write(f"- {title} : déjà envoyée, ignorée")
                 continue
-            request = engine.submit(code, requester, title)
+            if code == "ADMIN_REQUEST":
+                # Une VRAIE demande de document (module Documents, 2026-11-16) : sinon, une fois validée, elle ne
+                # produirait aucun document et n'apparaîtrait pas dans "Administrative documents". Le titre est le même
+                # ("Attestation de travail (démo)") : le type, puis "démo" comme motif.
+                from documents.models import DocumentType
+                from documents.services import request_document
+                doc_type = DocumentType.objects.get(name=title.removesuffix(" (démo)"))
+                request = request_document(requester, doc_type, "démo").request
+            else:
+                request = engine.submit(code, requester, title)
             waiting = request.steps.filter(status="PENDING").first()
             who = waiting.get_approver_display() if waiting else "personne"
             self.stdout.write(self.style.SUCCESS(f"+ {title} ({username}) -> attend : {who}"))

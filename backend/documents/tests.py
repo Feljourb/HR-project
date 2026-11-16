@@ -2,11 +2,13 @@
 import datetime
 import shutil
 import tempfile
+from io import StringIO
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import override_settings
+from django.core.management import call_command
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -127,9 +129,13 @@ class FlowTests(DocumentTestCase):
         self.assertEqual((document.state, document.original_state), ("PICKUP", "PICKUP"))
         notice = Notification.objects.get(recipient=self.sara.user, kind=Notification.Kind.ORIGINAL_READY)
         self.assertIn("bureau RH", message(notice))
+        # (Demandé par Sara elle-même : son manager n'est pas prévenu.)
+        self.assertFalse(Notification.objects.filter(recipient=self.youssef.user, kind=Notification.Kind.ORIGINAL_READY).exists())
         # Sara est venue : remis (quand, par qui).
         document = mark_handed_over(document, self.hind.user)
         self.assertEqual((document.state, document.original_state, document.collected_by), ("READY", "COLLECTED", self.hind.user))
+        self.assertEqual(document.handed_to, self.sara)  # à elle-même : pas de notification "remis à votre manager"
+        self.assertFalse(Notification.objects.filter(kind=Notification.Kind.ORIGINAL_HANDED).exists())
         # Une demande en PDF seulement : pas d'original à préparer.
         pdf_only = self.approve(request_document(self.sara, self.work))
         with self.assertRaisesMessage(ValidationError, "pas demandé"):
@@ -139,6 +145,28 @@ class FlowTests(DocumentTestCase):
         document = self.approve(request_document(self.sara, self.work, format="BOTH"))
         self.assertTrue(self.ready_notices().exists())  # le PDF tout de suite
         self.assertEqual((document.state, document.original_state), ("TO_PREPARE", "TO_SIGN"))  # reste l'original
+
+    def test_the_manager_requests_for_his_team(self):
+        # Youssef (N+1 de Sara) demande l'original de son attestation de travail : les RH valident quand même.
+        document = request_document(self.sara, self.work, "Banque", by=self.youssef.user, format="ORIGINAL")
+        self.assertEqual((document.state, document.requested_by, document.employee), ("IN_PROGRESS", self.youssef.user, self.sara))
+        # Sara est prévenue qu'une demande a été faite en son nom.
+        notice = Notification.objects.get(recipient=self.sara.user, kind=Notification.Kind.REQUESTED_FOR)
+        self.assertIn("a demandé pour vous : Attestation de travail", message(notice))
+        # Pas un type choisi par Admin RH (le salaire ne le regarde pas) ; pas quelqu'un hors de son équipe.
+        # L'original prêt : Sara ET Youssef sont prévenus (il prévient l'ouvrier de passer au bureau RH).
+        document = mark_original_ready(self.approve(document), self.nadia.user)
+        for_youssef = Notification.objects.get(recipient=self.youssef.user, kind=Notification.Kind.ORIGINAL_READY)
+        self.assertIn("Prévenez-le", message(for_youssef))
+        # Youssef vient le chercher pour elle : remis à son manager (la trace), et Sara est prévenue.
+        document = mark_handed_over(document, self.nadia.user, to_manager=True)
+        self.assertEqual((document.handed_to, document.state), (self.youssef, "READY"))
+        handed = Notification.objects.get(recipient=self.sara.user, kind=Notification.Kind.ORIGINAL_HANDED)
+        self.assertIn("remis à votre manager", message(handed))
+        with self.assertRaisesMessage(ValidationError, "ne se demande pas par le manager"):
+            request_document(self.sara, self.salary, by=self.youssef.user)
+        with self.assertRaises(PermissionDenied):
+            request_document(self.nadia, self.work, by=self.youssef.user)
 
     def test_delivery_date_in_working_days(self):
         # Un jeudi + 2 jours ouvrés = le lundi (pas le samedi) ; un document généré : le jour même.
@@ -160,9 +188,9 @@ class FlowTests(DocumentTestCase):
         self.assertTrue(self.ready_notices().exists())  # Sara est prévenue
         # Un document préparé par les RH : à préparer tout de suite.
         self.assertEqual(request_document(self.sara, self.salary, by=self.nadia.user).state, "TO_PREPARE")
-        # Youssef (son N+1, pas RH) ne peut pas demander pour elle.
-        with self.assertRaises(PermissionDenied):
-            request_document(self.sara, self.work, by=self.youssef.user)
+        # Youssef (son N+1, pas RH) peut demander pour elle (2026-11-16), mais SANS l'accepter : les RH valident.
+        DocumentRequest.objects.filter(doc_type=self.work).delete()
+        self.assertEqual(request_document(self.sara, self.work, by=self.youssef.user).state, "IN_PROGRESS")
 
     def test_refused_and_upload_before_approval(self):
         document = request_document(self.sara, self.salary)
@@ -247,6 +275,31 @@ class SignatoryTests(DocumentTestCase):
         self.assertEqual(self.client.get(reverse("documents:signatory-list")).status_code, 403)
 
 
+@override_settings(DEBUG=True, MEDIA_ROOT=MEDIA)
+class DemoAndAdminTests(TestCase):
+    def test_make_seed_requests_sends_real_document_requests(self):
+        # make seed (les comptes de test) puis make seed-requests : les 2 attestations sont de VRAIES demandes du module.
+        call_command("seed_test_fiches", stdout=StringIO())
+        call_command("seed_requests", stdout=StringIO())
+        self.assertEqual(sorted(DocumentRequest.objects.values_list("doc_type__name", flat=True)),
+                         ["Attestation de salaire", "Attestation de travail"])
+        call_command("seed_requests", stdout=StringIO())  # relancé : rien en double
+        self.assertEqual(DocumentRequest.objects.count(), 2)
+
+    def test_a_request_is_read_only_in_the_admin(self):
+        call_command("seed_test_fiches", stdout=StringIO())
+        call_command("seed_requests", stdout=StringIO())
+        it = User.objects.create_superuser("it.admin", password="x")
+        self.client.force_login(it)
+        document = DocumentRequest.objects.first()
+        url = reverse("admin:documents_documentrequest_change", args=[document.pk])
+        self.assertEqual(self.client.get(url).status_code, 200)  # on la voit...
+        with self.assertLogs("django.request", level="WARNING"):  # Django note le refus (403) dans ses logs
+            self.assertEqual(self.client.post(url, {"purpose": "changé", "format": "BOTH"}).status_code, 403)
+        document.refresh_from_db()
+        self.assertEqual((document.purpose, document.format), ("démo", "PDF"))  # ... sans pouvoir la changer
+
+
 class ApiTests(DocumentTestCase):
     def setUp(self):
         super().setUp()
@@ -286,6 +339,48 @@ class ApiTests(DocumentTestCase):
         self.assertFalse(self.client.get(url).json()["can_upload"])  # Sara attend, elle ne dépose pas
         self.login(self.youssef)
         self.assertEqual(self.client.get(url).status_code, 404)    # son N+1 : rien à voir
+
+    def test_the_manager_cancels_what_he_requested_by_mistake(self):
+        document = request_document(self.sara, self.work, by=self.youssef.user)
+        url = reverse("workflows:request-cancel", args=[document.request_id])
+        self.login(self.karim)  # un autre : 404 (ce n'est ni sa demande, ni sa saisie)
+        self.assertEqual(self.client.post(url).status_code, 404)
+        self.login(self.youssef)
+        # Au nom de Sara : le motif est obligatoire (elle le lit dans sa notification).
+        self.assertEqual(self.client.post(url).status_code, 400)
+        self.assertEqual(self.client.post(url, {"reason": "Erreur : mauvais collaborateur"}).status_code, 200)
+        document.refresh_from_db()
+        self.assertEqual(document.state, Request.Status.CANCELLED)  # pas effacée : annulée, avec la trace
+        self.assertEqual(document.request.cancelled_by, self.youssef.user)
+        # Sara est prévenue : c'était une demande en son nom.
+        notice = Notification.objects.get(recipient=self.sara.user, kind=Notification.Kind.CANCELLED)
+        self.assertIn(f"Demande annulée par {self.youssef.first_name}", message(notice))
+        self.assertIn("Motif : Erreur : mauvais collaborateur", message(notice))
+
+    def test_the_manager_sees_the_progress_never_the_document(self):
+        self.login(self.youssef)
+        members = self.client.get(reverse("documents:mine-team-members")).json()
+        self.assertIn(self.sara.pk, [member["id"] for member in members])
+        response = self.client.post(reverse("documents:mine-list"), {"doc_type": self.work.pk, "employee": self.sara.pk})
+        self.assertEqual(response.status_code, 201, response.json())
+        document = self.approve(DocumentRequest.objects.get(pk=response.json()["id"]))  # signé par l'application
+        self.assertTrue(document.file)
+        mine = self.client.get(reverse("documents:mine-for-team")).json()
+        self.assertEqual([(item["state"], item["can_download"]) for item in mine], [("READY", False)])
+        self.assertEqual(self.client.get(reverse("documents:file-detail", args=[document.request_id])).status_code, 404)
+        # Il suit l'historique (il a saisi la demande), et tout le monde voit "saisie par Youssef".
+        history = self.client.get(reverse("workflows:history-detail", args=[document.request_id]))
+        self.assertEqual(history.status_code, 200)
+        self.assertEqual(history.json()["initiated_by_name"], f"{self.youssef.first_name} {self.youssef.last_name.title()}")
+        # L'onglet "For my team" de Team approvals : les demandes qu'il a saisies.
+        initiated = self.client.get(reverse("workflows:request-initiated")).json()
+        self.assertEqual([item["id"] for item in initiated], [document.request_id])
+        # Prévenu comme Sara (acceptée), avec un texte pour lui ("La demande de Sara ...", pas "Votre demande").
+        notice = Notification.objects.get(recipient=self.youssef.user, kind=Notification.Kind.APPROVED)
+        self.assertTrue(message(notice).startswith("La demande de"))
+        # Sara, elle, le télécharge.
+        self.login(self.sara)
+        self.assertEqual(self.client.get(reverse("documents:file-detail", args=[document.request_id])).status_code, 200)
 
     def test_hr_search_and_filters(self):
         work = request_document(self.sara, self.work)

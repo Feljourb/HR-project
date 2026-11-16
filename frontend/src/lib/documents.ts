@@ -8,7 +8,11 @@ export type DocumentType = {
   name: string
   automatic: boolean  // true : l'application génère le PDF dès la validation des RH
   delivery_days: number  // le délai promis, en jours ouvrés (0 : tout de suite)
+  manager_can_request: boolean  // le N+1 peut le demander pour son équipe (choisi par Admin RH)
 }
+
+/** Une personne de MON équipe (je suis son N+1) : "For" dans le formulaire d'un manager. */
+export type TeamMember = { id: number; first_name: string; last_name: string; position: string }
 
 // TO_PREPARE : les RH ont encore à faire (PDF et / ou original) ; PICKUP : l'original attend au bureau RH.
 export type DocumentState = 'IN_PROGRESS' | 'TO_PREPARE' | 'PICKUP' | 'READY' | 'REJECTED' | 'CANCELLED'
@@ -41,7 +45,7 @@ export type DocumentRequest = {
   delivered_at: string | null
   delivered_by: string | null  // le RH qui a déposé le fichier ; null : généré par l'application
   refusal: string              // le motif du refus des RH
-  requested_by: string | null  // le RH qui a demandé POUR le collaborateur ; null : lui-même
+  requested_by: string | null  // le RH ou le manager qui a demandé POUR le collaborateur ; null : lui-même
   due_date: string | null      // prêt au plus tard le (date de la demande + le délai du type)
   late: boolean                // pas livré et le délai est passé
   can_upload: boolean          // celui qui lit peut déposer / remplacer le PDF (RH du pôle, document préparé par les RH)
@@ -54,6 +58,8 @@ export type DocumentRequest = {
   collected_at: string | null
   collected_by: string | null
   can_handle_original: boolean // boutons "Original ready" / "Handed over" (RH du pôle)
+  handed_to: string | null     // à qui l'original a été remis : le collaborateur, ou son manager venu pour lui
+  manager: string | null       // son manager (N+1), quand l'original attend : "Handed over to ... his manager"
 }
 
 // Les états en anglais (les pages sont en anglais), avec les couleurs des autres pages.
@@ -74,10 +80,13 @@ export function stateOf(document: DocumentRequest) {
 
 /** L'original papier en quelques mots : "original being signed", "original ready at the HR office"... */
 export function originalText(document: DocumentRequest) {
-  if (document.original_state === 'TO_SIGN') return 'original being signed by HR'
+  if (document.original_state === 'TO_SIGN') return 'original being prepared by HR'
   if (document.original_state === 'PICKUP') return 'original ready at the HR office'
-  if (document.original_state === 'COLLECTED' && document.collected_at)
-    return `original collected ${new Date(document.collected_at).toLocaleDateString('fr-FR')}`
+  if (document.original_state === 'COLLECTED' && document.collected_at) {
+    const day = new Date(document.collected_at).toLocaleDateString('fr-FR')
+    // Remis à son manager (venu pour lui) : on le dit ; sinon "collected" (il est venu lui-même).
+    return document.handed_to && document.handed_to !== document.employee ? `original given to ${document.handed_to} ${day}` : `original collected ${day}`
+  }
   return ''
 }
 

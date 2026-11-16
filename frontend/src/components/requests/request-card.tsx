@@ -51,7 +51,9 @@ export function RequestCard({ request, showRequester, children }: { request: Wor
           <Link href={`/requests/${request.id}?from=approvals`} className="hover:underline">{request.title}</Link>
         </h3>
         <p className="text-[11px] text-slate-500">
-          {showRequester && <>{request.requester} · </>}Sent on {formatDateTime(request.created_at)} · {whereIsIt(request)}
+          {/* Saisie par son manager (ou un RH) pour le demandeur : le valideur le voit tout de suite. */}
+          {showRequester && <>{request.requester}{request.initiated_by_name && <> (requested by {request.initiated_by_name})</>} · </>}
+          Sent on {formatDateTime(request.created_at)} · {whereIsIt(request)}
         </p>
         {/* Une note de frais : ses dépenses et ses justificatifs, à regarder AVANT de valider. */}
         {request.workflow_code === 'EXPENSE' && <Link href={`/expenses/${request.id}?from=approvals`} className="text-[11px] font-semibold text-[#23355d] hover:underline">

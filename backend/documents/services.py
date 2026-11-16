@@ -42,16 +42,30 @@ def add_working_days(start, days):
 FORMAT_IN_TITLE = {DocumentRequest.Format.ORIGINAL: "original", DocumentRequest.Format.BOTH: "PDF + original"}
 
 
+def is_manager_of(user, employee):
+    """Ce compte est le N+1 du collaborateur (le même organigramme que les validations)."""
+    boss = employee.n_plus_1
+    return boss is not None and boss.user_id == user.pk
+
+
 @transaction.atomic
 def request_document(employee, doc_type, purpose="", by=None, format=DocumentRequest.Format.PDF):
     """Demander un document. Une règle refusée -> ValidationError({"doc_type": [...]}).
     format : PDF, ORIGINAL (papier signé à la main, à récupérer au bureau RH) ou BOTH.
     - par le collaborateur lui-même (by vide, ou lui) : la demande suit le circuit (les RH du pôle valident) ;
     - par un RH POUR un collaborateur (champ "Employé (RH)", standard "request on behalf of") : les RH sont
-      l'autorité, la demande est ACCEPTÉE tout de suite (engine.record_approved, l'historique dit qui l'a faite)."""
+      l'autorité, la demande est ACCEPTÉE tout de suite (engine.record_approved, l'historique dit qui l'a faite) ;
+    - par son MANAGER (N+1) pour lui (2026-11-16, standard "Manager Self-Service" : un ouvrier qui n'utilise pas
+      l'application), seulement les types choisis par Admin RH : la demande suit le circuit (les RH valident),
+      le collaborateur est prévenu ; le manager voit où elle en est, jamais le document."""
     for_other = by is not None and by.pk != employee.user_id
-    if for_other and not can_prepare(by, DocumentRequest(employee=employee)):
-        raise PermissionDenied("Seuls les RH du pôle du collaborateur demandent un document pour lui.")
+    hr = for_other and can_prepare(by, DocumentRequest(employee=employee))
+    manager = for_other and not hr and is_manager_of(by, employee)
+    if for_other and not (hr or manager):
+        raise PermissionDenied("Seuls les RH du pôle ou le manager (N+1) du collaborateur demandent un document pour lui.")
+    if manager and not doc_type.manager_can_request:
+        raise ValidationError({"doc_type": ["Ce document ne se demande pas par le manager : le collaborateur ou les RH "
+                                            "le demandent."]})
     # Deux clics "Envoyer" en même temps : le second attend le premier, puis voit la demande déjà en cours.
     Employee.objects.select_for_update().get(pk=employee.pk)
     if not doc_type.is_active:
@@ -70,15 +84,20 @@ def request_document(employee, doc_type, purpose="", by=None, format=DocumentReq
     if format in FORMAT_IN_TITLE:
         title = f"{title} · {FORMAT_IN_TITLE[format]}"
     title = title[:200]  # la longueur maximum d'un titre de demande (un motif très long)
-    if for_other:
+    if hr:
         request = engine.record_approved(Workflow.Code.ADMIN_REQUEST, employee, title, by,
                                          f"Demandé par les RH pour {person(employee)}.")
     else:
-        request = engine.submit(Workflow.Code.ADMIN_REQUEST, employee, title)
+        # Le manager : la demande est au nom du collaborateur, "saisie par" le manager (il suit l'historique).
+        request = engine.submit(Workflow.Code.ADMIN_REQUEST, employee, title, initiated_by=by if manager else None)
     document = DocumentRequest.objects.create(
         request=request, employee=employee, doc_type=doc_type, purpose=purpose, format=format,
         requested_by=by if for_other else None,
         due_date=add_working_days(timezone.localdate(), 0 if doc_type.template else doc_type.delivery_days))
+    if manager:
+        # 🔔 + email au collaborateur : une demande a été faite EN SON NOM.
+        Notification.objects.create(recipient=employee.user, employee=employee,
+                                    kind=Notification.Kind.REQUESTED_FOR, request=request)
     # Déjà acceptée (demandée par les RH) : le handler est passé AVANT que le document existe -> on génère ici.
     if request.status == Request.Status.APPROVED and doc_type.template:
         generate(document)
@@ -96,9 +115,19 @@ def deliver(document, content, name, user=None):
     document.delivered_at, document.delivered_by = timezone.now(), user
     document.save(update_fields=["reference", "file", "file_name", "delivered_at", "delivered_by"])
     if document.needs_pdf:
-        Notification.objects.create(recipient=document.employee.user, employee=document.employee,
-                                    kind=Notification.Kind.DOCUMENT_READY, request=document.request)
+        tell(document, Notification.Kind.DOCUMENT_READY)
     return document
+
+
+def tell(document, kind):
+    """🔔 + email au collaborateur, et à celui qui a SAISI la demande pour lui (son manager, 2026-11-16 : un ouvrier
+    qui n'utilise pas l'application ; le manager le prévient). Le manager ne reçoit jamais le document lui-même."""
+    people = [document.employee.user]
+    initiator = document.request.initiated_by
+    if initiator and initiator.pk != document.employee.user_id:
+        people.append(initiator)
+    Notification.objects.bulk_create(Notification(recipient=user, employee=document.employee, kind=kind,
+                                                   request=document.request) for user in people)
 
 
 def auto_signed(document):
@@ -159,6 +188,7 @@ def upload(document, user, file):
 
 def original_to_handle(document, user):
     """Relit la demande verrouillée et vérifie qu'un RH peut s'occuper de son ORIGINAL papier."""
+    # (Pas "request__initiated_by" ici : PostgreSQL refuse de verrouiller une jointure qui peut être vide.)
     document = DocumentRequest.objects.select_for_update().select_related("request", "employee__user").get(pk=document.pk)
     if not can_prepare(user, document):
         raise PermissionDenied("Seuls les RH du pôle du collaborateur s'occupent de l'original.")
@@ -178,19 +208,27 @@ def mark_original_ready(document, user):
         raise ValidationError("L'original est déjà prêt.")
     document.original_ready_at, document.original_ready_by = timezone.now(), user
     document.save(update_fields=["original_ready_at", "original_ready_by"])
-    Notification.objects.create(recipient=document.employee.user, employee=document.employee,
-                                kind=Notification.Kind.ORIGINAL_READY, request=document.request)
+    tell(document, Notification.Kind.ORIGINAL_READY)  # le collaborateur (+ son manager, s'il l'a demandé pour lui)
     return document
 
 
 @transaction.atomic
-def mark_handed_over(document, user):
-    """Le collaborateur est venu : l'original lui est remis (en main propre). La trace : quand, et par quel RH."""
+def mark_handed_over(document, user, to_manager=False):
+    """L'original est remis en main propre : au collaborateur, ou à son MANAGER venu pour lui (to_manager, 2026-11-16).
+    La trace : quand, par quel RH, à qui. Remis au manager : le collaborateur est prévenu."""
     document = original_to_handle(document, user)
     if not document.original_ready_at:
         raise ValidationError("Marquez d'abord l'original comme prêt.")
     if document.collected_at:
         raise ValidationError("L'original est déjà remis.")
-    document.collected_at, document.collected_by = timezone.now(), user
-    document.save(update_fields=["collected_at", "collected_by"])
+    taker = document.employee
+    if to_manager:
+        taker = document.employee.n_plus_1
+        if taker is None:
+            raise ValidationError("Ce collaborateur n'a pas de manager (N+1) : remettez l'original au collaborateur.")
+    document.collected_at, document.collected_by, document.handed_to = timezone.now(), user, taker
+    document.save(update_fields=["collected_at", "collected_by", "handed_to"])
+    if to_manager:
+        Notification.objects.create(recipient=document.employee.user, employee=document.employee,
+                                    kind=Notification.Kind.ORIGINAL_HANDED, request=document.request)
     return document

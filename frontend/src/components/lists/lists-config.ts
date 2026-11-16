@@ -10,12 +10,13 @@ export type ListValue = ReferenceItem & {
   ceiling?: string; receipt_required?: boolean
   template?: string  // types de document : "WORK" = généré par l'application, "" = préparé par les RH
   delivery_days?: number  // types de document : le délai promis, en jours ouvrés
+  manager_can_request?: boolean  // types de document : le manager peut le demander pour son équipe
 }
 
 // Un champ en plus du nom (listes des modules Congés, Notes de frais, Documents) : affiché en colonne, modifiable avec le nom.
 export type ExtraField = {
   name: 'deducts_balance' | 'max_days' | 'max_days_back' | 'counting' | 'document_from_days' | 'date' | 'estimated' | 'ceiling' | 'receipt_required'
-    | 'template' | 'delivery_days'
+    | 'template' | 'delivery_days' | 'manager_can_request'
   label: string
   type: 'checkbox' | 'number' | 'date' | 'select'
   required?: boolean
@@ -92,6 +93,8 @@ export const DOCUMENT_LISTS: ListConfig[] = [
     ] },
     // Le délai promis au collaborateur ("expected by ..."), en jours ouvrés ; 0 = tout de suite (document généré).
     { name: 'delivery_days', label: 'Delay (working days)', type: 'number', required: true, min: 0, step: 1, placeholder: '2' },
+    // Le N+1 peut le demander pour son équipe (ex. des ouvriers) ; pas pour un document qui montre le salaire.
+    { name: 'manager_can_request', label: 'Managers can request', type: 'checkbox' },
   ] },
   // Qui signe les documents générés, et comment (à la main, ou signature + cachet posés par l'application) : par pôle.
   { name: 'signatories', title: 'Signatures', singular: 'Signature', panel: 'signatures' },

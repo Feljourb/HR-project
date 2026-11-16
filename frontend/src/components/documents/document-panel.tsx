@@ -9,7 +9,7 @@
  * - la ligne du temps complète (la même que la page historique) avec ses boutons (Download, Upload, Original ready...).
  */
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { FileText, Stamp } from 'lucide-react'
+import { CheckCheck, FileText, Stamp } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 import { FORMATS, stateOf, type DocumentRequest } from '@/lib/documents'
 import { formatDate } from '@/lib/leaves'
@@ -20,14 +20,17 @@ import { RequestTimeline } from '@/components/requests/request-history'
 
 type Loaded = { request: WorkflowRequest; document: DocumentRequest }
 
-export function DocumentPanel({ requestId, onClose, onChanged, forHr = false }: {
+export function DocumentPanel({ requestId, onClose, onChanged, showEmployee = false }: {
   requestId: number | null   // la demande ouverte (null : panneau fermé)
   onClose: () => void
   onChanged: () => void      // un clic a changé quelque chose (ex. "Original ready") : la liste derrière se relit
-  forHr?: boolean            // les RH : le nom du collaborateur et son service en plus
+  showEmployee?: boolean     // les RH, ou le manager (demande pour son équipe) : le nom du collaborateur en plus
 }) {
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [failed, setFailed] = useState(false)
+  // Un clic dans le panneau a réussi (Upload, Original ready, Handed over) : on le dit ICI (2026-11-16 : le message
+  // en haut de la page était caché derrière le panneau). Gardé pour CETTE demande seulement.
+  const [noticeFor, setNoticeFor] = useState<number | null>(null)
 
   const load = useCallback(() => {
     if (requestId === null) return
@@ -41,6 +44,7 @@ export function DocumentPanel({ requestId, onClose, onChanged, forHr = false }: 
   useEffect(load, [load])
 
   function changed() {
+    setNoticeFor(requestId)
     load()       // le panneau à jour
     onChanged()  // la liste derrière aussi
   }
@@ -55,7 +59,11 @@ export function DocumentPanel({ requestId, onClose, onChanged, forHr = false }: 
     {!current || !document
       ? <p className="py-10 text-center text-sm text-slate-500">{failed ? 'Could not load this request.' : 'Loading...'}</p>
       : <div className="flex flex-col gap-4">
-          <Summary document={document} forHr={forHr} />
+          {noticeFor === requestId && <p role="status" className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800">
+            <CheckCheck className="size-4" /> Done. Status now: {stateOf(document).label}
+            {document.original_state === 'COLLECTED' && document.handed_to ? ` (handed over to ${document.handed_to})` : ''}.
+          </p>}
+          <Summary document={document} showEmployee={showEmployee} />
           <Tracks document={document} />
           <section>
             <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">History</h3>
@@ -66,16 +74,16 @@ export function DocumentPanel({ requestId, onClose, onChanged, forHr = false }: 
 }
 
 /** Le résumé, en deux colonnes : ce qui a été demandé, et pour quand. */
-function Summary({ document, forHr }: { document: DocumentRequest; forHr: boolean }) {
+function Summary({ document, showEmployee }: { document: DocumentRequest; showEmployee: boolean }) {
   const state = stateOf(document)
   const rows: [string, ReactNode][] = [
-    ...(forHr ? [['Employee', `${document.employee} · ${document.department}`] as [string, ReactNode]] : []),
+    ...(showEmployee ? [['Employee', `${document.employee} · ${document.department}`] as [string, ReactNode]] : []),
     ['Status', <span key="s" className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset', state.badge)}>{state.label}</span>],
     ['For', document.purpose || '—'],
     ['Format', FORMATS.find((option) => option.id === document.format)?.title ?? document.format_label],
     ['Expected by', document.due_date ? `${formatDate(document.due_date)}${document.late ? ' (late)' : ''}` : '—'],
     ['Reference', document.reference || '—'],
-    ...(document.requested_by ? [['Requested by HR', document.requested_by] as [string, ReactNode]] : []),
+    ...(document.requested_by ? [['Requested by', document.requested_by] as [string, ReactNode]] : []),  // un RH, ou le manager
     ...(document.refusal ? [['Refusal reason', document.refusal] as [string, ReactNode]] : []),
   ]
   return <dl className="grid gap-x-4 gap-y-2.5 rounded-xl border border-slate-200/80 bg-white p-4 text-xs sm:grid-cols-2">

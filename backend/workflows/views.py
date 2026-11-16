@@ -61,7 +61,7 @@ def run(action):
 
 def with_steps(requests):
     """Les demandes avec leur circuit, en peu de requêtes SQL (sinon une requête par étape et par nom)."""
-    return requests.select_related("workflow", "requester").prefetch_related(
+    return requests.select_related("workflow", "requester", "initiated_by").prefetch_related(
         "steps__assignee", "steps__decided_by")
 
 
@@ -75,17 +75,29 @@ class MyRequestViewSet(viewsets.ReadOnlyModelViewSet):
 
     GET  /api/workflows/requests/             -> mes demandes, la plus récente d'abord
     GET  /api/workflows/requests/<id>/        -> une de mes demandes (celle d'un autre : 404)
-    POST /api/workflows/requests/<id>/cancel/ -> l'annuler (tant qu'elle est en cours)"""
+    POST /api/workflows/requests/<id>/cancel/ -> l'annuler (tant qu'elle est en cours)
+    GET  /api/workflows/requests/initiated/   -> celles que J'AI saisies pour quelqu'un d'autre (ex. un manager pour
+                                                 son équipe), la plus récente d'abord : onglet "For my team" """
 
     serializer_class = RequestSerializer
 
     def get_queryset(self):
-        return with_steps(Request.objects.filter(requester__user=self.request.user))
+        user = self.request.user
+        if self.action == "cancel":
+            # Annuler : aussi une demande que j'ai saisie pour quelqu'un de mon équipe (le moteur vérifie les règles).
+            return with_steps(Request.objects.filter(Q(requester__user=user) | Q(initiated_by=user)))
+        return with_steps(Request.objects.filter(requester__user=user))
+
+    @action(detail=False)
+    def initiated(self, request):
+        rows = with_steps(Request.objects.filter(initiated_by=request.user).exclude(requester__user=request.user))[:200]
+        return Response(RequestSerializer(rows, many=True).data)
 
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):
         demand = self.get_object()
-        run(lambda: engine.cancel(demand, request.user))
+        # {"reason": "..."} : facultatif pour sa propre demande, obligatoire pour celle d'un autre (le moteur vérifie).
+        run(lambda: engine.cancel(demand, request.user, request.data.get("reason", "")))
         return answer(demand.pk)
 
 

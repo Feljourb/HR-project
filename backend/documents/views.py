@@ -2,6 +2,7 @@
 
 GET  types/                          -> les types actifs (le formulaire)
 GET  mine/                           -> mes demandes de document
+GET  mine/team-members/              -> mon équipe (je suis leur N+1) ; mine/for-team/ : ce que j'ai demandé pour elle
 POST mine/                           -> demander un document {"doc_type": id, "purpose": "Banque", "format": "PDF|ORIGINAL|BOTH"}
 GET  requests/<request>/             -> le document d'une demande (historique, Team approvals ; mêmes droits)
 GET  files/<request>/                -> le PDF (le collaborateur, ses RH, Admin RH, IT ; sinon 404)
@@ -10,7 +11,7 @@ GET  hr/?status=to_prepare|in_progress|pickup|ready|all -> les demandes du pôle
          &search=halima &type=<id> &from=2026-10-01 &to=2026-10-31 -> le nom / matricule, le type, la période
 POST hr/<request>/upload/            -> déposer le PDF signé (multipart "file")
 POST hr/<request>/original-ready/    -> l'original papier signé attend au bureau RH (le collaborateur est prévenu)
-POST hr/<request>/handed-over/       -> l'original est remis au collaborateur
+POST hr/<request>/handed-over/       -> l'original est remis au collaborateur ({"to": "manager"} : à son manager)
 Valider / refuser : Team approvals (le moteur). Annuler : /api/workflows/requests/<request>/cancel/.
 """
 from django.core.exceptions import PermissionDenied as DjangoPermissionDenied
@@ -27,6 +28,7 @@ from rest_framework.response import Response
 from accounts.permissions import IsHR, IsHRAdmin
 from employees.models import Employee, Pole
 from employees.services import limited_to_own_pole, user_pole
+from leaves.views import my_team
 from workflows import engine
 from workflows.models import Request
 
@@ -59,10 +61,25 @@ class TypeViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class MyDocumentViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
+    """mine/ : MES demandes ; + pour un manager (2026-11-16) : son équipe et ce qu'il a demandé pour elle."""
+
     serializer_class = DocumentRequestSerializer
 
     def get_queryset(self):
         return documents().filter(employee__user=self.request.user)
+
+    @action(detail=False, url_path="team-members")
+    def team_members(self, request):
+        """Les personnes dont je suis le N+1 (pour "For": demander un document pour l'une d'elles). Vide : pas d'équipe."""
+        me = Employee.objects.filter(user=request.user).select_related("department__direction__entity__pole").first()
+        return Response([{"id": member.pk, "first_name": member.first_name, "last_name": member.last_name,
+                          "position": member.position.name} for member in my_team(me)])
+
+    @action(detail=False, url_path="for-team")
+    def for_team(self, request):
+        """Ce que J'AI demandé pour mon équipe : où ça en est (jamais le document lui-même : can_download est faux)."""
+        rows = documents().filter(requested_by=request.user).exclude(employee__user=request.user)
+        return Response(DocumentRequestSerializer(rows, many=True, context={"request": request}).data)
 
     def create(self, request):
         # "employee" (facultatif) : un RH demande POUR un collaborateur de son pôle ; sinon, pour moi.
@@ -164,6 +181,10 @@ class FileViewSet(viewsets.GenericViewSet):
 
     def retrieve(self, request, request_id=None):
         document = self.get_object()
+        # Le fichier : le collaborateur et ses RH SEULEMENT. Le manager qui a saisi la demande suit son historique,
+        # mais le document est privé (2026-11-16) : 404, comme s'il n'existait pas.
+        if request.user.pk != document.employee.user_id and not can_prepare(request.user, document):
+            raise NotFound()
         # ?draft=1 : le brouillon sans signature, à imprimer : les RH seulement (jamais le collaborateur).
         if request.query_params.get("draft"):
             if not document.draft or not can_prepare(request.user, document):
@@ -238,5 +259,6 @@ class HrDocumentViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     @action(detail=True, methods=["post"], url_path="handed-over")
     def handed_over(self, request, request_id=None):
         document = self.get_object()
-        run(lambda: mark_handed_over(document, request.user))
+        # {"to": "manager"} : remis à son manager venu pour lui ; sinon au collaborateur lui-même.
+        run(lambda: mark_handed_over(document, request.user, to_manager=request.data.get("to") == "manager"))
         return Response(DocumentRequestSerializer(documents().get(pk=document.pk), context={"request": request}).data)

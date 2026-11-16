@@ -37,6 +37,10 @@ class DocumentType(ReferenceItem):
     # vendredi, sans les jours fériés). 0 = tout de suite (un document généré). Valeurs de départ : à confirmer par les RH.
     delivery_days = models.PositiveSmallIntegerField("Délai (jours ouvrés)", default=2,
                                                      validators=[MaxValueValidator(30)])
+    # Standard "Manager Self-Service" (2026-11-16) : le N+1 peut demander ce document POUR quelqu'un de son équipe
+    # (ex. un ouvrier qui n'utilise pas l'application). Admin RH choisit les types (pas l'attestation de salaire :
+    # le salaire ne regarde pas le manager). La demande passe quand même par les RH.
+    manager_can_request = models.BooleanField("Demandable par le manager pour son équipe", default=False)
 
     class Meta(ReferenceItem.Meta):
         verbose_name = "Type de document"
@@ -142,6 +146,10 @@ class DocumentRequest(models.Model):
     collected_at = models.DateTimeField("Original remis le", null=True, blank=True)
     collected_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
                                      related_name="+", verbose_name="Original remis par")
+    # À QUI l'original a été remis (2026-11-16, standard "remis à") : le collaborateur, ou son manager venu pour lui
+    # (un ouvrier qui ne passe pas au bureau RH). La trace dit qui l'a pris.
+    handed_to = models.ForeignKey(Employee, on_delete=models.PROTECT, null=True, blank=True, related_name="+",
+                                  verbose_name="Original remis à")
 
     class Meta:
         ordering = ["-id"]

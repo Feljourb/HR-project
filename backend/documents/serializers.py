@@ -12,7 +12,7 @@ class DocumentTypeSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DocumentType
-        fields = ["id", "name", "template", "automatic", "delivery_days"]
+        fields = ["id", "name", "template", "automatic", "delivery_days", "manager_can_request"]
 
     def get_automatic(self, doc_type):
         return bool(doc_type.template)
@@ -70,13 +70,26 @@ class DocumentRequestSerializer(serializers.ModelSerializer):
     can_download = serializers.SerializerMethodField()        # le PDF, pour celui qui lit
     can_handle_original = serializers.SerializerMethodField()  # boutons "Original ready" / "Handed over" (RH)
     can_print = serializers.SerializerMethodField()           # le brouillon sans signature, à imprimer (RH seulement)
+    handed_to = serializers.SerializerMethodField()   # à qui l'original a été remis (le collaborateur ou son manager)
+    manager = serializers.SerializerMethodField()     # son manager (N+1), pour "Handed over to: ... his manager"
 
     class Meta:
         model = DocumentRequest
         fields = ["id", "request", "doc_type", "automatic", "purpose", "format", "format_label", "status", "state", "created_at", "closed_at",
                   "employee", "department", "reference", "file_name", "has_file", "delivered_at", "delivered_by", "refusal",
                   "requested_by", "due_date", "late", "can_upload", "can_download", "can_print",
-                  "original_state", "original_ready_at", "original_ready_by", "collected_at", "collected_by", "can_handle_original"]
+                  "original_state", "original_ready_at", "original_ready_by", "collected_at", "collected_by", "can_handle_original",
+                  "handed_to", "manager"]
+
+    def get_handed_to(self, document):
+        return person(document.handed_to) if document.handed_to_id else None
+
+    def get_manager(self, document):
+        # Seulement quand l'original attend : le RH choisit à qui il le remet. Sinon inutile (et une requête de moins).
+        if document.original_state != "PICKUP":
+            return None
+        boss = document.employee.n_plus_1
+        return person(boss) if boss else None
 
     def is_hr(self, document):
         """Celui qui lit est un RH qui s'occupe de ce document (RH du pôle, Admin RH, IT)."""
@@ -93,8 +106,11 @@ class DocumentRequestSerializer(serializers.ModelSerializer):
         return bool(document.draft) and document.request.status == "APPROVED" and self.is_hr(document)
 
     def get_can_download(self, document):
-        # "Original" seul : le PDF sert aux RH à l'imprimer ; le collaborateur attend le papier.
-        return bool(document.file) and (document.needs_pdf or self.is_hr(document))
+        # Le collaborateur (s'il a demandé le PDF) et ses RH. Jamais le manager qui a fait la demande pour lui
+        # (2026-11-16 : il suit où elle en est, le document est privé) ; "original" seul : le collaborateur attend le papier.
+        viewer = self.context.get("request")
+        mine = bool(viewer) and viewer.user.pk == document.employee.user_id
+        return bool(document.file) and ((mine and document.needs_pdf) or self.is_hr(document))
 
     def get_can_handle_original(self, document):
         return document.original_state in ("TO_SIGN", "PICKUP") and self.is_hr(document)

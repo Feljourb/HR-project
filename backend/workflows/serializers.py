@@ -154,11 +154,16 @@ class RequestSerializer(serializers.ModelSerializer):
     steps = RequestStepSerializer(many=True)
     cancelled_by = serializers.StringRelatedField()  # le compte qui a annulé (le demandeur, ou un RH), ou null
     cancelled_by_name = serializers.SerializerMethodField()  # son nom ("Collab Test"), pour l'historique
+    # Qui l'a saisie pour le demandeur (son manager, un RH) : "Submitted by Manager Test for Collab Test", ou null.
+    initiated_by_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Request
         fields = ["id", "workflow", "workflow_code", "title", "requester", "status", "status_label",
-                  "created_at", "closed_at", "cancelled_by", "cancelled_by_name", "cancel_reason", "steps"]
+                  "created_at", "closed_at", "cancelled_by", "cancelled_by_name", "cancel_reason", "initiated_by_name", "steps"]
+
+    def get_initiated_by_name(self, request):
+        return name_of(request.initiated_by) if request.initiated_by_id else None
 
     def get_requester(self, request):
         return person(request.requester)

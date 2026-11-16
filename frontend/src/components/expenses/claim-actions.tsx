@@ -26,17 +26,22 @@ export function PdfButton({ claim }: { claim: ExpenseClaim }) {
 }
 
 /** Annuler en deux clics, par le moteur (comme un congé). Seuls le n° de demande et son statut servent :
- *  aussi pour une demande de document (page Administrative documents). */
-export function CancelClaim({ claim, onCancelled }: { claim: Pick<ExpenseClaim, 'request' | 'status'>; onCancelled: () => void }) {
+ *  aussi pour une demande de document (page Administrative documents).
+ *  needReason (2026-11-16, standard) : annuler la demande d'un AUTRE (un manager pour son équipe) demande un motif,
+ *  que le demandeur lit dans sa notification ; pour sa propre demande, il n'en faut pas. */
+export function CancelClaim({ claim, onCancelled, needReason = false }: {
+  claim: Pick<ExpenseClaim, 'request' | 'status'>; onCancelled: () => void; needReason?: boolean
+}) {
   const [asking, setAsking] = useState(false)
+  const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   if (claim.status !== 'IN_PROGRESS') return null
 
   async function cancel() {
     setBusy(true)
-    const result = await sendChange(() => apiFetch(`/api/workflows/requests/${claim.request}/cancel/`, { method: 'POST' }),
-      'Only the requester can cancel this claim.')
+    const result = await sendChange(() => apiFetch(`/api/workflows/requests/${claim.request}/cancel/`,
+      { method: 'POST', body: JSON.stringify({ reason }) }), 'Only the requester can cancel this request.')
     if ('data' in result) onCancelled()
     else setError(result.error)
     setBusy(false)
@@ -47,8 +52,11 @@ export function CancelClaim({ claim, onCancelled }: { claim: Pick<ExpenseClaim, 
     {error && <span role="alert" className="text-[11px] text-red-600">{error}</span>}
     {asking
       ? <>
+          {needReason && <input autoFocus value={reason} onChange={(e) => setReason(e.target.value)} maxLength={300}
+            placeholder="Reason (the employee is told)" aria-label="Reason for cancelling"
+            className="h-7 w-48 rounded-md border border-slate-200 px-2 text-[11px] outline-none focus:border-[#23355d]" />}
           <button type="button" onClick={() => setAsking(false)} className="rounded-md px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100">No</button>
-          <button type="button" disabled={busy} onClick={cancel}
+          <button type="button" disabled={busy || (needReason && !reason.trim())} onClick={cancel}
             className="flex items-center gap-1 rounded-md bg-red-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-red-700 disabled:opacity-60">
             {busy && <Loader2 className="size-3 animate-spin" />} Yes, cancel
           </button>

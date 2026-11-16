@@ -148,7 +148,7 @@ def link(notification):
         return "/"  # (garde-fou) une notification sans demande ni page à elle : le tableau de bord
     if notification.kind in (Kind.BALANCE_ADJUSTED, Kind.RIGHT_CHANGED, Kind.EXPIRING):
         return "/leaves"  # ma page Congés : mon solde et la section "Balance changes"
-    if notification.kind in (Kind.DOCUMENT_READY, Kind.ORIGINAL_READY):
+    if notification.kind in (Kind.DOCUMENT_READY, Kind.ORIGINAL_READY, Kind.REQUESTED_FOR, Kind.ORIGINAL_HANDED):
         return "/documents"  # ma page Administrative documents : le bouton Download, l'état de l'original
     if notification.kind == Kind.DELEGATION_ENDED:
         # Ce que j'ai répondu en remplacement : My requests -> Received (collaborateur), Team approvals -> History.
@@ -222,13 +222,35 @@ def message(notification):
                                                 created_at__lte=notification.created_at).order_by("-created_at").first())
         period = f" du {delegation.start_date:%d/%m/%Y} au {delegation.end_date:%d/%m/%Y}" if delegation else ""
         return f"Vous remplacez {name}{period} : ses demandes à valider arrivent aussi chez vous."
+    # Pour le collaborateur lui-même, ou pour celui qui a saisi sa demande (son manager, 2026-11-16) : pas "Votre ...".
+    for_me = employee.user_id == notification.recipient_id
     if notification.kind == Kind.DOCUMENT_READY:
         document = getattr(notification.request, "document", None)  # documents.DocumentRequest (lien inverse)
         what = f"{document.doc_type} (réf. {document.reference})" if document else notification.request.title
+        if not for_me:
+            return f"Le document de {name} est prêt : {what}. Il le télécharge dans son espace « Administrative documents »."
         return f"Votre document est prêt : {what}. Téléchargez-le dans « Administrative documents »."
+    if notification.kind == Kind.REQUESTED_FOR:
+        from workflows.serializers import name_of
+        document = getattr(notification.request, "document", None)
+        if document is None:
+            return f"Une demande a été faite pour vous : {notification.request.title}."
+        who = name_of(document.requested_by) if document.requested_by_id else "Votre manager"
+        return (f"{who} a demandé pour vous : {document.doc_type} ({document.get_format_display().lower()}). "
+                "Les RH la préparent ; vous serez prévenu quand elle sera prête.")
+    if notification.kind == Kind.ORIGINAL_HANDED:
+        from workflows.serializers import name_of, person
+        document = getattr(notification.request, "document", None)
+        if document is None or document.handed_to is None:
+            return f"Votre original a été remis à votre manager : {notification.request.title}."
+        by = f" par {name_of(document.collected_by)}" if document.collected_by_id else ""
+        return (f"L'original de votre {document.doc_type} a été remis à votre manager {person(document.handed_to)}"
+                f"{by}, le {timezone.localtime(document.collected_at):%d/%m/%Y}.")
     if notification.kind == Kind.ORIGINAL_READY:
         document = getattr(notification.request, "document", None)
         what = document.doc_type if document else notification.request.title
+        if not for_me:
+            return f"L'original signé de {name} attend au bureau RH : {what}. Prévenez-le de passer le récupérer."
         return f"L'original signé de votre document vous attend au bureau RH : {what}. Passez le récupérer."
     if notification.kind == Kind.DELEGATION_ENDED:
         from workflows.models import Delegation
@@ -252,20 +274,22 @@ def message(notification):
     if notification.kind != Kind.TRIAL_END:
         title = notification.request.title
         if notification.kind == Kind.CANCELLED:
+            from workflows.serializers import name_of
             request = notification.request
-            who = request.cancelled_by.username if request.cancelled_by else "?"
+            who = name_of(request.cancelled_by) if request.cancelled_by else "?"  # "Manager Test", pas "manager.test"
             reason = f" Motif : {request.cancel_reason}" if request.cancel_reason else ""
             return f"Demande annulée par {who} : {title} ({name}).{reason}"
         if notification.kind == Kind.TO_VALIDATE:
             return f"{name} attend votre réponse : {title}."
         if notification.kind == Kind.INFORMED:
             return f"Pour information : {title} ({name})."
+        whose = "Votre demande" if for_me else f"La demande de {name}"  # le manager qui l'a saisie pour lui
         if notification.kind == Kind.APPROVED:
-            return f"Votre demande a été acceptée : {title}."
+            return f"{whose} a été acceptée : {title}."
         # Refusée : avec le motif (le commentaire est obligatoire pour refuser).
         rejected = notification.request.steps.filter(status="REJECTED").first()
         reason = f" Motif : {rejected.comment}" if rejected and rejected.comment else ""
-        return f"Votre demande a été refusée : {title}.{reason}"
+        return f"{whose} a été refusée : {title}.{reason}"
 
     # La fin de la période d'essai (step G).
     end = notification.due_date.strftime("%d/%m/%Y")

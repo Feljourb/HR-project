@@ -129,14 +129,15 @@ def answers_for_absent(user, step):
 
 
 @transaction.atomic
-def submit(code, requester, title):
+def submit(code, requester, title, initiated_by=None):
     """Envoie une demande dans son circuit. Ex. submit("LEAVE", sara, "Congé du 10 au 15 novembre").
+    initiated_by : le compte qui l'envoie À LA PLACE du demandeur (ex. son manager), ou None (lui-même).
     transaction.atomic : si quelque chose échoue au milieu, rien n'est enregistré (pas de demande à moitié)."""
     workflow = Workflow.objects.get(code=code)
     if not workflow.is_active:
         raise ValidationError("Ce type de demande est désactivé.")
 
-    request = Request.objects.create(workflow=workflow, requester=requester, title=title)
+    request = Request.objects.create(workflow=workflow, requester=requester, title=title, initiated_by=initiated_by)
     now = timezone.now()
 
     # 2. La photo du circuit : une étape de demande par étape du circuit, avec QUI valide.
@@ -174,7 +175,7 @@ def record_approved(code, requester, title, user, comment):
     if not workflow.is_active:
         raise ValidationError("Ce type de demande est désactivé.")
     now = timezone.now()
-    request = Request.objects.create(workflow=workflow, requester=requester, title=title,
+    request = Request.objects.create(workflow=workflow, requester=requester, title=title, initiated_by=user,
                                      status=Request.Status.APPROVED, closed_at=now)
     RequestStep.objects.create(request=request, order=1, approver=Approver.HR, mode=Mode.VALIDATE,
                                status=Status.APPROVED, decided_by=user, decided_at=now, comment=comment)
@@ -183,6 +184,15 @@ def record_approved(code, requester, title, user, comment):
     if handler:
         handler(request)
     return request
+
+
+def result_people(request):
+    """Qui apprend le résultat (acceptée, refusée) : le demandeur, et celui qui l'a SAISIE pour lui s'il y en a un
+    (ex. son manager, pour un ouvrier qui n'utilise pas l'application : il le prévient ; 2026-11-16)."""
+    people = [request.requester.user]
+    if request.initiated_by_id and request.initiated_by_id != request.requester.user_id:
+        people.append(request.initiated_by)
+    return people
 
 
 def advance(request):
@@ -204,7 +214,7 @@ def advance(request):
         return
     request.status, request.closed_at = Request.Status.APPROVED, now
     request.save(update_fields=["status", "closed_at"])
-    notify.send([request.requester.user], notify.Kind.APPROVED, request)  # 🔔 au demandeur
+    notify.send(result_people(request), notify.Kind.APPROVED, request)  # 🔔 au demandeur (+ celui qui l'a saisie)
     # La demande est acceptée : le module fait son travail (ex. Congé : retirer les jours du solde).
     handler = HANDLERS.get(request.workflow.code)
     if handler:
@@ -276,7 +286,8 @@ def requests_visible_to(user):
     Role = get_user_model().Role
     if user.is_superuser or user.role == Role.HR_ADMIN:
         return Request.objects.all()
-    mine = Q(requester__user=user) | Q(steps__assignee__user=user) | Q(steps__decided_by=user)
+    # + celui qui l'a saisie pour le demandeur (ex. son manager) : il suit la demande (2026-11-16).
+    mine = Q(requester__user=user) | Q(steps__assignee__user=user) | Q(steps__decided_by=user) | Q(initiated_by=user)
     pole = user_pole(user)
     if user.role == Role.HR and pole is not None:
         mine |= Q(requester__department__direction__entity__pole=pole)
@@ -330,21 +341,32 @@ def reject(step, user, comment):
     request = step.request
     request.status, request.closed_at = Request.Status.REJECTED, step.decided_at
     request.save(update_fields=["status", "closed_at"])
-    notify.send([request.requester.user], notify.Kind.REJECTED, request)  # 🔔 au demandeur (avec le motif)
+    notify.send(result_people(request), notify.Kind.REJECTED, request)  # 🔔 au demandeur (avec le motif) + celui qui l'a saisie
     return request
 
 
 @transaction.atomic
-def cancel(request, user):
-    """Le demandeur annule sa demande, tant qu'elle est en cours."""
+def cancel(request, user, reason=""):
+    """Le demandeur annule sa demande, tant qu'elle est en cours.
+    Standard (Workday / ServiceNow, 2026-11-16) : le motif est FACULTATIF pour le demandeur (sa propre demande), et
+    OBLIGATOIRE pour celui qui annule une demande faite au nom d'un autre (son manager) : le demandeur le lit."""
     request = Request.objects.select_for_update().get(pk=request.pk)
-    if request.requester.user_id != user.pk:
-        raise PermissionDenied("Seul le demandeur peut annuler sa demande.")
+    # Le demandeur, ou celui qui l'a SAISIE pour lui (ex. son manager qui s'est trompé ; 2026-11-16, standard "withdraw").
+    if user.pk not in (request.requester.user_id, request.initiated_by_id):
+        raise PermissionDenied("Seul le demandeur (ou celui qui a saisi la demande pour lui) peut l'annuler.")
     if request.status != Request.Status.IN_PROGRESS:
         raise ValidationError("Cette demande est déjà terminée.")
+    reason = (reason or "").strip()
+    if user.pk != request.requester.user_id and not reason:
+        raise ValidationError("Un motif est obligatoire pour annuler une demande faite au nom de quelqu'un.")
     request.status, request.closed_at, request.cancelled_by = Request.Status.CANCELLED, timezone.now(), user
-    request.save(update_fields=["status", "closed_at", "cancelled_by"])
+    request.cancel_reason = reason
+    request.save(update_fields=["status", "closed_at", "cancelled_by", "cancel_reason"])
     notify.clear_waiting(request)  # 🔔 plus rien à valider : les "Demande à valider" pas lues partent
+    # Annulée par celui qui l'avait saisie (son manager) : le demandeur le sait, c'était une demande EN SON NOM.
+    # Rien n'est effacé : la demande reste, "Annulée par ...", dans son historique et chez les RH.
+    if user.pk != request.requester.user_id:
+        notify.send([request.requester.user], notify.Kind.CANCELLED, request)
     return request
 
 

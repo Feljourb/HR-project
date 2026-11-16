@@ -69,7 +69,8 @@ function documentEvents(document: DocumentRequest, onChanged: () => void): Event
   // L'original papier (format original / les deux).
   if (document.original_state === 'TO_SIGN') {
     events.push({
-      icon: Stamp, tone: 'text-violet-600', title: 'Original being signed by HR', detail: `To pick up at the HR office${due}`,
+      // Les mêmes mots que la liste ("Being prepared") ; "Original ready" seulement quand le RH a cliqué.
+      icon: Clock, tone: 'text-amber-500', title: 'Original being prepared by HR', detail: `Signed and stamped by hand, to pick up at the HR office${due}`,
       action: document.can_handle_original ? <>
         <PrintButton document={document} />
         <OriginalButtons document={document} onDone={onChanged} />
@@ -83,7 +84,10 @@ function documentEvents(document: DocumentRequest, onChanged: () => void): Event
       action: document.original_state === 'PICKUP' ? <OriginalButtons document={document} onDone={onChanged} /> : undefined,
     })
     if (document.original_state === 'COLLECTED') {
-      events.push({ icon: HandHelping, tone: 'text-emerald-600', title: 'Original handed over',
+      // À qui (2026-11-16) : le collaborateur, ou son manager venu pour lui.
+      const toManager = document.handed_to && document.handed_to !== document.employee
+      events.push({ icon: HandHelping, tone: 'text-emerald-600',
+        title: toManager ? `Original handed over to ${document.handed_to} (manager)` : `Original handed over to ${document.handed_to ?? document.employee}`,
         detail: document.collected_by ? `by ${document.collected_by}` : undefined, at: document.collected_at })
     }
   }
@@ -144,7 +148,9 @@ const STATUS: Record<string, { label: string; badge: string }> = {
  *  Version "pro" (2026-11-11) : les NOMS des personnes (pas "manager.test"), chaque information UNE fois
  *  (qui a validé : sur sa ligne ; la dernière ligne dit seulement que c'est fini et ce qui se passe maintenant). */
 function stepEvents(request: WorkflowRequest): Event[] {
-  const events: Event[] = [{ icon: Send, tone: 'text-[#23355d]', title: `Submitted by ${request.requester}`, at: request.created_at }]
+  // Saisie par quelqu'un d'autre (son manager, un RH) : on le dit ("Submitted by Manager Test for Collab Test").
+  const submitted = request.initiated_by_name ? `Submitted by ${request.initiated_by_name} for ${request.requester}` : `Submitted by ${request.requester}`
+  const events: Event[] = [{ icon: Send, tone: 'text-[#23355d]', title: submitted, at: request.created_at }]
   const finished = request.status !== 'IN_PROGRESS'
 
   for (const step of request.steps) {

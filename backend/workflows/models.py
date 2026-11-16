@@ -102,6 +102,11 @@ class Request(models.Model):
     cancelled_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
                                      related_name="+", verbose_name="Annulée par")
     cancel_reason = models.TextField("Motif de l'annulation", blank=True)
+    # Qui a SAISI la demande à la place du demandeur (standard "initiator", 2026-11-16) : un RH ("Record a leave",
+    # "Employee (HR)") ou le manager pour son équipe. Vide : le demandeur lui-même. Il suit la demande (historique)
+    # et tout le monde voit "envoyée par X pour Y".
+    initiated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                                     related_name="+", verbose_name="Saisie par")
 
     class Meta:
         ordering = ["-created_at"]  # la plus récente d'abord
