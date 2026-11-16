@@ -3,19 +3,21 @@
 import Link from 'next/link'
 import type { LucideIcon } from 'lucide-react'
 import { CalendarDays, FileText, Moon, ReceiptText, Sparkles, Sun, Sunrise, UserPlus } from 'lucide-react'
-import { Button, buttonVariants } from '@/components/ui/button'
+import { buttonVariants } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { stagger } from './panel'
 import { isoWeek, longDate, officeClock } from './time'
 
-// href : la page existe ; sans : le module n'est pas encore fait (simple bouton).
-const secondaryActions: { label: string; icon: LucideIcon; href?: string }[] = [
+// Les raccourcis : chacun ouvre la page de son module.
+const actions: { label: string; icon: LucideIcon; href: string }[] = [
+  { label: 'Request leave', icon: CalendarDays, href: '/leaves' },
   { label: 'Submit expense', icon: ReceiptText, href: '/expenses' },
-  { label: 'Demande administrative', icon: FileText },
+  { label: 'Demande administrative', icon: FileText, href: '/documents' },
 ]
 
-const secondaryClass = 'h-9 gap-1.5 border-slate-200 bg-white px-3 text-[13px] font-medium text-slate-700 shadow-[0_1px_2px_rgba(15,23,42,0.04)] hover:border-[#23355d]/30 hover:bg-white hover:text-[#23355d]'
-const iconClass = 'size-4 text-slate-400 transition-colors group-hover/button:text-[#23355d]'
+// Tous les boutons pareils (blancs) ; le bleu seulement sur celui qu'on survole / clique (demandé le 2026-11-16).
+const secondaryClass = 'h-9 gap-1.5 border-slate-200 bg-white px-3 text-[13px] font-medium text-slate-700 shadow-[0_1px_2px_rgba(15,23,42,0.04)] hover:border-[#23355d] hover:bg-[#23355d] hover:text-white active:bg-[#192646]'
+const iconClass = 'size-4 text-slate-400 transition-colors group-hover/button:text-white'
 
 function salutation(hour: number | null): { text: string; icon: LucideIcon } {
   if (hour === null) return { text: 'Welcome back', icon: Sparkles }
@@ -49,17 +51,10 @@ export function Greeting({ now, name, canAddEmployee }: { now: Date | null; name
       {canAddEmployee && <Link href="/employees/new" className={cn(buttonVariants({ variant: 'outline' }), secondaryClass)}>
         <UserPlus className={iconClass} /> Add employee
       </Link>}
-      {/* L'action principale (en bleu) : la plus utilisée par tout le monde. Un lien vers la page des congés. */}
-      <Link href="/leaves" className={cn(buttonVariants(), 'h-9 gap-1.5 bg-[#23355d] px-3.5 text-[13px] font-semibold text-white shadow-sm hover:bg-[#192646]')}>
-        <CalendarDays className="size-4" /> Request leave
-      </Link>
-      {secondaryActions.map(({ label, icon: Icon, href }) => href
-        ? <Link key={label} href={href} className={cn(buttonVariants({ variant: 'outline' }), secondaryClass)}>
-            <Icon className={iconClass} /> {label}
-          </Link>
-        : <Button key={label} variant="outline" className={secondaryClass}>
-            <Icon className={iconClass} /> {label}
-          </Button>)}
+      {actions.map(({ label, icon: Icon, href }) =>
+        <Link key={label} href={href} className={cn(buttonVariants({ variant: 'outline' }), secondaryClass)}>
+          <Icon className={iconClass} /> {label}
+        </Link>)}
     </div>
   </section>
 }
