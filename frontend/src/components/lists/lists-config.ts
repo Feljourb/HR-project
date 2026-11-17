@@ -103,8 +103,7 @@ export const DOCUMENT_LISTS: ListConfig[] = [
     // place depuis le 2026-11-17, Réglages des documents -> "How each document is made" -> Set up.)
     // Le délai promis au collaborateur ("expected by ..."), en jours ouvrés ; 0 = tout de suite (document généré).
     { name: 'delivery_days', label: 'Delay (working days)', type: 'number', required: true, min: 0, step: 1, placeholder: '2' },
-    // Le N+1 peut le demander pour son équipe (ex. des ouvriers) ; pas pour un document qui montre le salaire.
-    { name: 'manager_can_request', label: 'Managers can request', type: 'checkbox' },
+    // ("Managers can request" : dans Réglages des documents -> 4. Managers, avec le choix des managers : une seule place.)
   ] },
   // Tous les réglages des documents, en 4 questions dans UNE page (2026-11-17) : ce que le collaborateur demande,
   // comment le PDF est fait (les signatures, par pôle : automatique ou par les RH), les modèles, les managers.

@@ -6,6 +6,7 @@ Comme les congés et les notes de frais : le module vérifie SES règles, puis d
 - sinon : les RH du pôle déposent le PDF signé (upload).
 Dans les deux cas, le collaborateur reçoit 🔔 + email "Document prêt".
 """
+import re
 from datetime import timedelta
 from pathlib import Path
 from uuid import uuid4
@@ -223,12 +224,16 @@ def generate(document, reviewed=False):
     if not document.reference:
         # La référence est écrite DANS le PDF : on la donne avant de le fabriquer.
         document.reference = f"DOC-{timezone.localdate():%Y}-{document.pk:05d}"
-    if document.doc_type.hr_review and not reviewed:
+    signed = auto_signed(document)
+    # 2026-11-17 (l'utilisatrice : "un PDF qui part tout seul, les RH ne le voient pas, ça n'a pas de sens") : même
+    # signé par l'application, le PDF n'est JAMAIS envoyé sans que les RH l'aient vu : il attend dans "To prepare",
+    # le RH ouvre "Prepare", voit le document rempli et signé, et clique "Send to the employee" (save_text ->
+    # generate(reviewed=True)). Aussi la "Relecture RH" d'Admin RH (hr_review).
+    if not reviewed and (document.doc_type.hr_review or (signed and document.needs_pdf)):
         document.save(update_fields=["reference"])
-        return document  # "To prepare" : les RH relisent d'abord
+        return document  # "To prepare" : les RH regardent, puis envoient
     make = TEMPLATES[document.doc_type.template]
     name = f"{document.doc_type.name} - {document.employee.last_name} {document.employee.first_name}"
-    signed = auto_signed(document)
     if document.needs_original or not signed:
         document.draft.save(f"{name} (brouillon).pdf", ContentFile(make(document, signed=False)), save=False)
         document.save(update_fields=["reference", "draft"])
@@ -245,6 +250,57 @@ def draft_bytes(document):
         document.reference = f"DOC-{timezone.localdate():%Y}-{document.pk:05d}"
         document.save(update_fields=["reference"])
     return TEMPLATES[document.doc_type.template](document, signed=False, text=text_of(document))
+
+
+def word_bytes(document):
+    """"Download Word" des RH (2026-11-17) : le MÊME document qu'en PDF (en-tête, titre, référence, texte du moment,
+    "Fait à ..., le", le signataire, une place pour signer), en Word modifiable : les RH peuvent encore y changer
+    quelque chose avant d'imprimer. Fait avec python-docx (déjà installé avec docxtpl)."""
+    from io import BytesIO
+
+    from docx import Document as WordDocument
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.shared import Pt
+
+    if not document.reference:
+        document.reference = f"DOC-{timezone.localdate():%Y}-{document.pk:05d}"
+        document.save(update_fields=["reference"])
+    employee = document.employee
+    signatory = signatory_of(employee)
+    word = WordDocument()
+    word.styles["Normal"].font.name = "Calibri"
+    word.styles["Normal"].font.size = Pt(11)
+
+    def line(text, bold=False, size=None, align=None, space_after=6):
+        paragraph = word.add_paragraph()
+        run = paragraph.add_run(text)
+        run.bold = bold
+        if size:
+            run.font.size = Pt(size)
+        if align is not None:
+            paragraph.alignment = align
+        paragraph.paragraph_format.space_after = Pt(space_after)
+        return paragraph
+
+    line(employee.department.direction.entity.name, bold=True, size=13, space_after=0)
+    line("Direction des Ressources Humaines", size=9, space_after=18)
+    line(document.doc_type.name.upper(), bold=True, size=16, align=WD_ALIGN_PARAGRAPH.CENTER, space_after=2)
+    line(f"Réf. : {document.reference}", size=9, align=WD_ALIGN_PARAGRAPH.CENTER, space_after=24)
+    # Le texte : une ligne vide = un paragraphe, **mot** = gras (comme le PDF).
+    for block in [part.strip() for part in re.split(r"\n\s*\n", text_of(document).replace("\r", "")) if part.strip()]:
+        paragraph = word.add_paragraph()
+        paragraph.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+        paragraph.paragraph_format.space_after = Pt(10)
+        for index, piece in enumerate(re.split(r"\*\*(.+?)\*\*", block)):
+            if piece:
+                paragraph.add_run(piece).bold = index % 2 == 1  # les morceaux impairs étaient entre ** **
+    line(f"Fait à {signatory.city}, le {timezone.localdate():%d/%m/%Y}", align=WD_ALIGN_PARAGRAPH.RIGHT, space_after=14)
+    line(signatory.title, bold=True, align=WD_ALIGN_PARAGRAPH.RIGHT, space_after=0)
+    if signatory.name:
+        line(signatory.name, align=WD_ALIGN_PARAGRAPH.RIGHT, space_after=0)
+    out = BytesIO()
+    word.save(out)
+    return out.getvalue()
 
 
 MODEL_EXTENSIONS = (".docx", ".doc", ".odt", ".pdf")

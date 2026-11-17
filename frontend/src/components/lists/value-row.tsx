@@ -96,12 +96,12 @@ export function ValueRow({ list, api = LISTS_API, item, withCode, headFilter, ex
               <label htmlFor={`code-${item.id}`} className="sr-only">Code</label>
               <input id={`code-${item.id}`} required value={code} onChange={(e) => setCode(e.target.value)} className={cn(controlClass, 'mt-0 h-8 w-28')} />
             </>}
-            {/* Les champs en plus (date, maximum, décompté du solde) se modifient avec le nom. */}
-            {extra.map((field) => <ExtraInput key={field.name} id={`${field.name}-${item.id}`} field={field} compact
-              value={extras[field.name]} onChange={(value) => setExtras((old) => ({ ...old, [field.name]: value }))} />)}
+            {/* Le nom D'ABORD (comme les colonnes du tableau), puis les champs en plus, chacun avec son nom visible. */}
             <label htmlFor={`name-${item.id}`} className="sr-only">Name</label>
             <input id={`name-${item.id}`} required autoFocus value={name} onChange={(e) => { setName(e.target.value); setError('') }}
               aria-invalid={error ? true : undefined} className={cn(controlClass, 'mt-0 h-8 min-w-48 flex-1')} />
+            {extra.map((field) => <ExtraInput key={field.name} id={`${field.name}-${item.id}`} field={field} compact
+              value={extras[field.name]} onChange={(value) => setExtras((old) => ({ ...old, [field.name]: value }))} />)}
             <button type="submit" disabled={busy} className="flex items-center gap-1.5 rounded-md bg-[#23355d] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#192646] disabled:opacity-60">
               {busy && <Loader2 className="size-3 animate-spin" />} Save
             </button>

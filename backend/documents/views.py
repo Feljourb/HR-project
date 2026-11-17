@@ -50,7 +50,7 @@ from .pdf import TEMPLATES, model_text, work_certificate
 from .serializers import DocumentRequestSerializer, DocumentSettingsSerializer, DocumentTypeSerializer, SignatorySerializer
 from .services import (
     MAX_TEXT, auto_signed, can_prepare, draft_bytes, earliest_needed_by, filled_model, mark_handed_over, mark_original_ready, request_documents, save_text,
-    set_model, text_of, upload,
+    set_model, text_of, upload, word_bytes,
 )
 
 
@@ -391,6 +391,12 @@ class HrDocumentViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         if not can_prepare(request.user, document):
             raise NotFound()
         if document.doc_type.template:
+            # ?as=word (2026-11-17) : le même document en Word modifiable ; sinon le PDF (imprimer / télécharger).
+            if request.query_params.get("as") == "word":
+                response = HttpResponse(word_bytes(document),
+                                        content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+                response["Content-Disposition"] = f'attachment; filename="{document.reference}.docx"'
+                return response
             response = HttpResponse(draft_bytes(document), content_type="application/pdf")
             response["Content-Disposition"] = f'attachment; filename="brouillon-{document.reference}.pdf"'
             return response
@@ -423,7 +429,11 @@ class HrDocumentViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         text = str(request.data.get("text", "")).strip()[:MAX_TEXT] or text_of(document)
         if not document.reference:
             document.reference = "APERÇU"
-        content = TEMPLATES[document.doc_type.template](document, signed=auto_signed(document), text=text)
+        # L'aperçu montre EXACTEMENT ce qui sortira (2026-11-17 : il montrait la signature de l'application alors que
+        # le document allait être imprimé et signé à la main) : signé seulement quand l'application l'envoie elle-même
+        # (PDF seul + signature automatique) ; sinon (original, ou PDF fait par les RH) sans signature, à signer à la main.
+        signed = auto_signed(document) and document.format == DocumentRequest.Format.PDF
+        content = TEMPLATES[document.doc_type.template](document, signed=signed, text=text)
         response = HttpResponse(content, content_type="application/pdf")
         response["Content-Disposition"] = 'inline; filename="apercu.pdf"'
         return response

@@ -11,7 +11,9 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { CheckCircle2, Loader2, X } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
+import type { DocumentType } from '@/lib/documents'
 import { cn } from '@/lib/utils'
+import { sendChange } from '@/lib/workflows'
 import { formatDateTime } from '@/components/employees/history-changes'
 import { PersonPicker, type Person } from '@/components/requests/out-of-office'
 import { DocumentTypesSetup } from './document-types-setup'
@@ -213,10 +215,46 @@ export function DocumentSettingsPanel() {
               </li>)}
             </ul>}
       </div>}
-      <p className="text-[11px] text-slate-500">Which documents a manager can request: column &ldquo;Managers can request&rdquo; of Types de document.</p>
+      {/* Quels documents (même place que "quels managers", 2026-11-17) : enregistré à chaque clic. */}
+      {draft.manager_requests !== 'OFF' && <ManagerDocuments />}
       {saveBar(saved)}
     </Card>
   </div>
+}
+
+/** Les documents qu'un manager peut demander pour son équipe (DocumentType.manager_can_request) : une case par
+ *  document, enregistrée tout de suite (pas l'attestation de salaire : le salaire ne regarde pas le manager). */
+function ManagerDocuments() {
+  const [types, setTypes] = useState<DocumentType[] | null>(null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    apiFetch('/api/documents/types/')
+      .then(async (response) => { if (response.ok) setTypes(await response.json()) })
+      .catch(() => setTypes([]))
+  }, [])
+
+  async function toggle(type: DocumentType) {
+    setError('')
+    const result = await sendChange<DocumentType>(() => apiFetch(`/api/documents/lists/types/${type.id}/`,
+      { method: 'PATCH', body: JSON.stringify({ manager_can_request: !type.manager_can_request }) }), 'Only Admin RH can change this.')
+    if ('error' in result) return setError(result.error)
+    setTypes((old) => old && old.map((item) => (item.id === type.id ? { ...item, manager_can_request: !type.manager_can_request } : item)))
+  }
+
+  return <fieldset>
+    <legend className="text-xs font-semibold text-slate-700">Documents a manager can request</legend>
+    {types === null
+      ? <p className="text-[11px] text-slate-400">Loading...</p>
+      : <div className="mt-1.5 flex flex-wrap gap-2">
+          {types.map((type) => <label key={type.id} className={cn('flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium',
+            type.manager_can_request ? 'border-[#23355d] bg-[#E4E9F2]/50 text-[#192646]' : 'border-slate-200 text-slate-600 hover:border-slate-300')}>
+            <input type="checkbox" checked={type.manager_can_request} onChange={() => toggle(type)} className="accent-[#192646]" />
+            {type.name}
+          </label>)}
+        </div>}
+    {error && <p role="alert" className="mt-1.5 text-[11px] font-medium text-red-600">{error}</p>}
+  </fieldset>
 }
 
 /** Une section numérotée de la page (une question, une phrase qui l'explique). */

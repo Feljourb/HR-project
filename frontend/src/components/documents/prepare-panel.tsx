@@ -10,7 +10,7 @@
  * Un type préparé à partir d'un modèle Word : ① "Download the Word" (rempli avec la fiche) ; sans modèle : on le dit.
  */
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { Eye, FileDown, Loader2, PenLine, Send, Wand2 } from 'lucide-react'
+import { Eye, FileDown, FileText, Loader2, PenLine, Printer, Send, Wand2 } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 import type { DocumentRequest } from '@/lib/documents'
 import { getFile } from '@/lib/expenses'
@@ -60,7 +60,7 @@ function PreparePanel({ document: start, onDone }: { document: DocumentRequest; 
                 </button>
               </>
             : <p className="text-xs text-slate-600">No model for this document: prepare it in your usual tool, then sign and stamp it.
-                Admin RH can add a text model or a Word model in Reference lists → Réglages des documents.</p>}
+                Admin RH can add a model in Reference lists → Réglages des documents → 3. Document models.</p>}
         </Step>}
 
     {!sendsAtOnce && <Step number={generated ? 3 : 2} title="Deliver">
@@ -126,11 +126,28 @@ function GeneratedStep({ document, sendsAtOnce, onSaved }: {
     return result.data
   }
 
-  async function download() {
+  // ② Print / PDF / Word (2026-11-17) : le texte du moment est enregistré d'abord, puis le même document est
+  // imprimé tout de suite, téléchargé en PDF, ou téléchargé en Word (modifiable).
+  async function get(kind: 'print' | 'pdf' | 'word') {
     const updated = await saveText()
     if (!updated) return
-    const failed = await getFile(`${url}/download/`, `${document.doc_type} - ${document.employee}.pdf`, true)
-    if (failed) return setError(failed)
+    if (kind === 'print') {
+      const response = await apiFetch(`${url}/download/`).catch(() => null)
+      if (!response?.ok) return setError('Could not get the document.')
+      // Un cadre caché avec le PDF, puis la fenêtre d'impression du navigateur (comme Ctrl+P sur le document).
+      const frame = window.document.createElement('iframe')
+      frame.style.display = 'none'
+      frame.src = URL.createObjectURL(await response.blob())
+      frame.onload = () => { frame.contentWindow?.focus(); frame.contentWindow?.print() }
+      window.document.body.appendChild(frame)
+      // Enlevé après 5 min (pas avant : une imprimante lente doit encore pouvoir lire le document).
+      setTimeout(() => { URL.revokeObjectURL(frame.src); frame.remove() }, 300_000)
+    } else {
+      const word = kind === 'word'
+      const failed = await getFile(`${url}/download/${word ? '?as=word' : ''}`,
+        `${document.doc_type} - ${document.employee}.${word ? 'docx' : 'pdf'}`, true)
+      if (failed) return setError(failed)
+    }
     onSaved(updated)
   }
 
@@ -165,17 +182,26 @@ function GeneratedStep({ document, sendsAtOnce, onSaved }: {
     </Step>
 
     <Step number={2} title={sendsAtOnce ? 'Send' : 'Print, sign and stamp'}>
+      {/* (Print : la fenêtre d'impression tout de suite ; PDF / Word : télécharger, Word pour le modifier soi-même.) */}
       <p className="text-xs text-slate-600">{sendsAtOnce
         ? 'The signature and the stamp are added by the app: the employee receives the PDF at once.'
-        : 'Download the PDF (your text is saved first), print it, sign it and stamp it.'}</p>
+        : 'Print it now, or download it (PDF, or Word to change it yourself). Your text is saved first. Then sign and stamp it.'}</p>
       <div className="mt-2 flex flex-wrap items-center gap-2">
         {sendsAtOnce
           ? <button type="button" disabled={busy !== null} onClick={send} className={primary}>
               {busy === 'save' ? <Loader2 className="size-3.5 animate-spin" /> : <Send className="size-3.5" />} Send to the employee
             </button>
-          : <button type="button" disabled={busy !== null} onClick={download} className={primary}>
-              {busy === 'save' ? <Loader2 className="size-3.5 animate-spin" /> : <FileDown className="size-3.5" />} Download PDF
-            </button>}
+          : <>
+              <button type="button" disabled={busy !== null} onClick={() => get('print')} className={primary}>
+                {busy === 'save' ? <Loader2 className="size-3.5 animate-spin" /> : <Printer className="size-3.5" />} Print
+              </button>
+              <button type="button" disabled={busy !== null} onClick={() => get('pdf')} className={secondary}>
+                <FileDown className="size-3.5" /> PDF
+              </button>
+              <button type="button" disabled={busy !== null} onClick={() => get('word')} className={secondary}>
+                <FileText className="size-3.5" /> Word
+              </button>
+            </>}
         {error && <span role="alert" className="text-[11px] font-medium text-red-600">{error}</span>}
       </div>
     </Step>

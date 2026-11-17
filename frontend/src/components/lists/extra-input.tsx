@@ -19,22 +19,22 @@ export function ExtraInput({ id, field, value, onChange, compact }: {
       {field.label}
     </label>
   }
+  // compact (la ligne "Edit" du tableau) : le nom du champ reste VISIBLE à côté (2026-11-17 : sans lui, un "2" seul ne
+  // voulait rien dire), dans un petit bloc label + champ.
+  const label = <label htmlFor={id} className={compact ? 'text-[11px] font-semibold text-slate-500' : 'block text-xs font-semibold text-slate-700'}>{field.label}</label>
+  const wrap = (control: React.ReactNode) => compact
+    ? <span className="flex items-center gap-1.5">{label}{control}</span>
+    : <>{label}{control}</>
   if (field.type === 'select') {
-    return <>
-      <label htmlFor={id} className={compact ? 'sr-only' : 'block text-xs font-semibold text-slate-700'}>{field.label}</label>
-      <select id={id} required={field.required} value={value} onChange={(e) => onChange(e.target.value)}
-        className={cn(controlClass, 'px-2.5', compact && 'mt-0 h-8 w-44')}>
-        {field.options?.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
-      </select>
-    </>
+    return wrap(<select id={id} required={field.required} value={value} onChange={(e) => onChange(e.target.value)}
+      className={cn(controlClass, 'px-2.5', compact && 'mt-0 h-8 w-44')}>
+      {field.options?.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
+    </select>)
   }
-  return <>
-    <label htmlFor={id} className={compact ? 'sr-only' : 'block text-xs font-semibold text-slate-700'}>{field.label}</label>
-    <input id={id} type={field.type} required={field.required} value={value} onChange={(e) => onChange(e.target.value)}
-      min={field.type === 'number' ? field.min ?? 0.5 : undefined} step={field.type === 'number' ? field.step ?? 0.5 : undefined}
-      placeholder={field.type === 'number' ? field.placeholder ?? 'No maximum' : undefined}
-      className={cn(controlClass, compact && 'mt-0 h-8 w-36')} />
-  </>
+  return wrap(<input id={id} type={field.type} required={field.required} value={value} onChange={(e) => onChange(e.target.value)}
+    min={field.type === 'number' ? field.min ?? 0.5 : undefined} step={field.type === 'number' ? field.step ?? 0.5 : undefined}
+    placeholder={field.type === 'number' ? field.placeholder ?? 'No maximum' : undefined}
+    className={cn(controlClass, compact && 'mt-0 h-8 w-24')} />)
 }
 
 /** Ce que la colonne affiche, ex. "Yes", "4 days", "06/11/2026". */

@@ -8,6 +8,7 @@
  */
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import { CalendarClock, CheckCircle2, ChevronDown, ChevronRight, FileText, Loader2, Send, UsersRound, X } from 'lucide-react'
 import { apiFetch, isHr, type Me } from '@/lib/api'
 import { FORMATS, originalText, pickupMessage, stateOf, type DocumentFormat, type DocumentRequest, type DocumentType, type TeamMember } from '@/lib/documents'
@@ -35,7 +36,17 @@ export function DocumentsPage({ me }: { me: Me }) {
   const [problem, setProblem] = useState('')
   const [version, setVersion] = useState(0)  // +1 après un envoi / une annulation : tout est relu
   const reload = useCallback(() => setVersion((old) => old + 1), [])
-  const [opened, setOpened] = useState<number | null>(null)  // la demande ouverte dans le panneau (son n°)
+  // La demande ouverte dans le panneau (son n°). ?open=<n> (le lien de la cloche "Document prêt", 2026-11-17) : elle
+  // s'ouvre tout de suite, avec View / Download.
+  const asked = Number(useSearchParams().get('open')) || null
+  const [opened, setOpened] = useState<number | null>(asked)
+  // Un autre clic sur la cloche alors que la page est déjà ouverte : l'adresse change -> on ouvre cette demande-là
+  // (ajusté pendant le rendu, le moyen recommandé par React, pas dans un effet).
+  const [lastAsked, setLastAsked] = useState(asked)
+  if (asked !== lastAsked) {
+    setLastAsked(asked)
+    if (asked) setOpened(asked)
+  }
 
   useEffect(() => {
     const paths = ['/api/documents/mine/', '/api/documents/types/', '/api/documents/mine/team-members/', '/api/documents/mine/for-team/',

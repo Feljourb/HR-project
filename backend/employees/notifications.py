@@ -149,7 +149,11 @@ def link(notification):
     if notification.kind in (Kind.BALANCE_ADJUSTED, Kind.RIGHT_CHANGED, Kind.EXPIRING):
         return "/leaves"  # ma page Congés : mon solde et la section "Balance changes"
     if notification.kind in (Kind.DOCUMENT_READY, Kind.ORIGINAL_READY, Kind.REQUESTED_FOR, Kind.ORIGINAL_HANDED):
-        return "/documents"  # ma page Administrative documents : le bouton Download, l'état de l'original
+        # Le collaborateur : sa page Administrative documents, la demande OUVERTE (2026-11-17 : un clic sur "Document
+        # prêt" montre le document, View / Download, sans le chercher). Son manager (qui l'a saisie) : "For my team".
+        if notification.employee.user_id != notification.recipient_id:
+            return "/approvals?tab=team"
+        return f"/documents?open={notification.request_id}"
     if notification.kind == Kind.EXPENSE_CORRECTED:
         return f"/expenses/{notification.request_id}?from=expenses"  # ma note : l'ancien et le nouveau montant
     if notification.kind == Kind.DELEGATION_ENDED:

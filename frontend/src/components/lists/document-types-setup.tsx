@@ -3,8 +3,9 @@
 /*
  * "Document models" (2026-11-17, simplifié à la demande de l'utilisatrice) : pour chaque document, son MODÈLE = le texte
  * avec des codes {{ nom }}... que l'application remplit avec les données du collaborateur (le "form"). Avec un modèle,
- * le PDF se fait automatiquement ou par les RH (section "How the PDF is made") ; sans modèle (ex. un bulletin de paie,
- * qui vient de la paie), les RH déposent leur propre document. Rien d'autre ici.
+ * les RH le voient rempli dans "Prepare", le complètent si besoin, puis l'impriment (original, ou PDF "By HR") ou
+ * l'envoient (PDF "Automatic", signé par l'application). Sans modèle (ex. un bulletin de paie, qui vient de la paie),
+ * les RH déposent leur propre document. Rien d'autre ici.
  * API : PATCH /api/documents/types/<id>/setup/ ; POST preview-model/.
  */
 import { useEffect, useState } from 'react'
@@ -58,9 +59,10 @@ function ModelForm({ type, codes, onSaved }: { type: DocumentType; codes: Record
   async function save(keep: boolean) {
     setBusy(true)
     setError('')
-    // keep = false : "Remove the model" -> les RH déposent leur propre document.
+    // keep = false : "Remove the model" -> les RH déposent leur propre document. (Les RH voient toujours le document
+    // avant qu'il parte : plus besoin de la case "relecture", 2026-11-17.)
     const result = await sendChange<DocumentType>(() => apiFetch(`/api/documents/types/${type.id}/setup/`, {
-      method: 'PATCH', body: JSON.stringify({ generated: keep, body_template: keep ? text : '', hr_review: type.hr_review }),
+      method: 'PATCH', body: JSON.stringify({ generated: keep, body_template: keep ? text : '', hr_review: false }),
     }), 'Only Admin RH can change the models.')
     setBusy(false)
     if ('error' in result) return setError(result.error)
@@ -81,7 +83,10 @@ function ModelForm({ type, codes, onSaved }: { type: DocumentType; codes: Record
       placeholder={work ? 'Empty: the text provided by the app (it agrees with Madame / Monsieur and former employees).'
         : 'e.g. Nous soussignés, **{{ societe }}**, attestons que {{ civilite }} **{{ nom }} {{ prenom }}**, titulaire de la CIN n° {{ cin }}, ...'}
       className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm leading-relaxed outline-none focus:border-[#23355d] focus:ring-3 focus:ring-[#23355d]/15" />
-    <p className="text-[11px] text-slate-500">Blank line = new paragraph · **word** = bold. The header, the reference and the signature are added by the app.</p>
+    <p className="text-[11px] text-slate-500">
+      Blank line = new paragraph · **word** = bold. The header, the reference and the signature are added by the app.
+      Something the app does not know (e.g. the salary)? Write &ldquo;...&rdquo;: HR complete it in &ldquo;Prepare&rdquo; before it is sent.
+    </p>
     <details className="rounded-lg bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
       <summary className="cursor-pointer font-semibold text-[#23355d]">Codes you can use ({Object.keys(codes).length})</summary>
       <ul className="mt-1.5 grid gap-x-4 gap-y-0.5 sm:grid-cols-2">

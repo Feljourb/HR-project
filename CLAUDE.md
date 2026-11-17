@@ -245,7 +245,30 @@ Standard (Workday / SAP / BambooHR), done in one go before a meeting (asked by t
     - ONE page "Réglages des documents" with 4 numbered cards: 1 What employees can request (formats, needed by, pickup days, Save) · 2 How the PDF is made (`SignaturesPanel embedded`; only when the PDF is offered) · 3 Document models (`document-types-setup.tsx`: "Model ready" / "No model", Edit model -> text + codes + Preview + Save / "Remove the model") · 4 Managers (Save).
     - The separate "Signatures" list entry is removed. The "HR review" and Word-model UIs are hidden; the backend keeps them.
     - 471 tests.
-  - [ ] Browser test of D1-D7 + commits (the user was exhausted on 2026-11-17: give the full simple explanation, then test calmly).
+  - [x] D8 (user's browser test, 2026-11-17):
+    - "Managers can request" (which documents) moved from the Types de document list into card ④ Managers ("Documents a manager can request", one checkbox per type, saved at each click through the lists API; shown when managers are allowed): one place.
+    - Lists "Edit" row (every list): the name comes FIRST, and each extra field keeps its visible label (before, a lone "2" sat under NAME).
+  - [x] D9 (2026-11-17, "why a Word?"): in Prepare, a document with a model now has 3 buttons:
+    - Print: a hidden frame with the PDF, then the browser's print window;
+    - PDF;
+    - Word: `services.word_bytes` = the SAME document as an editable .docx, made by python-docx; `hr/<document>/download/?as=word`.
+    The text is saved first. The old test Word model of "Attestation de salaire" was removed from the dev database. Uploaded Word models (publipostage) stay in the backend only (UI hidden).
+  - [x] D10 (2026-11-17): the Prepare preview showed the app's signature + stamp, but the Word / print came out without them (the user was confused).
+    - Rule kept: the paper original (and a PDF "By HR") is printed WITHOUT signature, then signed and stamped by hand. Only a PDF sent by the app itself (Automatic + PDF only) carries the scanned signature + stamp.
+    - `preview-text` now shows exactly that (signed only when format = PDF and the signature is automatic).
+    - The hidden print frame is kept 5 min (a slow printer). A print that "says done but nothing comes out" = the printer / Windows queue, not the app (asked the user to test Ctrl+P on another page).
+  - [x] D11 (2026-11-17): a PDF "Attestation de salaire" disappeared at approval = Automatic signature + PDF -> delivered at once, with "... MAD" in it.
+    - The model panel (card ③) gets back ONE checkbox, "HR complete the text before it is sent" (= `hr_review`). Even with the automatic signature, the document then waits in "To prepare": Customize, then Send. There is an amber hint when the text contains "..." and the box is not ticked.
+    - The row says "· HR complete it before sending".
+    - The "no model" text in Prepare points to "3. Document models".
+  - [x] D12 (2026-11-17, the user: "a PDF that leaves by itself, HR don't see it, it means nothing"; "the bell should open the PDF"):
+    - `generate`: even signed by the app, a generated PDF is NEVER sent without HR. It waits in "To prepare"; HR open Prepare, see the filled and signed document, and click "Send to the employee" (`save_text` -> `generate(reviewed=True)`). This also applies when HR request for an employee.
+    - The D11 checkbox was removed: HR always see the document. `hr_review` is unticked everywhere (migration documents 0020), the field is kept, and the UI hides it.
+    - Bell / email DOCUMENT_READY, ORIGINAL_READY, ORIGINAL_HANDED, REQUESTED_FOR: link `/documents?open=<request>` (the page opens that request's Details panel, `useSearchParams`, page wrapped in Suspense; a second bell click while on the page also opens it). The initiating manager goes to `/approvals?tab=team`.
+    - Details panel: a delivered PDF has "View" (new tab) + "Download".
+    - Test helper `DocumentTestCase.approve(..., send=True)` also does HR's Send.
+    - 471 tests.
+  - [ ] Browser test of D1-D12 + commits (the user was exhausted on 2026-11-17: give the full simple explanation, then test calmly).
   - [ ] Step 2. "Handed over to": the employee OR his manager (who takes it for him), recorded.
   - [ ] Step 3. HR edit before sending (option A): per type "HR review before sending"; the body text (paragraphs) stored and editable in a textarea, header / reference / signature locked; Preview; history "Text edited by ...".
 - To ask HR: the list of types, THEIR Word models (only `pdf.py` changes), the signatory name / title and city per pôle, logo / letterhead, stamp + signature (scanned image, or printed and signed by hand), where the salary comes from (salary certificate could be generated later).

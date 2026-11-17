@@ -9,14 +9,16 @@
  * - la ligne du temps complète (la même que la page historique) avec ses boutons (Download, Upload, Original ready...).
  */
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { CheckCheck, FileText, Stamp } from 'lucide-react'
+import { CheckCheck, Eye, FileText, Stamp } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
-import { FORMATS, stateOf, type DocumentRequest } from '@/lib/documents'
+import { FORMATS, fileUrl, stateOf, type DocumentRequest } from '@/lib/documents'
+import { getFile } from '@/lib/expenses'
 import { formatDate } from '@/lib/leaves'
 import type { WorkflowRequest } from '@/lib/requests'
 import { cn } from '@/lib/utils'
 import { SidePanel } from '@/components/ui/side-panel'
 import { RequestTimeline } from '@/components/requests/request-history'
+import { DownloadButton } from './download-button'
 
 type Loaded = { request: WorkflowRequest; documents: DocumentRequest[] }
 
@@ -106,8 +108,25 @@ function DocumentCard({ document }: { document: DocumentRequest }) {
       <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset', state.badge)}>{state.label}</span>
     </div>
     {facts.length > 0 && <p className="text-[11px] text-slate-500">{facts.join(' · ')}</p>}
+    {/* Le PDF livré (2026-11-17, ouvert depuis la cloche "Document prêt") : le voir, ou le télécharger. */}
+    {document.can_download && <div className="mt-2 flex flex-wrap items-center gap-2">
+      <ViewButton document={document} />
+      <DownloadButton document={document} />
+    </div>}
     <Tracks document={document} />
   </div>
+}
+
+/** "View" : le PDF livré dans un nouvel onglet (le navigateur l'affiche ; on peut l'imprimer ou l'enregistrer de là). */
+function ViewButton({ document }: { document: DocumentRequest }) {
+  const [error, setError] = useState('')
+  return <>
+    <button type="button" onClick={async () => setError(await getFile(fileUrl(document), document.file_name || 'document.pdf', false))}
+      className="flex items-center gap-1.5 rounded-lg bg-[#23355d] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#192646]">
+      <Eye className="size-3.5" /> View
+    </button>
+    {error && <span role="alert" className="text-[11px] text-red-600">{error}</span>}
+  </>
 }
 
 /** Le PDF et l'original papier, côte à côte : où en est chacun (ce que le collaborateur a demandé seulement). */

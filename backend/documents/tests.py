@@ -22,8 +22,8 @@ from workflows.models import Request
 from workflows.test_engine import EngineTestCase
 
 from .models import DocumentRequest, DocumentSettings, DocumentSignatory, DocumentType
-from .services import (add_working_days, draft_bytes, earliest_needed_by, mark_handed_over, mark_original_ready,
-                       next_pickup, request_document, request_documents, save_text, text_of, upload)
+from .services import (add_working_days, auto_signed, draft_bytes, earliest_needed_by, mark_handed_over, mark_original_ready,
+                       next_pickup, request_document, request_documents, save_text, text_of, upload, word_bytes)
 
 User = get_user_model()
 MEDIA = tempfile.mkdtemp()  # les PDF des tests vont ici (effacé à la fin), pas dans media/
@@ -66,10 +66,16 @@ class DocumentTestCase(EngineTestCase):
         # (Et les 3 formats ouverts : le défaut est l'original seul depuis le 2026-11-17.)
         DocumentSettings.objects.update_or_create(pk=1, defaults={"manager_requests": "ALL", "offer_pdf": True, "offer_both": True})
 
-    def approve(self, document, by=None):
+    def approve(self, document, by=None, send=True):
+        """Les RH valident. Signé par l'application : le PDF attend que les RH le voient (2026-11-17) ; send=True fait
+        aussi le "Send to the employee" de Nadia (comme dans la page), pour les tests qui regardent la suite."""
         step = document.request.steps.get(status="PENDING")
         engine.approve(step, (by or self.nadia).user)
         document.refresh_from_db()
+        waiting = (document.state == "TO_PREPARE" and document.doc_type.template and not document.doc_type.hr_review
+                   and document.needs_pdf and not document.file and auto_signed(document))
+        if send and waiting:
+            document = save_text(document, self.nadia.user, text_of(document))
         return document
 
     def ready_notices(self):
@@ -78,10 +84,14 @@ class DocumentTestCase(EngineTestCase):
 
 class FlowTests(DocumentTestCase):
     def test_a_work_certificate_is_generated_when_hr_approve(self):
-        document = request_document(self.sara, self.work, "Banque")
+        document = request_document(self.sara, self.work, "Banque", format="PDF")
         self.assertEqual((document.request.title, document.state), ("Attestation de travail (Banque)", "IN_PROGRESS"))
         self.assertFalse(document.file)
-        document = self.approve(document)
+        # Signé par l'application : il n'est PAS envoyé tout seul ; il attend que les RH le voient (2026-11-17).
+        waiting = self.approve(document, send=False)
+        self.assertEqual((waiting.state, bool(waiting.file)), ("TO_PREPARE", False))
+        self.assertFalse(self.ready_notices().exists())
+        document = save_text(waiting, self.nadia.user, text_of(waiting))  # "Send to the employee"
         # Le PDF est là, avec sa référence, et Sara est prévenue (🔔 + email "Document prêt").
         self.assertEqual(document.state, "READY")
         self.assertTrue(document.reference.startswith("DOC-"))
@@ -89,7 +99,7 @@ class FlowTests(DocumentTestCase):
         self.assertIsNone(document.delivered_by)  # généré par l'application
         notice = self.ready_notices().get()
         self.assertIn(document.reference, message(notice))
-        self.assertEqual(link(notice), "/documents")
+        self.assertEqual(link(notice), f"/documents?open={document.request_id}")  # la demande ouverte : View / Download
 
     def test_a_salary_certificate_is_prepared_by_hr(self):
         document = self.approve(request_document(self.sara, self.salary))
@@ -197,6 +207,11 @@ class FlowTests(DocumentTestCase):
         text = text_of(document)
         self.assertIn(f"**{self.sara.last_name.upper()} {self.sara.first_name}**, CIN {self.sara.cin}. Salaire", text)
         self.assertTrue(draft_bytes(document).startswith(b"%PDF"))
+        # Le même document en Word modifiable (Download Word) : le texte, le gras, le titre du type.
+        word = DocxDocument(BytesIO(word_bytes(document)))
+        lines = [paragraph.text for paragraph in word.paragraphs]
+        self.assertIn("ATTESTATION DE SALAIRE", lines)
+        self.assertTrue(any(f"{self.sara.last_name.upper()} {self.sara.first_name}" in item for item in lines))
         document = save_text(document, self.nadia.user, text.replace("...", "12 000 MAD"))
         self.assertEqual(document.state, "READY")  # signé par l'application : livré
 
@@ -283,10 +298,13 @@ class FlowTests(DocumentTestCase):
         self.assertTrue(document.late)  # le délai est passé : en rouge chez les RH
 
     def test_hr_requests_for_an_employee(self):
-        # Nadia (RH du pôle) demande POUR Sara : acceptée tout de suite, la trace dit qui l'a demandée.
-        document = request_document(self.sara, self.work, "Banque", by=self.nadia.user)
-        self.assertEqual((document.state, document.requested_by, document.employee), ("READY", self.nadia.user, self.sara))
+        # Nadia (RH du pôle) demande POUR Sara : acceptée tout de suite, la trace dit qui l'a demandée ; le PDF signé
+        # attend que Nadia le voie et l'envoie (2026-11-17), puis Sara est prévenue.
+        document = request_document(self.sara, self.work, "Banque", by=self.nadia.user, format="PDF")
+        self.assertEqual((document.state, document.requested_by, document.employee), ("TO_PREPARE", self.nadia.user, self.sara))
         self.assertIn("Demandé par les RH", document.request.steps.get().comment)
+        document = save_text(document, self.nadia.user, text_of(document))
+        self.assertEqual(document.state, "READY")
         self.assertTrue(self.ready_notices().exists())  # Sara est prévenue
         # Un document préparé par les RH : à préparer tout de suite.
         self.assertEqual(request_document(self.sara, self.salary, by=self.nadia.user).state, "TO_PREPARE")
@@ -494,6 +512,9 @@ class ApiTests(DocumentTestCase):
         self.assertEqual((data["template"], data["automatic"], data["hr_review"]), ("TEXT", True, True))
         data = self.client.patch(url, {"generated": False}, format="json").json()
         self.assertEqual((data["template"], data["hr_review"]), ("", False))
+        # "Documents a manager can request" (carte 4) : une case, enregistrée seule par l'API des listes.
+        ticked = self.client.patch(reverse("documents:list-types-detail", args=[self.salary.pk]), {"manager_can_request": True}, format="json")
+        self.assertEqual((ticked.status_code, ticked.json()["manager_can_request"]), (200, True))
         # L'attestation de travail générée reste "WORK" (texte vide = le texte prévu par l'application).
         work = self.client.patch(reverse("documents:type-setup", args=[self.work.pk]), {"generated": True, "body_template": ""}, format="json")
         self.assertEqual((work.status_code, work.json()["template"]), (200, "WORK"))
