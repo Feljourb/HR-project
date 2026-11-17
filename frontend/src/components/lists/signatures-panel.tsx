@@ -22,8 +22,10 @@ type Signatory = {
   has_signature: boolean; has_stamp: boolean; updated_at: string; updated_by: string | null
 }
 
-// embedded (2026-11-17) : dans la page "Réglages des documents" (section "How the PDF is made"), sans son propre titre.
-export function SignaturesPanel({ embedded = false }: { embedded?: boolean }) {
+// embedded (2026-11-17) : dans la page "Réglages des documents" (carte ②), sans son propre titre.
+// showMode : le choix "By HR / Automatic" (et les images) seulement quand le PDF est proposé ; le signataire (nom,
+// fonction, ville "Fait à") est TOUJOURS là : il est imprimé aussi sur les originaux.
+export function SignaturesPanel({ embedded = false, showMode = true }: { embedded?: boolean; showMode?: boolean }) {
   const [signatories, setSignatories] = useState<Signatory[] | null>(null)
   const [failed, setFailed] = useState(false)
 
@@ -46,7 +48,7 @@ export function SignaturesPanel({ embedded = false }: { embedded?: boolean }) {
       ? <p className="rounded-xl border border-slate-200 bg-white px-4 py-10 text-center text-sm text-slate-500">
           {failed ? 'Could not load the signatures (Admin RH only).' : 'Loading...'}
         </p>
-      : signatories.map((signatory) => <SignatoryCard key={signatory.id} initial={signatory} />)}
+      : signatories.map((signatory) => <SignatoryCard key={signatory.id} initial={signatory} showMode={showMode} />)}
   </section>
 }
 
@@ -58,7 +60,7 @@ const MODES = [
     text: 'The app fills the form and adds the signature and the stamp (uploaded once below): the employee gets the PDF as soon as HR approve. Needs the signatory\'s agreement.' },
 ]
 
-function SignatoryCard({ initial }: { initial: Signatory }) {
+function SignatoryCard({ initial, showMode }: { initial: Signatory; showMode: boolean }) {
   const [saved, setSaved] = useState(initial)
   const [draft, setDraft] = useState({ name: initial.name, title: initial.title, city: initial.city, mode: initial.mode })
   const [files, setFiles] = useState<{ signature?: File | null; stamp?: File | null }>({})  // null : à enlever
@@ -111,9 +113,9 @@ function SignatoryCard({ initial }: { initial: Signatory }) {
       <TextInput id={`city-${saved.id}`} label="City (« Fait à »)" value={draft.city} onChange={set('city')} placeholder="Casablanca" />
     </div>
 
-    {/* Comment signer : deux cartes à choisir (comme des boutons radio). */}
-    <fieldset className="grid gap-2 px-4 pb-4 sm:grid-cols-2">
-      <legend className="mb-1.5 text-xs font-semibold text-slate-700">How the certificate is signed</legend>
+    {/* Comment le PDF est fait : deux cartes à choisir (comme des boutons radio) ; seulement si le PDF est proposé. */}
+    {showMode && <fieldset className="grid gap-2 px-4 pb-4 sm:grid-cols-2">
+      <legend className="mb-1.5 text-xs font-semibold text-slate-700">How the PDF is made</legend>
       {MODES.map(({ id, icon: Icon, title, text }) => {
         const selected = draft.mode === id
         return <label key={id} className={cn('flex cursor-pointer gap-3 rounded-lg border p-3 transition-colors',
@@ -125,9 +127,9 @@ function SignatoryCard({ initial }: { initial: Signatory }) {
           </span>
         </label>
       })}
-    </fieldset>
+    </fieldset>}
 
-    {draft.mode === 'IMAGE' && <div className="grid gap-3 border-t border-slate-100 px-4 py-4 sm:grid-cols-2">
+    {showMode && draft.mode === 'IMAGE' && <div className="grid gap-3 border-t border-slate-100 px-4 py-4 sm:grid-cols-2">
       <ImageSlot label="Signature (required)" kind="signature" signatory={saved} version={version} file={files.signature}
         onChange={(file) => { setFiles((old) => ({ ...old, signature: file })); setDone(false) }} />
       <ImageSlot label="Company stamp" kind="stamp" signatory={saved} version={version} file={files.stamp}

@@ -268,7 +268,11 @@ Standard (Workday / SAP / BambooHR), done in one go before a meeting (asked by t
     - Details panel: a delivered PDF has "View" (new tab) + "Download".
     - Test helper `DocumentTestCase.approve(..., send=True)` also does HR's Send.
     - 471 tests.
-  - [ ] Browser test of D1-D12 + commits (the user was exhausted on 2026-11-17: give the full simple explanation, then test calmly).
+  - [x] Browser test of D1-D12: everything works (the user, 2026-11-17). MODULE COMPLETE.
+  - [ ] Left:
+    - the user's commits;
+    - (done 2026-11-17) card ② is now "Who signs" and is ALWAYS shown: the signatory per pôle (name, title, city "Fait à", printed on the originals too). The "How the PDF is made" choice (By HR / Automatic) and the images only appear when the PDF is offered (`SignaturesPanel showMode`);
+    - HR answers: the real text of each model, the signatory's name, the scanned signature + stamp if "Automatic". (the user was exhausted on 2026-11-17: give the full simple explanation, then test calmly).
   - [ ] Step 2. "Handed over to": the employee OR his manager (who takes it for him), recorded.
   - [ ] Step 3. HR edit before sending (option A): per type "HR review before sending"; the body text (paragraphs) stored and editable in a textarea, header / reference / signature locked; Preview; history "Text edited by ...".
 - To ask HR: the list of types, THEIR Word models (only `pdf.py` changes), the signatory name / title and city per pôle, logo / letterhead, stamp + signature (scanned image, or printed and signed by hand), where the salary comes from (salary certificate could be generated later).

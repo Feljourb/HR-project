@@ -175,12 +175,13 @@ export function DocumentSettingsPanel() {
       {saveBar(saved)}
     </Card>
 
-    {/* 2. Seulement si le PDF est proposé : automatique (signature + cachet de l'app) ou par les RH. */}
-    {pdfOffered
-      ? <Card number={2} title="How the PDF is made" text="Two ways, per pôle. Automatic: the app fills the form and adds the signature and stamp. By HR: HR download the filled form, sign, stamp, scan and upload it. (The paper original is always signed by hand.)">
-          <SignaturesPanel embedded />
-        </Card>
-      : <Card number={2} title="How the PDF is made" text="The PDF is not offered (step 1): nothing to set. Originals are always printed, signed and stamped by HR." />}
+    {/* 2. Qui signe (TOUJOURS : nom, fonction, "Fait à" sont imprimés aussi sur les originaux) ; et, seulement si le PDF
+        est proposé, comment le PDF est fait : automatique (signature + cachet de l'app) ou par les RH. */}
+    <Card number={2} title="Who signs" text={pdfOffered
+      ? 'Per pôle: the signatory printed on every document. And how the PDF is made: Automatic (the app adds the signature and stamp) or By HR (they download the filled form, sign, stamp, scan and upload it). The paper original is always signed by hand.'
+      : 'Per pôle: the signatory printed on every document (name, title, the city of "Fait à"). The original is printed, signed and stamped by HR.'}>
+      <SignaturesPanel embedded showMode={pdfOffered} />
+    </Card>
 
     <Card number={3} title="Document models" text="The form of each document: its text, filled with the employee's data. Without a model, HR upload their own document (e.g. a payslip).">
       <DocumentTypesSetup codes={saved.codes} />
