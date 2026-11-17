@@ -22,6 +22,8 @@ POST hr/<document>/original-ready/   -> l'original papier signé attend au burea
 POST hr/<document>/handed-over/      -> l'original est remis au collaborateur ({"to": "manager"} : à son manager)
 Valider / refuser : Team approvals (le moteur). Annuler : /api/workflows/requests/<request>/cancel/.
 """
+from urllib.parse import quote
+
 from django.core.exceptions import PermissionDenied as DjangoPermissionDenied
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Q
@@ -41,11 +43,12 @@ from leaves.views import my_team
 from workflows import engine
 from workflows.models import Request
 
+from .merge import CODES
 from .models import DocumentRequest, DocumentSettings, DocumentSignatory, DocumentType
 from .pdf import TEMPLATES, work_certificate
 from .serializers import DocumentRequestSerializer, DocumentSettingsSerializer, DocumentTypeSerializer, SignatorySerializer
 from .services import (
-    MAX_TEXT, auto_signed, can_prepare, draft_bytes, mark_handed_over, mark_original_ready, request_documents, save_text,
+    MAX_TEXT, auto_signed, can_prepare, draft_bytes, filled_model, mark_handed_over, mark_original_ready, request_documents, save_text,
     set_model, text_of, upload,
 )
 
@@ -117,8 +120,10 @@ class MyDocumentViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
 
     @action(detail=False)
     def options(self, request):
-        """Ce que le formulaire propose (réglages d'Admin RH) : {"formats": ["PDF", "ORIGINAL", "BOTH"]}."""
-        return Response({"formats": DocumentSettings.load().formats()})
+        """Ce que le formulaire propose (réglages d'Admin RH) : {"formats": ["PDF", "ORIGINAL", "BOTH"],
+        "pickup_days": [2, 4]} (les jours de retrait des originaux : le message du formulaire)."""
+        current = DocumentSettings.load()
+        return Response({"formats": current.formats(), "pickup_days": sorted(current.pickup_days or [])})
 
     @action(detail=False, url_path="for-team")
     def for_team(self, request):
@@ -144,8 +149,16 @@ class MyDocumentViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         found = {str(doc_type.pk): doc_type for doc_type in DocumentType.objects.filter(pk__in=ids)}
         if not ids or len(found) != len(set(ids)):
             raise serializers.ValidationError({"doc_type": ["Choisissez au moins un document."]})
+        # "needed_by" : la date souhaitée (AAAA-MM-JJ) ; une date impossible -> le message sous le champ.
+        try:
+            needed_by = parse_date(str(request.data.get("needed_by") or "")) if request.data.get("needed_by") else None
+        except ValueError:
+            needed_by = None
+        if request.data.get("needed_by") and needed_by is None:
+            raise serializers.ValidationError({"needed_by": ["Date impossible."]})
         created = run(lambda: request_documents(employee, [found[value] for value in ids], request.data.get("purpose", ""),
-                                                by=request.user, format=request.data.get("format") or DocumentRequest.Format.PDF))
+                                                by=request.user, format=request.data.get("format") or DocumentRequest.Format.PDF,
+                                                needed_by=needed_by))
         rows = documents().filter(pk__in=[document.pk for document in created]).order_by("id")
         return Response(DocumentRequestSerializer(rows, many=True, context={"request": request}).data, status=status.HTTP_201_CREATED)
 
@@ -156,13 +169,14 @@ class DocumentSettingsView(APIView):
     permission_classes = [IsHRAdmin]
 
     def get(self, request):
-        return Response(DocumentSettingsSerializer(DocumentSettings.load()).data)
+        # + les codes du publipostage ({{ nom }}...), pour l'aide de la section "Word models".
+        return Response({**DocumentSettingsSerializer(DocumentSettings.load()).data, "codes": CODES})
 
     def patch(self, request):
         data = DocumentSettingsSerializer(DocumentSettings.load(), data=request.data, partial=True)
         data.is_valid(raise_exception=True)
         data.save(updated_by=request.user)
-        return Response(DocumentSettingsSerializer(DocumentSettings.load()).data)
+        return self.get(request)
 
 
 class SignatoryViewSet(mixins.ListModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet):
@@ -326,8 +340,11 @@ class HrDocumentViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
             return response
         if not document.doc_type.model_file:
             raise NotFound("Pas de modèle pour ce document : Admin RH peut en mettre un (Réglages des documents).")
-        return FileResponse(document.doc_type.model_file.open("rb"), as_attachment=True,
-                            filename=document.doc_type.model_name or "modele")
+        # Le publipostage : un Word avec des codes {{ nom }} revient rempli avec les données du collaborateur.
+        content, name = filled_model(document)
+        response = HttpResponse(content, content_type="application/octet-stream")
+        response["Content-Disposition"] = f'attachment; filename="{quote(name)}"; filename*=UTF-8\'\'{quote(name)}'
+        return response
 
     @action(detail=True, methods=["get", "post"])
     def text(self, request, pk=None):

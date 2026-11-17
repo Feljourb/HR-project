@@ -2,7 +2,7 @@
 import datetime
 import shutil
 import tempfile
-from io import StringIO
+from io import BytesIO, StringIO
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -13,6 +13,8 @@ from django.urls import reverse
 from django.utils import timezone
 from rest_framework.test import APIClient
 
+from docx import Document as DocxDocument
+
 from employees.models import Notification
 from employees.notifications import link, message
 from workflows import engine
@@ -20,8 +22,8 @@ from workflows.models import Request
 from workflows.test_engine import EngineTestCase
 
 from .models import DocumentRequest, DocumentSettings, DocumentSignatory, DocumentType
-from .services import (add_working_days, mark_handed_over, mark_original_ready, request_document, request_documents,
-                       save_text, upload)
+from .services import (add_working_days, mark_handed_over, mark_original_ready, next_pickup, request_document,
+                       request_documents, save_text, upload)
 
 User = get_user_model()
 MEDIA = tempfile.mkdtemp()  # les PDF des tests vont ici (effacé à la fin), pas dans media/
@@ -29,6 +31,15 @@ MEDIA = tempfile.mkdtemp()  # les PDF des tests vont ici (effacé à la fin), pa
 
 def pdf(name="attestation-salaire.pdf"):
     return SimpleUploadedFile(name, b"%PDF-1.4 test", content_type="application/pdf")
+
+
+def word_file(text):
+    """Un vrai fichier Word (.docx) d'un paragraphe : un modèle de publipostage avec ses codes {{ ... }}."""
+    model = DocxDocument()
+    model.add_paragraph(text)
+    out = BytesIO()
+    model.save(out)
+    return out.getvalue()
 
 
 @override_settings(MEDIA_ROOT=MEDIA)
@@ -149,6 +160,26 @@ class FlowTests(DocumentTestCase):
         document = self.approve(request_document(self.sara, self.work, format="BOTH"))
         self.assertTrue(self.ready_notices().exists())  # le PDF tout de suite
         self.assertEqual((document.state, document.original_state), ("TO_PREPARE", "TO_SIGN"))  # reste l'original
+
+    def test_pickup_days_and_needed_by(self):
+        # 2026-11-17, comme l'outil des RH : retrait mercredi et vendredi après-midi.
+        tz = timezone.get_current_timezone()
+        at = lambda day, hour, month=12: datetime.datetime(2026, month, day, hour, tzinfo=tz)  # noqa: E731 (07/12/2026 = lundi)
+        days = [2, 4]
+        self.assertEqual(next_pickup(at(7, 9), days), datetime.date(2026, 12, 9))     # lundi -> mercredi
+        self.assertEqual(next_pickup(at(9, 10), days), datetime.date(2026, 12, 9))    # mercredi matin -> le jour même
+        self.assertEqual(next_pickup(at(9, 15), days), datetime.date(2026, 12, 11))   # mercredi après-midi -> vendredi
+        self.assertEqual(next_pickup(at(11, 15), days), datetime.date(2026, 12, 16))  # vendredi après-midi -> mercredi
+        # Mercredi 18/11/2026 = Fête de l'Indépendance (férié) : le bureau RH est fermé -> vendredi 20.
+        self.assertEqual(next_pickup(at(16, 9, month=11), days), datetime.date(2026, 11, 20))
+        self.assertIsNone(next_pickup(at(7, 9), []))
+        # Un original : prévu le prochain jour de retrait ; la date souhaitée est gardée, jamais dans le passé.
+        tomorrow = timezone.localdate() + datetime.timedelta(days=1)
+        document = request_document(self.sara, self.salary, format="ORIGINAL", needed_by=tomorrow)
+        self.assertEqual(document.due_date, next_pickup(timezone.now(), days))
+        self.assertEqual(document.needed_by, tomorrow)
+        with self.assertRaisesMessage(ValidationError, "passé"):
+            request_document(self.sara, self.work, needed_by=timezone.localdate() - datetime.timedelta(days=1))
 
     def test_several_documents_in_one_request(self):
         # 2026-11-17 (comme l'outil actuel des RH) : Sara coche 2 documents -> UNE demande, UNE validation des RH.
@@ -394,20 +425,27 @@ class ApiTests(DocumentTestCase):
         response = self.client.get(reverse("documents:hr-download", args=[work.pk]))
         self.assertEqual((response.status_code, response["Content-Type"]), (200, "application/pdf"))
         self.assertEqual(self.client.get(reverse("documents:hr-download", args=[salary.pk])).status_code, 404)  # pas de modèle
-        # Admin RH met le modèle Word de l'attestation de salaire ; une RH ne peut pas.
+        # Admin RH met le modèle Word de l'attestation de salaire (avec des codes : le publipostage) ; une RH ne peut pas.
         model_url = reverse("documents:type-model", args=[self.salary.pk])
-        word = SimpleUploadedFile("Attestation salaire.docx", b"PK word", content_type="application/octet-stream")
+        word = SimpleUploadedFile("Attestation salaire.docx", word_file("Attestation : {{ civilite }} {{ nom }} {{ prenom }}, CIN {{ cin }}, "
+                                                                        "poste {{ poste }}. {{ code_inconnu }}Fin."))
         self.assertEqual(self.client.post(model_url, {"file": word}, format="multipart").status_code, 403)
         admin = User.objects.create_user("admin.rh2", role=User.Role.HR_ADMIN, must_change_password=False)
         self.client.force_authenticate(admin)
         self.assertEqual(self.client.post(model_url, {"file": SimpleUploadedFile("virus.exe", b"x")}, format="multipart").status_code, 400)
+        broken = SimpleUploadedFile("cassé.docx", word_file("Bonjour {{ nom"))  # un code mal fermé : refusé tout de suite
+        self.assertIn("mal écrit", self.client.post(model_url, {"file": broken}, format="multipart").json()["detail"])
+        self.assertIn("nom", self.client.get(reverse("documents:settings")).json()["codes"])  # l'aide des codes
         word.seek(0)
         data = self.client.post(model_url, {"file": word}, format="multipart").json()
         self.assertEqual((data["has_model"], data["model_name"]), (True, "Attestation salaire.docx"))
         self.login(self.nadia)
         self.assertEqual(self.client.get(reverse("documents:by-request-detail", args=[salary.request_id])).json()[0]["hr_download"], "model")
         model = self.client.get(reverse("documents:hr-download", args=[salary.pk]))
-        self.assertEqual((model.status_code, b"".join(model.streaming_content)), (200, b"PK word"))
+        self.assertEqual(model.status_code, 200)
+        text = "\n".join(paragraph.text for paragraph in DocxDocument(BytesIO(model.content)).paragraphs)
+        self.assertIn(f"{self.sara.last_name.upper()} {self.sara.first_name}, CIN {self.sara.cin}", text)
+        self.assertIn("Fin.", text)  # un code inconnu devient vide, sans erreur
         # Le collaborateur : jamais (404, comme s'il n'existait pas).
         self.login(self.sara)
         self.assertEqual(self.client.get(model_url).status_code, 404)

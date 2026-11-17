@@ -80,6 +80,7 @@ function Summary({ document, showEmployee }: { document: DocumentRequest; showEm
   const rows: [string, ReactNode][] = [
     ...(showEmployee ? [['Employee', `${document.employee} · ${document.department}`] as [string, ReactNode]] : []),
     ['For', document.purpose || '—'],
+    ['Needed by', document.needed_by ? formatDate(document.needed_by) : '—'],  // la date souhaitée du collaborateur
     ['Format', FORMATS.find((option) => option.id === document.format)?.title ?? document.format_label],
     ...(document.requested_by ? [['Requested by', document.requested_by] as [string, ReactNode]] : []),  // un RH, ou le manager
     ...(document.refusal ? [['Refusal reason', document.refusal] as [string, ReactNode]] : []),

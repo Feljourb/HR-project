@@ -34,8 +34,14 @@ class DocumentSettingsSerializer(serializers.ModelSerializer):
     class Meta:
         model = DocumentSettings
         fields = ["offer_pdf", "offer_original", "offer_both", "manager_requests", "chosen_managers", "chosen_labels",
-                  "updated_at", "updated_by"]
+                  "pickup_days", "updated_at", "updated_by"]
         read_only_fields = ["updated_at"]
+
+    def validate_pickup_days(self, days):
+        # Des jours de la semaine de travail : 0 = lundi ... 4 = vendredi, chacun une fois, dans l'ordre.
+        if not isinstance(days, list) or any(not isinstance(day, int) or not 0 <= day <= 4 for day in days):
+            raise serializers.ValidationError("Choisissez des jours du lundi au vendredi.")
+        return sorted(set(days))
 
     def get_chosen_labels(self, current):
         return [{"id": employee.pk, "name": person(employee)} for employee in current.chosen_managers.all()]
@@ -124,7 +130,7 @@ class DocumentRequestSerializer(serializers.ModelSerializer):
                   "employee", "department", "reference", "file_name", "has_file", "delivered_at", "delivered_by", "refusal",
                   "requested_by", "due_date", "late", "can_upload", "can_download", "can_print",
                   "original_state", "original_ready_at", "original_ready_by", "collected_at", "collected_by", "can_handle_original",
-                  "handed_to", "manager", "needs_review", "can_edit_text", "text_reviewed_by", "body_edited_at", "hr_download", "model_name"]
+                  "handed_to", "manager", "needs_review", "can_edit_text", "text_reviewed_by", "body_edited_at", "hr_download", "model_name", "needed_by"]
 
     def get_hr_download(self, document):
         if document.request.status != "APPROVED" or not self.is_hr(document):

@@ -103,6 +103,10 @@ class DocumentSignatory(models.Model):
             raise ValidationError({"signature": "Ajoutez l'image de la signature pour ce mode."})
 
 
+def default_pickup_days():
+    return [2, 4]  # mercredi et vendredi après-midi (l'outil actuel des RH)
+
+
 class DocumentSettings(models.Model):
     """Les réglages des documents (2026-11-17, remarques de la réunion) : UNE ligne, changée par Admin RH dans la page
     Reference lists -> Documents -> "Réglages des documents". Principe de l'utilisatrice : on n'enlève aucune
@@ -123,6 +127,10 @@ class DocumentSettings(models.Model):
                                         choices=ManagerRequests.choices, default=ManagerRequests.OFF)
     # Avec CHOSEN : les managers permis (ex. les chefs d'équipe de l'usine).
     chosen_managers = models.ManyToManyField(Employee, blank=True, related_name="+", verbose_name="Managers choisis")
+    # Les jours de RETRAIT des originaux au bureau RH, l'après-midi (2026-11-17, comme l'outil actuel des RH :
+    # mercredi et vendredi). 0 = lundi ... 4 = vendredi. Une demande faite avant midi un jour de retrait est prête
+    # l'après-midi même ; sinon au jour de retrait suivant. Vide = pas de jours fixes (le délai du type compte).
+    pickup_days = models.JSONField("Jours de retrait (après-midi)", default=default_pickup_days, blank=True)
     updated_at = models.DateTimeField("Modifié le", auto_now=True)
     updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
                                    related_name="+", verbose_name="Modifié par")
@@ -188,7 +196,10 @@ class DocumentRequest(models.Model):
     requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
                                      related_name="+", verbose_name="Demandé par (RH)")
     # Prêt au plus tard le (date de la demande + le délai du type, en jours ouvrés) : "Expected by 16/11".
+    # Un original papier : le prochain jour de retrait au bureau RH (réglage d'Admin RH, 2026-11-17).
     due_date = models.DateField("Prévu pour le", null=True, blank=True)
+    # La date à laquelle le collaborateur en a besoin ("Date souhaitée" de l'outil actuel, 2026-11-17).
+    needed_by = models.DateField("Date souhaitée", null=True, blank=True)
     # Le document livré : généré par l'application, ou déposé par un RH. Jamais servi par une adresse publique.
     reference = models.CharField("Référence", max_length=30, unique=True, null=True, blank=True)
     file = models.FileField("Fichier", upload_to=document_path, blank=True,

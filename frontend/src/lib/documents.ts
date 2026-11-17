@@ -70,6 +70,24 @@ export type DocumentRequest = {
   // ① "Download" des RH : 'draft' (généré : le PDF sans signature), 'model' (le modèle Word du type), null (rien).
   hr_download: 'draft' | 'model' | null
   model_name: string           // le nom du modèle Word (ex. "Attestation salaire.docx")
+  needed_by: string | null     // la date souhaitée par le collaborateur ("Date souhaitée", 2026-11-17)
+}
+
+const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
+
+/** Le message des jours de retrait (réglage d'Admin RH, comme l'outil actuel des RH), ex. avec mercredi + vendredi :
+ *  "Requested between Friday afternoon and Wednesday morning: ready on Wednesday afternoon." (une phrase par jour). */
+export function pickupMessage(days: number[]): string[] {
+  const sorted = [...new Set(days)].filter((day) => day >= 0 && day <= 4).sort()
+  if (sorted.length === 0) return []
+  if (sorted.length === 1) {
+    const day = WEEKDAYS[sorted[0]]
+    return [`Originals requested before ${day} noon can be picked up at the HR office on ${day} afternoon (otherwise the next ${day}).`]
+  }
+  return sorted.map((day, index) => {
+    const previous = WEEKDAYS[sorted[(index - 1 + sorted.length) % sorted.length]]
+    return `Requested between ${previous} afternoon and ${WEEKDAYS[day]} morning: ready at the HR office on ${WEEKDAYS[day]} afternoon.`
+  })
 }
 
 // Les états en anglais (les pages sont en anglais), avec les couleurs des autres pages.

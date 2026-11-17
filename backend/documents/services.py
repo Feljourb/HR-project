@@ -23,6 +23,7 @@ from workflows import engine
 from workflows.models import Request, Workflow
 from workflows.serializers import person
 
+from .merge import check_model, fill, values_of
 from .models import MAX_FILE_SIZE, DocumentRequest, DocumentSettings, DocumentSignatory
 from .pdf import TEMPLATES, TEXTS, signatory_of
 
@@ -40,6 +41,26 @@ def add_working_days(start, days):
     return day
 
 
+def next_pickup(moment, days):
+    """Le prochain jour de RETRAIT d'un original au bureau RH (l'après-midi), pour une demande faite à `moment`
+    (2026-11-17, comme l'outil actuel des RH). Ex. jours = mercredi + vendredi : demandé lundi -> mercredi ; mercredi
+    à 10 h -> mercredi ; mercredi à 15 h -> vendredi ; vendredi à 15 h -> mercredi suivant. Un jour férié est sauté.
+    None : pas de jours de retrait choisis."""
+    days = {day for day in days or [] if isinstance(day, int) and 0 <= day <= 4}
+    if not days:
+        return None
+    local = timezone.localtime(moment)
+    day = local.date() if local.hour < 12 else local.date() + timedelta(days=1)  # l'après-midi : trop tard aujourd'hui
+    ensure_years(day, day + timedelta(days=30))
+    holidays = set(PublicHoliday.objects.filter(is_active=True, date__gte=day, date__lte=day + timedelta(days=30))
+                   .values_list("date", flat=True))
+    for _ in range(31):
+        if day.weekday() in days and day not in holidays:
+            return day
+        day += timedelta(days=1)
+    return None
+
+
 FORMAT_IN_TITLE = {DocumentRequest.Format.ORIGINAL: "original", DocumentRequest.Format.BOTH: "PDF + original"}
 
 
@@ -49,13 +70,13 @@ def is_manager_of(user, employee):
     return boss is not None and boss.user_id == user.pk
 
 
-def request_document(employee, doc_type, purpose="", by=None, format=DocumentRequest.Format.PDF):
+def request_document(employee, doc_type, purpose="", by=None, format=DocumentRequest.Format.PDF, needed_by=None):
     """UN document (les démos, les tests) : une demande avec ce seul document."""
-    return request_documents(employee, [doc_type], purpose, by, format)[0]
+    return request_documents(employee, [doc_type], purpose, by, format, needed_by)[0]
 
 
 @transaction.atomic
-def request_documents(employee, doc_types, purpose="", by=None, format=DocumentRequest.Format.PDF):
+def request_documents(employee, doc_types, purpose="", by=None, format=DocumentRequest.Format.PDF, needed_by=None):
     """Demander UN OU PLUSIEURS documents dans UNE demande (2026-11-17 : "Documents demandés", cases à cocher, comme
     l'outil actuel des RH) : les RH valident une fois, puis chaque document suit son chemin. Rend les documents créés.
     Une règle refusée -> ValidationError({"doc_type": [...]}).
@@ -92,6 +113,8 @@ def request_documents(employee, doc_types, purpose="", by=None, format=DocumentR
         raise ValidationError({"doc_type": ["Un de ces documents n'est plus proposé."]})
     if format not in DocumentRequest.Format.values:
         raise ValidationError({"format": ["Choisissez le format : PDF, original ou les deux."]})
+    if needed_by is not None and needed_by < timezone.localdate():
+        raise ValidationError({"needed_by": ["La date souhaitée ne peut pas être dans le passé."]})
     # Une seule demande en cours par type (standard) : à valider, ou validée et pas encore préparée par les RH.
     waiting = Q(request__status=Request.Status.IN_PROGRESS) | DocumentRequest.to_prepare_filter()
     busy = DocumentRequest.objects.filter(waiting, employee=employee, doc_type__in=doc_types).select_related("doc_type")
@@ -113,11 +136,13 @@ def request_documents(employee, doc_types, purpose="", by=None, format=DocumentR
     else:
         # Le manager : la demande est au nom du collaborateur, "saisie par" le manager (il suit l'historique).
         request = engine.submit(Workflow.Code.ADMIN_REQUEST, employee, title, initiated_by=by if manager else None)
-    # Un document par type coché, chacun avec SON délai (généré : tout de suite ; préparé par les RH : N jours ouvrés).
+    # Un document par type coché, chacun avec SON délai : un original papier -> le prochain jour de retrait au bureau
+    # RH (réglage d'Admin RH) ; sinon le délai du type (généré : tout de suite ; préparé : N jours ouvrés).
+    pickup = next_pickup(timezone.now(), options.pickup_days) if format != DocumentRequest.Format.PDF else None
     created = [DocumentRequest.objects.create(
-        request=request, employee=employee, doc_type=doc_type, purpose=purpose, format=format,
+        request=request, employee=employee, doc_type=doc_type, purpose=purpose, format=format, needed_by=needed_by,
         requested_by=by if for_other else None,
-        due_date=add_working_days(timezone.localdate(), 0 if doc_type.template else doc_type.delivery_days))
+        due_date=pickup or add_working_days(timezone.localdate(), 0 if doc_type.template else doc_type.delivery_days))
         for doc_type in doc_types]
     if manager:
         # 🔔 + email au collaborateur : une demande a été faite EN SON NOM.
@@ -210,12 +235,34 @@ def set_model(doc_type, file):
         raise ValidationError("Le modèle doit être un fichier Word (.docx, .doc), OpenOffice (.odt) ou PDF.")
     if file.size > MAX_FILE_SIZE:
         raise ValidationError("Le modèle dépasse 5 Mo.")
+    if suffix == ".docx":
+        check_model(file)  # le publipostage : ses codes {{ nom }} bien écrits
     if doc_type.model_file:
         doc_type.model_file.delete(save=False)  # l'ancien modèle n'est plus utilisé nulle part
     doc_type.model_file.save(f"{uuid4().hex}{suffix}", file, save=False)  # un nom au hasard : jamais deviné
     doc_type.model_name = file.name[:200]
     doc_type.save(update_fields=["model_file", "model_name"])
     return doc_type
+
+
+def filled_model(document):
+    """"Download the model" (2026-11-17) : un modèle .docx -> rempli avec les données du collaborateur (publipostage) ;
+    un autre format (.doc, .odt, .pdf) -> tel quel. Rend (octets, nom du fichier)."""
+    model = document.doc_type.model_file
+    name = document.doc_type.model_name or "modele"
+    if not Path(model.name).suffix.lower() == ".docx":
+        with model.open("rb") as source:
+            return source.read(), name
+    if not document.reference:
+        document.reference = f"DOC-{timezone.localdate():%Y}-{document.pk:05d}"
+        document.save(update_fields=["reference"])
+    employee = document.employee
+    try:
+        content = fill(model, values_of(document))
+    except Exception:  # noqa: BLE001 (un modèle abîmé : on le donne tel quel plutôt que rien)
+        with model.open("rb") as source:
+            return source.read(), name
+    return content, f"{document.doc_type.name} - {employee.last_name} {employee.first_name}.docx"
 
 
 MAX_TEXT = 5000  # le texte d'une attestation : quelques paragraphes

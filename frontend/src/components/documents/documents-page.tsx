@@ -8,10 +8,10 @@
  */
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import Link from 'next/link'
-import { CheckCircle2, ChevronDown, ChevronRight, FileText, Loader2, Send, UsersRound, X } from 'lucide-react'
+import { CalendarClock, CheckCircle2, ChevronDown, ChevronRight, FileText, Loader2, Send, UsersRound, X } from 'lucide-react'
 import { apiFetch, isHr, type Me } from '@/lib/api'
-import { FORMATS, originalText, stateOf, type DocumentFormat, type DocumentRequest, type DocumentType, type TeamMember } from '@/lib/documents'
-import { formatDate } from '@/lib/leaves'
+import { FORMATS, originalText, pickupMessage, stateOf, type DocumentFormat, type DocumentRequest, type DocumentType, type TeamMember } from '@/lib/documents'
+import { formatDate, isoDate } from '@/lib/leaves'
 import { cn } from '@/lib/utils'
 import { sendChange } from '@/lib/workflows'
 import { SelectField, TextField, controlClass } from '@/components/employees/form-fields'
@@ -24,7 +24,10 @@ import { DownloadButton } from './download-button'
 
 // team : MON équipe (je suis leur N+1 ; vide si Admin RH ne le permet pas) ; forTeam : ce que j'ai demandé pour elle
 // (2026-11-16, "Manager Self-Service") ; formats : ceux qu'Admin RH propose (2026-11-17).
-type Loaded = { documents: DocumentRequest[]; types: DocumentType[]; team: TeamMember[]; forTeam: DocumentRequest[]; formats: DocumentFormat[] }
+type Loaded = {
+  documents: DocumentRequest[]; types: DocumentType[]; team: TeamMember[]; forTeam: DocumentRequest[]; formats: DocumentFormat[]
+  pickupDays: number[]  // les jours de retrait des originaux (réglage d'Admin RH) : le message du formulaire
+}
 
 export function DocumentsPage({ me }: { me: Me }) {
   const [loaded, setLoaded] = useState<Loaded | null>(null)
@@ -39,9 +42,11 @@ export function DocumentsPage({ me }: { me: Me }) {
     Promise.all(paths.map((path) => apiFetch(path)))
       .then(async ([documents, types, team, forTeam, options]) => {
         if (!documents.ok || !types.ok) throw new Error()
-        const offered: { formats: DocumentFormat[] } = options.ok ? await options.json() : { formats: ['PDF', 'ORIGINAL', 'BOTH'] }
+        const offered: { formats: DocumentFormat[]; pickup_days: number[] } = options.ok ? await options.json()
+          : { formats: ['PDF', 'ORIGINAL', 'BOTH'], pickup_days: [] }
         setLoaded({ documents: await documents.json(), types: await types.json(),
-          team: team.ok ? await team.json() : [], forTeam: forTeam.ok ? await forTeam.json() : [], formats: offered.formats })
+          team: team.ok ? await team.json() : [], forTeam: forTeam.ok ? await forTeam.json() : [], formats: offered.formats,
+          pickupDays: offered.pickup_days })
       })
       .catch(() => setProblem('Could not load your documents. Please try again later.'))
   }, [version])
@@ -69,7 +74,7 @@ export function DocumentsPage({ me }: { me: Me }) {
 
     <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
       <div className="flex min-w-0 flex-col gap-4">
-        <RequestForm types={loaded.types} hr={isHr(me)} team={loaded.team} formats={loaded.formats} onSent={reload} />
+        <RequestForm types={loaded.types} hr={isHr(me)} team={loaded.team} formats={loaded.formats} pickupDays={loaded.pickupDays} onSent={reload} />
         <HowItWorks />
       </div>
       <div className="flex min-w-0 flex-col gap-4">
@@ -123,9 +128,12 @@ function HowItWorks() {
  *  Un RH peut demander POUR un collaborateur de son pôle (champ "Employee", comme l'outil actuel) : acceptée tout de suite.
  *  Un manager (2026-11-16) : "For" = moi-même ou quelqu'un de son équipe (ex. un ouvrier qui n'utilise pas l'application) ;
  *  seulement les types choisis par Admin RH, l'original papier par défaut, et les RH valident comme d'habitude. */
-function RequestForm({ types, hr, team, formats, onSent }: {
-  types: DocumentType[]; hr: boolean; team: TeamMember[]; formats: DocumentFormat[]; onSent: () => void
+function RequestForm({ types, hr, team, formats, pickupDays, onSent }: {
+  types: DocumentType[]; hr: boolean; team: TeamMember[]; formats: DocumentFormat[]; pickupDays: number[]; onSent: () => void
 }) {
+  const [neededBy, setNeededBy] = useState('')  // "Date souhaitée" (obligatoire, comme l'outil actuel des RH)
+  const today = isoDate(new Date())
+  const pickup = pickupMessage(pickupDays)
   // Les formats proposés (réglage d'Admin RH, 2026-11-17) ; les RH gardent les trois. Un seul : pas de question.
   const offered = hr ? FORMATS : FORMATS.filter((option) => formats.includes(option.id))
   const firstFormat = offered[0]?.id ?? 'PDF'
@@ -161,7 +169,7 @@ function RequestForm({ types, hr, team, formats, onSent }: {
     event.preventDefault()
     setBusy(true)
     setError('')
-    const body = { doc_types: typeIds, purpose, format, ...(forEmployee ? { employee: forEmployee.id } : {}) }
+    const body = { doc_types: typeIds, purpose, format, needed_by: neededBy, ...(forEmployee ? { employee: forEmployee.id } : {}) }
     const result = await sendChange<DocumentRequest[]>(
       () => apiFetch('/api/documents/mine/', { method: 'POST', body: JSON.stringify(body) }),
       'You cannot request this document.')
@@ -175,6 +183,7 @@ function RequestForm({ types, hr, team, formats, onSent }: {
       : `${names} for ${employee} (follow it in Team approvals → For my team)`)
     setTypeIds([])
     setPurpose('')
+    setNeededBy('')
     setFormat(firstFormat)
     setForEmployee(null)
     onSent()
@@ -185,6 +194,11 @@ function RequestForm({ types, hr, team, formats, onSent }: {
       <h2 className="text-sm font-semibold text-[#192646]">Request a document</h2>
       <p className="text-[11px] text-slate-500">HR of your pôle approve the request. You get a notification and an email when it is ready.</p>
     </div>
+    {/* Quand récupérer les originaux au bureau RH (les jours choisis par Admin RH), comme l'outil actuel des RH. */}
+    {pickup.length > 0 && <div className="flex gap-2 rounded-lg border border-sky-100 bg-sky-50/70 px-3 py-2 text-[11px] text-sky-900">
+      <CalendarClock className="mt-0.5 size-3.5 shrink-0 text-sky-700" aria-hidden />
+      <div>{pickup.map((line) => <p key={line}>{line}</p>)}</div>
+    </div>}
     {hr && <div>
       <PersonPicker id="doc-employee" label="Employee (HR)" value={forEmployee} onChange={setForEmployee}
         source={(search) => `/api/employees/?search=${search}`} />
@@ -197,6 +211,8 @@ function RequestForm({ types, hr, team, formats, onSent }: {
       hint={forTeam ? 'For your team: HR approve it, the employee is notified. You follow the progress; the document goes to the employee.' : undefined} />}
     {/* Les documents : une liste déroulante à cases (comme l'outil actuel des RH), les choisis en puces dessous. */}
     <DocumentPicker types={choices} selected={typeIds} onToggle={toggle} onClear={() => setTypeIds([])} />
+    {/* "Date souhaitée" : quand j'en ai besoin (jamais dans le passé) ; les RH la voient pour s'organiser. */}
+    <TextField id="doc-needed-by" type="date" label="Needed by" required min={today} value={neededBy} onChange={setNeededBy} />
     <TextField id="doc-purpose" label="For / purpose" value={purpose} onChange={setPurpose} placeholder="e.g. Bank, visa, rental (optional)" />
     {/* Le format : une banque ou un consulat demandent souvent l'ORIGINAL signé et tamponné à la main. */}
     {offered.length > 1 && <fieldset>
@@ -220,7 +236,7 @@ function RequestForm({ types, hr, team, formats, onSent }: {
     {sent && <p role="status" className="flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800">
       <CheckCircle2 className="size-4" /> Sent to HR: {sent}.
     </p>}
-    <button type="submit" disabled={busy || typeIds.length === 0}
+    <button type="submit" disabled={busy || typeIds.length === 0 || !neededBy}
       className="flex w-fit items-center gap-1.5 self-end rounded-lg bg-[#23355d] px-4 py-2 text-xs font-semibold text-white hover:bg-[#192646] disabled:opacity-50">
       {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Send className="size-3.5" />} Send request
     </button>

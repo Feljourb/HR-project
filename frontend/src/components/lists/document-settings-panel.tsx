@@ -22,9 +22,13 @@ import { PersonPicker, type Person } from '@/components/requests/out-of-office'
 type Settings = {
   offer_pdf: boolean; offer_original: boolean; offer_both: boolean
   manager_requests: 'OFF' | 'ALL' | 'CHOSEN'; chosen_managers: number[]; chosen_labels: { id: number; name: string }[]
+  pickup_days: number[]  // les jours de retrait des originaux (après-midi) : 0 = lundi ... 4 = vendredi
+  codes: Record<string, string>  // les codes du publipostage ({{ nom }} -> "Nom (en majuscules)")
   updated_at: string; updated_by: string | null
 }
-type Draft = Pick<Settings, 'offer_pdf' | 'offer_original' | 'offer_both' | 'manager_requests'> & { chosen: { id: number; name: string }[] }
+type Draft = Pick<Settings, 'offer_pdf' | 'offer_original' | 'offer_both' | 'manager_requests' | 'pickup_days'> & { chosen: { id: number; name: string }[] }
+
+const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
 
 const FORMATS: { name: 'offer_pdf' | 'offer_original' | 'offer_both'; title: string; text: string }[] = [
   { name: 'offer_pdf', title: 'PDF', text: 'Downloaded from the app.' },
@@ -40,7 +44,7 @@ const MANAGERS = [
 /** Les modèles Word / PDF de l'entreprise (2026-11-17), pour les documents PRÉPARÉS par les RH (salaire, congé...) :
  *  mis une fois ici ; les RH le téléchargent ("Download the model") dans Document requests, le complètent, le signent.
  *  Enregistré tout de suite (sans le bouton Save d'en bas). */
-function ModelsSection() {
+function ModelsSection({ codes }: { codes: Record<string, string> }) {
   const [types, setTypes] = useState<DocumentType[] | null>(null)
   const [busy, setBusy] = useState<number | null>(null)
   const [error, setError] = useState('')
@@ -66,7 +70,17 @@ function ModelsSection() {
   const prepared = (types ?? []).filter((type) => !type.automatic)  // un document généré n'a pas besoin de modèle
   return <fieldset>
     <legend className="text-xs font-semibold text-slate-700">Word models (documents prepared by HR)</legend>
-    <p className="text-[11px] text-slate-500">HR download the model in Document requests, complete it, sign it, then upload the signed PDF. Word, OpenOffice or PDF, 5 MB.</p>
+    <p className="text-[11px] text-slate-500">HR download the model in Document requests, check it, sign it, then upload the signed PDF. Word, OpenOffice or PDF, 5 MB.</p>
+    {/* Le publipostage : dans un Word (.docx), ces codes sont remplacés par les données du collaborateur au téléchargement. */}
+    <details className="mt-1.5 rounded-lg bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
+      <summary className="cursor-pointer font-semibold text-[#23355d]">Codes to fill the Word model automatically (.docx)</summary>
+      <p className="mt-1">Write them in the Word file, e.g. <code className="rounded bg-white px-1">Monsieur {'{{ nom }} {{ prenom }}'}, CIN {'{{ cin }}'}</code>: when HR download the model, each code is replaced by the employee&apos;s data.</p>
+      <ul className="mt-1.5 grid gap-x-4 gap-y-0.5 sm:grid-cols-2">
+        {Object.entries(codes).map(([code, meaning]) => <li key={code}>
+          <code className="rounded bg-white px-1 font-semibold text-[#192646]">{`{{ ${code} }}`}</code> {meaning}
+        </li>)}
+      </ul>
+    </details>
     {types === null
       ? <p className="mt-2 text-[11px] text-slate-400">Loading...</p>
       : <ul className="mt-1.5 divide-y divide-slate-100 rounded-lg border border-slate-200">
@@ -97,7 +111,7 @@ function ModelsSection() {
 
 const draftOf = (data: Settings): Draft => ({
   offer_pdf: data.offer_pdf, offer_original: data.offer_original, offer_both: data.offer_both,
-  manager_requests: data.manager_requests, chosen: data.chosen_labels,
+  manager_requests: data.manager_requests, chosen: data.chosen_labels, pickup_days: [...data.pickup_days].sort(),
 })
 
 export function DocumentSettingsPanel() {
@@ -143,7 +157,7 @@ export function DocumentSettingsPanel() {
     setError('')
     try {
       const body = { offer_pdf: draft.offer_pdf, offer_original: draft.offer_original, offer_both: draft.offer_both,
-        manager_requests: draft.manager_requests, chosen_managers: draft.chosen.map((item) => item.id) }
+        manager_requests: draft.manager_requests, chosen_managers: draft.chosen.map((item) => item.id), pickup_days: draft.pickup_days }
       const response = await apiFetch('/api/documents/settings/', { method: 'PATCH', body: JSON.stringify(body) })
       const data = await response.json().catch(() => ({}))
       if (!response.ok) {
@@ -220,7 +234,25 @@ export function DocumentSettingsPanel() {
             <p className="mt-1.5 text-[11px] text-slate-500">Which documents a manager can request: column &ldquo;Managers can request&rdquo; of Types de document.</p>
           </fieldset>
 
-          <ModelsSection />
+          {/* Les jours de retrait des originaux au bureau RH (le message du formulaire et la date "expected by"). */}
+          <fieldset>
+            <legend className="text-xs font-semibold text-slate-700">Pickup days at the HR office (afternoon)</legend>
+            <p className="text-[11px] text-slate-500">A signed original requested before noon on a pickup day is ready that afternoon, otherwise on the next one.
+              Shown to employees in the form. None ticked: the delay of each document type is used.</p>
+            <div className="mt-1.5 flex flex-wrap gap-2">
+              {WEEKDAYS.map((day, index) => {
+                const on = draft.pickup_days.includes(index)
+                return <label key={day} className={cn('flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium',
+                  on ? 'border-[#23355d] bg-[#E4E9F2]/50 text-[#192646]' : 'border-slate-200 text-slate-600 hover:border-slate-300')}>
+                  <input type="checkbox" checked={on} className="accent-[#192646]"
+                    onChange={() => edit({ pickup_days: on ? draft.pickup_days.filter((other) => other !== index) : [...draft.pickup_days, index].sort() })} />
+                  {day}
+                </label>
+              })}
+            </div>
+          </fieldset>
+
+          <ModelsSection codes={saved.codes} />
 
           <div className="flex flex-wrap items-center justify-end gap-3">
             {error && <p role="alert" className="mr-auto text-xs font-medium text-red-600">{error}</p>}

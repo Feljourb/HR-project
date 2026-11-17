@@ -11,3 +11,4 @@ cryptography>=44.0
 openpyxl>=3.1
 hijridate>=2.5
 reportlab>=4.2
+docxtpl>=0.20
