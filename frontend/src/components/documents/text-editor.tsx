@@ -5,7 +5,8 @@
  * (l'attestation de travail) avant qu'il parte. Seulement le corps : l'en-tête, la référence et la signature ne
  * changent pas. Un panneau : le texte (rempli avec la fiche), "Preview" (le PDF tel qu'il sera, rien n'est enregistré),
  * puis "Save" : signé par l'application -> livré au collaborateur ; à signer à la main -> le brouillon à imprimer.
- * Le bouton : "Review & send" quand la relecture est demandée (rien n'est parti), sinon "Edit text".
+ * Le bouton : "Customize (required)" quand la relecture est demandée par Admin RH (rien n'est parti), sinon "Customize"
+ * (facultatif : sans changement, le document garde le texte de la fiche).
  */
 import { useEffect, useState } from 'react'
 import { Eye, Loader2, PenLine, Save } from 'lucide-react'
@@ -22,7 +23,8 @@ export function TextEditorButton({ document, onSaved }: { document: DocumentRequ
   return <>
     <button type="button" onClick={() => setOpen(true)}
       className={cn(actionClass, document.needs_review && 'bg-[#23355d] text-white hover:bg-[#192646]')}>
-      <PenLine className="size-3.5" /> {document.needs_review ? 'Review & send' : 'Edit text'}
+      {/* "Customize" (2026-11-17) : facultatif ; obligatoire seulement si Admin RH a coché "HR review before sending". */}
+      <PenLine className="size-3.5" /> {document.needs_review ? 'Customize (required)' : 'Customize'}
     </button>
     <SidePanel open={open} onClose={() => setOpen(false)} width={720}
       title={`${document.doc_type} · ${document.employee}`} description="Read the text, complete it if needed, preview, then save.">
@@ -35,7 +37,7 @@ function Editor({ document, onSaved }: { document: DocumentRequest; onSaved: (up
   const [text, setText] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const url = `/api/documents/hr/${document.request}`
+  const url = `/api/documents/hr/${document.id}`  // le numéro du DOCUMENT (une demande peut en avoir plusieurs)
 
   useEffect(() => {
     apiFetch(`${url}/text/`)

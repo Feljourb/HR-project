@@ -8,9 +8,9 @@ from .services import generate
 
 @on_approved(Workflow.Code.ADMIN_REQUEST)
 def document_approved(request):
-    """Un type avec un modèle : le PDF est généré tout de suite et le collaborateur est prévenu.
-    Sans modèle : rien ici, la demande attend que les RH déposent le document ("To prepare").
-    Une demande sans document (les démos de `make seed-requests` / `send-request`) : acceptée normalement."""
-    document = DocumentRequest.objects.filter(request=request).select_related("doc_type", "employee").first()
-    if document is not None and document.doc_type.template:
-        generate(document)
+    """Pour CHAQUE document de la demande (2026-11-17 : il peut y en avoir plusieurs) : un type avec un modèle -> le PDF
+    est généré tout de suite et le collaborateur est prévenu ; sans modèle -> rien ici, il attend que les RH le
+    préparent ("To prepare"). Une demande sans document (les démos de `make send-request`) : acceptée normalement."""
+    for document in DocumentRequest.objects.filter(request=request).select_related("doc_type", "employee"):
+        if document.doc_type.template:
+            generate(document)

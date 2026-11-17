@@ -9,10 +9,14 @@
  * Lu et enregistré dans /api/documents/settings/.
  */
 import { useEffect, useState } from 'react'
-import { CheckCircle2, Loader2, X } from 'lucide-react'
+import { CheckCircle2, FileText, Loader2, Upload, X } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
+import type { DocumentType } from '@/lib/documents'
+import { getFile } from '@/lib/expenses'
 import { cn } from '@/lib/utils'
+import { sendChange } from '@/lib/workflows'
 import { formatDateTime } from '@/components/employees/history-changes'
+import { actionClass } from '@/components/expenses/claim-actions'
 import { PersonPicker, type Person } from '@/components/requests/out-of-office'
 
 type Settings = {
@@ -32,6 +36,64 @@ const MANAGERS = [
   { id: 'ALL', title: 'Yes, every manager', text: 'Each N+1 can request for the people of his team.' },
   { id: 'CHOSEN', title: 'Only chosen managers', text: 'E.g. the factory team leaders, for workers who do not use the app.' },
 ] as const
+
+/** Les modèles Word / PDF de l'entreprise (2026-11-17), pour les documents PRÉPARÉS par les RH (salaire, congé...) :
+ *  mis une fois ici ; les RH le téléchargent ("Download the model") dans Document requests, le complètent, le signent.
+ *  Enregistré tout de suite (sans le bouton Save d'en bas). */
+function ModelsSection() {
+  const [types, setTypes] = useState<DocumentType[] | null>(null)
+  const [busy, setBusy] = useState<number | null>(null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    apiFetch('/api/documents/types/')
+      .then(async (response) => { if (response.ok) setTypes(await response.json()) })
+      .catch(() => setTypes([]))
+  }, [])
+
+  async function change(type: DocumentType, file: File | null) {
+    setBusy(type.id)
+    setError('')
+    const body = new FormData()
+    if (file) body.append('file', file)
+    const result = await sendChange<DocumentType>(() => apiFetch(`/api/documents/types/${type.id}/model/`,
+      file ? { method: 'POST', body } : { method: 'DELETE' }), 'Only Admin RH can change the models.')
+    setBusy(null)
+    if ('error' in result) return setError(`${type.name}: ${result.error}`)
+    setTypes((old) => old && old.map((item) => (item.id === type.id ? result.data : item)))
+  }
+
+  const prepared = (types ?? []).filter((type) => !type.automatic)  // un document généré n'a pas besoin de modèle
+  return <fieldset>
+    <legend className="text-xs font-semibold text-slate-700">Word models (documents prepared by HR)</legend>
+    <p className="text-[11px] text-slate-500">HR download the model in Document requests, complete it, sign it, then upload the signed PDF. Word, OpenOffice or PDF, 5 MB.</p>
+    {types === null
+      ? <p className="mt-2 text-[11px] text-slate-400">Loading...</p>
+      : <ul className="mt-1.5 divide-y divide-slate-100 rounded-lg border border-slate-200">
+          {prepared.map((type) => <li key={type.id} className="flex flex-wrap items-center gap-2 px-3 py-2 text-xs">
+            <FileText className="size-4 shrink-0 text-slate-400" aria-hidden />
+            <span className="min-w-0 flex-1">
+              <span className="block font-semibold text-[#192646]">{type.name}</span>
+              <span className={cn('block truncate text-[11px]', type.has_model ? 'text-emerald-700' : 'text-slate-400')}>
+                {type.has_model ? type.model_name : 'No model yet'}
+              </span>
+            </span>
+            {busy === type.id && <Loader2 className="size-3.5 animate-spin text-slate-400" />}
+            {type.has_model && <button type="button" className={actionClass}
+              onClick={async () => setError(await getFile(`/api/documents/types/${type.id}/model/`, type.model_name, true))}>Download</button>}
+            {/* Un vrai <input type="file"> caché derrière un bouton lisible ; vidé après chaque choix. */}
+            <label className={cn(actionClass, 'cursor-pointer')}>
+              <Upload className="size-3.5" /> {type.has_model ? 'Replace' : 'Upload'}
+              <input type="file" accept=".docx,.doc,.odt,.pdf" className="sr-only"
+                onChange={(event) => { change(type, event.target.files?.[0] ?? null); event.target.value = '' }} />
+            </label>
+            {type.has_model && <button type="button" onClick={() => change(type, null)}
+              className={cn(actionClass, 'text-red-600 hover:bg-red-50')}>Remove</button>}
+          </li>)}
+        </ul>}
+    {error && <p role="alert" className="mt-1.5 text-[11px] font-medium text-red-600">{error}</p>}
+  </fieldset>
+}
 
 const draftOf = (data: Settings): Draft => ({
   offer_pdf: data.offer_pdf, offer_original: data.offer_original, offer_both: data.offer_both,
@@ -157,6 +219,8 @@ export function DocumentSettingsPanel() {
             </div>}
             <p className="mt-1.5 text-[11px] text-slate-500">Which documents a manager can request: column &ldquo;Managers can request&rdquo; of Types de document.</p>
           </fieldset>
+
+          <ModelsSection />
 
           <div className="flex flex-wrap items-center justify-end gap-3">
             {error && <p role="alert" className="mr-auto text-xs font-medium text-red-600">{error}</p>}

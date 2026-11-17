@@ -218,13 +218,13 @@ const DEFAULT_BACK = { href: '/requests', label: 'My requests' }
 export function RequestHistory({ requestId, from = null }: { requestId: number; from?: string | null }) {
   const [request, setRequest] = useState<WorkflowRequest | null>(null)
   const [recounts, setRecounts] = useState<Recount[]>([])
-  const [paper, setPaper] = useState<DocumentRequest | null>(null)  // le document administratif de la demande
+  const [papers, setPapers] = useState<DocumentRequest[]>([])  // les documents administratifs de la demande (1 ou plus)
   const [error, setError] = useState('')
 
-  // Un document administratif : où il en est (relu après un dépôt du RH).
+  // Les documents administratifs : où chacun en est (relus après un dépôt du RH).
   const loadDocument = useCallback(() => {
     apiFetch(`/api/documents/requests/${requestId}/`)
-      .then(async (response) => { if (response.ok) setPaper(await response.json()) })
+      .then(async (response) => { if (response.ok) setPapers(await response.json()) })
       .catch(() => { /* pas de document (ex. une demande de démo) : l'historique reste comme avant */ })
   }, [requestId])
 
@@ -266,7 +266,7 @@ export function RequestHistory({ requestId, from = null }: { requestId: number; 
       <span className={cn('rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset', status.badge)}>{status.label}</span>
     </div>
 
-    <RequestTimeline request={request} recounts={recounts} paper={paper} onChanged={loadDocument} />
+    <RequestTimeline request={request} recounts={recounts} papers={papers} onChanged={loadDocument} />
   </div>
 }
 
@@ -275,11 +275,14 @@ export function RequestHistory({ requestId, from = null }: { requestId: number; 
  * Partagée par la page historique et le panneau d'un document administratif (My documents, Document requests).
  * paper : le document administratif de la demande (+ ses lignes PDF / original), onChanged : le relire après un clic.
  */
-export function RequestTimeline({ request, recounts = [], paper = null, onChanged = () => {} }: {
-  request: WorkflowRequest; recounts?: Recount[]; paper?: DocumentRequest | null; onChanged?: () => void
+export function RequestTimeline({ request, recounts = [], papers = [], onChanged = () => {} }: {
+  request: WorkflowRequest; recounts?: Recount[]; papers?: DocumentRequest[]; onChanged?: () => void
 }) {
-  // Les événements ; un document : + ses lignes "en préparation" / "livré" / "original", après la validation.
-  const events = [...eventsOf(request, recounts), ...(paper ? documentEvents(paper, onChanged) : [])]
+  // Les événements ; chaque document (un ou plusieurs, 2026-11-17) : + ses lignes "en préparation" / "livré" /
+  // "original", après la validation ; plusieurs : chaque ligne dit de quel document elle parle.
+  const named = papers.length > 1
+  const events = [...eventsOf(request, recounts), ...papers.flatMap((paper) => documentEvents(paper, onChanged)
+    .map((event) => (named ? { ...event, title: `${paper.doc_type} · ${event.title}` } : event)))]
   return <ol className="rounded-xl border border-slate-200/80 bg-white px-4 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
       {events.map((event, index) => {
         const Icon = event.icon

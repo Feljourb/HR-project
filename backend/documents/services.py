@@ -8,6 +8,7 @@ Dans les deux cas, le collaborateur reçoit 🔔 + email "Document prêt".
 """
 from datetime import timedelta
 from pathlib import Path
+from uuid import uuid4
 
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.files.base import ContentFile
@@ -48,9 +49,16 @@ def is_manager_of(user, employee):
     return boss is not None and boss.user_id == user.pk
 
 
-@transaction.atomic
 def request_document(employee, doc_type, purpose="", by=None, format=DocumentRequest.Format.PDF):
-    """Demander un document. Une règle refusée -> ValidationError({"doc_type": [...]}).
+    """UN document (les démos, les tests) : une demande avec ce seul document."""
+    return request_documents(employee, [doc_type], purpose, by, format)[0]
+
+
+@transaction.atomic
+def request_documents(employee, doc_types, purpose="", by=None, format=DocumentRequest.Format.PDF):
+    """Demander UN OU PLUSIEURS documents dans UNE demande (2026-11-17 : "Documents demandés", cases à cocher, comme
+    l'outil actuel des RH) : les RH valident une fois, puis chaque document suit son chemin. Rend les documents créés.
+    Une règle refusée -> ValidationError({"doc_type": [...]}).
     format : PDF, ORIGINAL (papier signé à la main, à récupérer au bureau RH) ou BOTH.
     - par le collaborateur lui-même (by vide, ou lui) : la demande suit le circuit (les RH du pôle valident) ;
     - par un RH POUR un collaborateur (champ "Employé (RH)", standard "request on behalf of") : les RH sont
@@ -71,24 +79,31 @@ def request_document(employee, doc_type, purpose="", by=None, format=DocumentReq
     if not hr and format not in options.formats():
         # Les RH gardent tous les formats (ils préparent eux-mêmes) ; les autres : ceux qu'Admin RH propose.
         raise ValidationError({"format": ["Ce format n'est pas proposé : choisissez-en un autre."]})
-    if manager and not doc_type.manager_can_request:
-        raise ValidationError({"doc_type": ["Ce document ne se demande pas par le manager : le collaborateur ou les RH "
-                                            "le demandent."]})
+    doc_types = list(dict.fromkeys(doc_types))  # le même coché deux fois : une seule fois
+    if not doc_types:
+        raise ValidationError({"doc_type": ["Choisissez au moins un document."]})
+    if manager and any(not doc_type.manager_can_request for doc_type in doc_types):
+        names = ", ".join(doc_type.name for doc_type in doc_types if not doc_type.manager_can_request)
+        raise ValidationError({"doc_type": [f"Ce document ne se demande pas par le manager ({names}) : le collaborateur "
+                                            "ou les RH le demandent."]})
     # Deux clics "Envoyer" en même temps : le second attend le premier, puis voit la demande déjà en cours.
     Employee.objects.select_for_update().get(pk=employee.pk)
-    if not doc_type.is_active:
-        raise ValidationError({"doc_type": ["Ce document n'est plus proposé."]})
+    if any(not doc_type.is_active for doc_type in doc_types):
+        raise ValidationError({"doc_type": ["Un de ces documents n'est plus proposé."]})
     if format not in DocumentRequest.Format.values:
         raise ValidationError({"format": ["Choisissez le format : PDF, original ou les deux."]})
     # Une seule demande en cours par type (standard) : à valider, ou validée et pas encore préparée par les RH.
     waiting = Q(request__status=Request.Status.IN_PROGRESS) | DocumentRequest.to_prepare_filter()
-    if DocumentRequest.objects.filter(waiting, employee=employee, doc_type=doc_type).exists():
-        raise ValidationError({"doc_type": ["Une demande est déjà en cours pour ce document."]})
+    busy = DocumentRequest.objects.filter(waiting, employee=employee, doc_type__in=doc_types).select_related("doc_type")
+    if busy.exists():
+        names = ", ".join(sorted({document.doc_type.name for document in busy}))
+        raise ValidationError({"doc_type": [f"Une demande est déjà en cours pour : {names}."]})
 
     purpose = (purpose or "").strip()[:200]
-    # Le titre (Team approvals, l'historique, la cloche) dit tout de suite au RH s'il faut un original papier :
-    # "Attestation de travail (Banque) · original".
-    title = f"{doc_type.name} ({purpose})" if purpose else doc_type.name
+    # Le titre (Team approvals, l'historique, la cloche) dit tout de suite au RH quoi, et s'il faut un original papier :
+    # "Attestation de travail + Attestation de salaire (Banque) · original".
+    names = " + ".join(doc_type.name for doc_type in doc_types)
+    title = f"{names} ({purpose})" if purpose else names
     if format in FORMAT_IN_TITLE:
         title = f"{title} · {FORMAT_IN_TITLE[format]}"
     title = title[:200]  # la longueur maximum d'un titre de demande (un motif très long)
@@ -98,18 +113,22 @@ def request_document(employee, doc_type, purpose="", by=None, format=DocumentReq
     else:
         # Le manager : la demande est au nom du collaborateur, "saisie par" le manager (il suit l'historique).
         request = engine.submit(Workflow.Code.ADMIN_REQUEST, employee, title, initiated_by=by if manager else None)
-    document = DocumentRequest.objects.create(
+    # Un document par type coché, chacun avec SON délai (généré : tout de suite ; préparé par les RH : N jours ouvrés).
+    created = [DocumentRequest.objects.create(
         request=request, employee=employee, doc_type=doc_type, purpose=purpose, format=format,
         requested_by=by if for_other else None,
         due_date=add_working_days(timezone.localdate(), 0 if doc_type.template else doc_type.delivery_days))
+        for doc_type in doc_types]
     if manager:
         # 🔔 + email au collaborateur : une demande a été faite EN SON NOM.
         Notification.objects.create(recipient=employee.user, employee=employee,
                                     kind=Notification.Kind.REQUESTED_FOR, request=request)
-    # Déjà acceptée (demandée par les RH) : le handler est passé AVANT que le document existe -> on génère ici.
-    if request.status == Request.Status.APPROVED and doc_type.template:
-        generate(document)
-    return document
+    # Déjà acceptée (demandée par les RH) : le handler est passé AVANT que les documents existent -> on génère ici.
+    if request.status == Request.Status.APPROVED:
+        for document in created:
+            if document.doc_type.template:
+                generate(document)
+    return created
 
 
 def deliver(document, content, name, user=None):
@@ -167,6 +186,36 @@ def generate(document, reviewed=False):
     if document.needs_pdf and signed:
         return deliver(document, ContentFile(make(document)), f"{name}.pdf")
     return document
+
+
+def draft_bytes(document):
+    """"Download" des RH (2026-11-17) pour un document GÉNÉRÉ : le PDF SANS signature, avec le texte du moment (celui
+    relu par un RH, sinon celui de la fiche), à imprimer, signer et tamponner. Fabriqué à la demande : marche aussi
+    avant la relecture ("Customize" est facultatif)."""
+    if not document.reference:
+        document.reference = f"DOC-{timezone.localdate():%Y}-{document.pk:05d}"
+        document.save(update_fields=["reference"])
+    return TEMPLATES[document.doc_type.template](document, signed=False, text=text_of(document))
+
+
+MODEL_EXTENSIONS = (".docx", ".doc", ".odt", ".pdf")
+
+
+def set_model(doc_type, file):
+    """Admin RH met (ou remplace) le modèle Word / PDF d'un type préparé par les RH. 5 Mo au plus."""
+    if file is None:
+        raise ValidationError("Choisissez un fichier Word ou PDF.")
+    suffix = Path(file.name).suffix.lower()
+    if suffix not in MODEL_EXTENSIONS:
+        raise ValidationError("Le modèle doit être un fichier Word (.docx, .doc), OpenOffice (.odt) ou PDF.")
+    if file.size > MAX_FILE_SIZE:
+        raise ValidationError("Le modèle dépasse 5 Mo.")
+    if doc_type.model_file:
+        doc_type.model_file.delete(save=False)  # l'ancien modèle n'est plus utilisé nulle part
+    doc_type.model_file.save(f"{uuid4().hex}{suffix}", file, save=False)  # un nom au hasard : jamais deviné
+    doc_type.model_name = file.name[:200]
+    doc_type.save(update_fields=["model_file", "model_name"])
+    return doc_type
 
 
 MAX_TEXT = 5000  # le texte d'une attestation : quelques paragraphes

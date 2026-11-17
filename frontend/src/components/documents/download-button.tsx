@@ -1,11 +1,13 @@
 'use client'
 
 /* Le bouton "Download" d'un document prêt (partagé par "My documents" et la page des RH),
- * et "Print draft" (les RH) : le brouillon SANS signature, à imprimer, signer et tamponner à la main. */
+ * et le "Download" des RH pour PRÉPARER un document (2026-11-17) : le brouillon sans signature (document généré),
+ * ou le modèle Word / PDF de son type (mis par Admin RH), à compléter, imprimer, signer et tamponner. */
 import { useState } from 'react'
-import { FileDown, Printer } from 'lucide-react'
+import { FileDown } from 'lucide-react'
 import { fileUrl, type DocumentRequest } from '@/lib/documents'
 import { getFile } from '@/lib/expenses'
+import { cn } from '@/lib/utils'
 import { actionClass } from '@/components/expenses/claim-actions'
 
 export function DownloadButton({ document, label = 'Download' }: { document: DocumentRequest; label?: string }) {
@@ -20,14 +22,19 @@ export function DownloadButton({ document, label = 'Download' }: { document: Doc
   </>
 }
 
-/** "Print draft" : le brouillon sans signature (les RH seulement), à imprimer pour le signer et le tamponner. */
-export function PrintButton({ document }: { document: DocumentRequest }) {
+/** ① "Download" des RH, tant que le document est à préparer : le brouillon (généré) ou le modèle Word du type.
+ *  (Ancien nom PrintButton : le même bouton dans l'historique, le panneau et Team approvals.) */
+export function PrintButton({ document, strong = false }: { document: DocumentRequest; strong?: boolean }) {
   const [error, setError] = useState('')
-  if (!document.can_print) return null
+  if (!document.hr_download || document.state !== 'TO_PREPARE') return null
+  const draft = document.hr_download === 'draft'
   return <>
-    <button type="button" className={actionClass} title="The document without signature: print it, sign it and stamp it"
-      onClick={async () => setError(await getFile(`${fileUrl(document)}?draft=1`, `brouillon-${document.reference ?? document.request}.pdf`, false))}>
-      <Printer className="size-3.5" /> Print draft
+    <button type="button" className={cn(actionClass, strong && 'bg-[#23355d] text-white hover:bg-[#192646]')}
+      title={draft ? 'The document filled in from the HR file, without signature: print, sign and stamp it'
+        : 'The company model (Word / PDF): complete it, print, sign and stamp it'}
+      onClick={async () => setError(await getFile(`/api/documents/hr/${document.id}/download/`,
+        draft ? `brouillon-${document.reference ?? document.id}.pdf` : document.model_name || document.doc_type, true))}>
+      <FileDown className="size-3.5" /> {draft ? 'Download' : 'Download model'}
     </button>
     {error && <span role="alert" className="text-[11px] text-red-600">{error}</span>}
   </>

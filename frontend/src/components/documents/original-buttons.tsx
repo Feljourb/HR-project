@@ -28,7 +28,7 @@ export function OriginalButtons({ document, onDone }: { document: DocumentReques
     setBusy(true)
     setError('')
     const result = await sendChange<DocumentRequest>(
-      () => apiFetch(`/api/documents/hr/${document.request}/${ready ? 'handed-over' : 'original-ready'}/`,
+      () => apiFetch(`/api/documents/hr/${document.id}/${ready ? 'handed-over' : 'original-ready'}/`,
         { method: 'POST', body: JSON.stringify(ready ? { to: target } : {}) }),
       'Only HR of this employee\'s pôle can handle the original.')
     setBusy(false)
@@ -44,7 +44,7 @@ export function OriginalButtons({ document, onDone }: { document: DocumentReques
       <span className="text-[11px] font-semibold text-violet-800">Handed over to:</span>
       {([['employee', document.employee], ['manager', `${document.manager} (manager)`]] as const).map(([id, label]) =>
         <label key={id} className="flex items-center gap-1 text-[11px] text-slate-700">
-          <input type="radio" name={`to-${document.request}`} checked={to === id} onChange={() => setTo(id)} className="accent-violet-600" /> {label}
+          <input type="radio" name={`to-${document.id}`} checked={to === id} onChange={() => setTo(id)} className="accent-violet-600" /> {label}
         </label>)}
       <button type="button" onClick={() => setChoosing(false)} className="rounded-md px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-white">Cancel</button>
       <button type="button" disabled={busy} onClick={() => send(to)} className={button}>

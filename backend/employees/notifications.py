@@ -227,29 +227,31 @@ def message(notification):
     # Pour le collaborateur lui-même, ou pour celui qui a saisi sa demande (son manager, 2026-11-16) : pas "Votre ...".
     for_me = employee.user_id == notification.recipient_id
     if notification.kind == Kind.DOCUMENT_READY:
-        document = getattr(notification.request, "document", None)  # documents.DocumentRequest (lien inverse)
+        document = document_of(notification, "delivered_at")  # documents.DocumentRequest : CELUI qui vient d'être livré
         what = f"{document.doc_type} (réf. {document.reference})" if document else notification.request.title
         if not for_me:
             return f"Le document de {name} est prêt : {what}. Il le télécharge dans son espace « Administrative documents »."
         return f"Votre document est prêt : {what}. Téléchargez-le dans « Administrative documents »."
     if notification.kind == Kind.REQUESTED_FOR:
         from workflows.serializers import name_of
-        document = getattr(notification.request, "document", None)
-        if document is None:
+        all_documents = list(notification.request.documents.select_related("doc_type"))  # un ou plusieurs (2026-11-17)
+        if not all_documents:
             return f"Une demande a été faite pour vous : {notification.request.title}."
+        document = all_documents[0]
         who = name_of(document.requested_by) if document.requested_by_id else "Votre manager"
-        return (f"{who} a demandé pour vous : {document.doc_type} ({document.get_format_display().lower()}). "
+        names = " + ".join(str(item.doc_type) for item in all_documents)
+        return (f"{who} a demandé pour vous : {names} ({document.get_format_display().lower()}). "
                 "Les RH la préparent ; vous serez prévenu quand elle sera prête.")
     if notification.kind == Kind.ORIGINAL_HANDED:
         from workflows.serializers import name_of, person
-        document = getattr(notification.request, "document", None)
+        document = document_of(notification, "collected_at")
         if document is None or document.handed_to is None:
             return f"Votre original a été remis à votre manager : {notification.request.title}."
         by = f" par {name_of(document.collected_by)}" if document.collected_by_id else ""
         return (f"L'original de votre {document.doc_type} a été remis à votre manager {person(document.handed_to)}"
                 f"{by}, le {timezone.localtime(document.collected_at):%d/%m/%Y}.")
     if notification.kind == Kind.ORIGINAL_READY:
-        document = getattr(notification.request, "document", None)
+        document = document_of(notification, "original_ready_at")
         what = document.doc_type if document else notification.request.title
         if not for_me:
             return f"L'original signé de {name} attend au bureau RH : {what}. Prévenez-le de passer le récupérer."
@@ -327,6 +329,15 @@ def balance_change_message(notification):
     if item is None:
         return "Votre droit annuel de congé a été modifié par les RH."
     return f"Votre droit annuel est de {days_label(item.annual_days)} j à partir du {item.effective_from:%d/%m/%Y}. Motif : {item.reason}."
+
+
+def document_of(notification, moment):
+    """Le document dont parle CETTE notification (2026-11-17 : une demande peut avoir plusieurs documents, prêts à des
+    moments différents) : le dernier dont `moment` (delivered_at, original_ready_at, collected_at) est passé avant elle ;
+    sinon le premier de la demande. None : une demande sans document."""
+    documents = notification.request.documents.select_related("doc_type", "handed_to")
+    return (documents.filter(**{f"{moment}__lte": notification.created_at}).order_by(f"-{moment}", "-id").first()
+            or documents.order_by("id").first())
 
 
 def expense_correction_message(notification):

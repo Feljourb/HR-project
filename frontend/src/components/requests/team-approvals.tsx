@@ -19,10 +19,7 @@ import { stateOf, type DocumentRequest } from '@/lib/documents'
 import { CancelClaim } from '@/components/expenses/claim-actions'
 import { formatDate } from '@/lib/leaves'
 import type { Approval, DecidedStep, WorkflowRequest } from '@/lib/requests'
-import { PrintButton } from '@/components/documents/download-button'
-import { UploadButton } from '@/components/documents/upload-button'
-import { OriginalButtons } from '@/components/documents/original-buttons'
-import { TextEditorButton } from '@/components/documents/text-editor'
+import { PrepareSteps } from '@/components/documents/prepare-steps'
 import { cn } from '@/lib/utils'
 import { sendChange } from '@/lib/workflows'
 import { DecidedList } from './decided-list'
@@ -41,16 +38,21 @@ export function TeamApprovals({ me }: { me: Me }) {
   // Saisies par moi pour mon équipe (+ leur document, s'il y en a un : "Ready for pickup"...).
   const [initiated, setInitiated] = useState<WorkflowRequest[]>([])
   const [teamDocuments, setTeamDocuments] = useState<Record<number, DocumentRequest>>({})
-  // Un document validé qui demande encore le travail des RH : sa carte reste, en "Next step" (clé = l'étape validée).
-  const [nextSteps, setNextSteps] = useState<Record<number, DocumentRequest>>({})
+  // Les documents validés qui demandent encore le travail des RH : la carte reste, en "Next step" (clé = l'étape
+  // validée ; une demande peut avoir plusieurs documents, 2026-11-17).
+  const [nextSteps, setNextSteps] = useState<Record<number, DocumentRequest[]>>({})
 
   const loadInitiated = useCallback(() => {
     Promise.all([apiFetch('/api/workflows/requests/initiated/'), apiFetch('/api/documents/mine/for-team/')])
       .then(async ([requests, documents]) => {
         if (requests.ok) setInitiated(await requests.json())
         if (documents.ok) {
+          // Une demande peut avoir plusieurs documents (2026-11-17) : on montre celui qui demande une action
+          // ("Ready for pickup" : le manager prévient la personne), sinon le premier.
           const rows: DocumentRequest[] = await documents.json()
-          setTeamDocuments(Object.fromEntries(rows.map((document) => [document.request, document])))
+          const byRequest: Record<number, DocumentRequest> = {}
+          for (const row of rows) if (!byRequest[row.request] || row.state === 'PICKUP') byRequest[row.request] = row
+          setTeamDocuments(byRequest)
         }
       })
       .catch(() => { /* l'onglet ne s'affiche pas, le reste de la page marche */ })
@@ -83,13 +85,19 @@ export function TeamApprovals({ me }: { me: Me }) {
     setDone(`${verb}: ${approval.request.title}`)
     loadHistory()
     if (verb !== 'Approved' || approval.request.workflow_code !== 'ADMIN_REQUEST') return remove(approval)
+    refreshNext(approval, '')
+  }
+
+  // Les documents de la demande qui attendent encore les RH ; aucun : la carte s'en va (avec ce message).
+  function refreshNext(approval: Approval, message: string) {
     apiFetch(`/api/documents/requests/${approval.request.id}/`)
       .then(async (response) => {
-        const document: DocumentRequest | null = response.ok ? await response.json() : null
-        if (document?.state === 'TO_PREPARE' && (document.can_upload || document.can_handle_original || document.can_edit_text)) {
-          setNextSteps((old) => ({ ...old, [approval.id]: document }))
-          setDone('')  // la carte elle-même dit "Approved"
-        } else remove(approval)
+        const rows: DocumentRequest[] = response.ok ? await response.json() : []
+        const pending = rows.filter((document) => document.state === 'TO_PREPARE'
+          && (document.can_upload || document.can_handle_original || document.can_edit_text))
+        if (pending.length === 0) return finished(approval, message || `Approved: ${approval.request.title}`)
+        setNextSteps((old) => ({ ...old, [approval.id]: pending }))
+        setDone(message)  // vide : la carte elle-même dit "Approved"
       })
       .catch(() => remove(approval))  // pas de document (demande de démo) : rien de plus à faire
   }
@@ -155,8 +163,8 @@ export function TeamApprovals({ me }: { me: Me }) {
         ? <Message><CheckCheck className="mx-auto mb-2 size-6 text-emerald-600" />Nothing is waiting for you.</Message>
         : approvals.map((approval) => nextSteps[approval.id]
           // Validé : la même place, devenue "Approved · Next step".
-          ? <NextStepCard key={approval.id} approval={approval} document={nextSteps[approval.id]}
-              onFinished={(message) => finished(approval, message)} />
+          ? <NextStepCard key={approval.id} approval={approval} documents={nextSteps[approval.id]}
+              onDone={(message) => refreshNext(approval, message)} onLater={(message) => finished(approval, message)} />
           : (
             <RequestCard key={approval.id} request={approval.request} showRequester>
               {/* Je réponds à la place d'un valideur absent (son délégué, son responsable, ou les RH). */}
@@ -175,42 +183,38 @@ function Message({ children }: { children: ReactNode }) {
   return <div className="rounded-xl border border-slate-200 bg-white px-4 py-12 text-center text-sm text-slate-500">{children}</div>
 }
 
-/** La carte d'un document qu'on vient de valider, À SA PLACE : "Approved", et ce qu'il reste à faire, avec ses boutons.
- *  "Later" la retire (on la retrouve dans Document requests -> To prepare). */
-function NextStepCard({ approval, document, onFinished }: {
-  approval: Approval; document: DocumentRequest; onFinished: (message: string) => void
+/** La carte d'une demande de document qu'on vient de valider, À SA PLACE : "Approved", puis CHAQUE document qui
+ *  attend encore les RH (une demande peut en avoir plusieurs), avec ce qu'il reste à faire et ses boutons. Un document
+ *  fini quitte la carte ; plus rien : la carte s'en va. "Later" la retire (Document requests -> To prepare). */
+function NextStepCard({ approval, documents, onDone, onLater }: {
+  approval: Approval; documents: DocumentRequest[]; onDone: (message: string) => void; onLater: (message: string) => void
 }) {
-  const who = `${document.doc_type} for ${document.employee}`
-  const todo = [
-    document.needs_review && 'review the text, then send it ("Review & send")',
-    document.can_upload && !document.has_file && (document.can_print ? 'print the draft, sign and stamp it, then upload the scan' : 'upload the signed PDF'),
-    document.original_state === 'TO_SIGN' && 'print, sign and stamp the original, then click "Original ready"',
-  ].filter(Boolean).join('; ')
   return <article className="rounded-xl border border-emerald-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
     <header className="flex items-start gap-3 border-b border-emerald-100 bg-emerald-50/60 px-4 py-3">
       <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-white" aria-hidden><Check className="size-4" /></span>
       <div className="min-w-0 flex-1">
         <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Approved</p>
         <p className="truncate text-sm font-semibold text-[#192646]">{approval.request.title}</p>
-        <p className="text-[11px] text-slate-500">{approval.request.requester}{document.due_date ? ` · expected by ${formatDate(document.due_date)}` : ''}</p>
+        <p className="text-[11px] text-slate-500">{approval.request.requester}</p>
       </div>
+      <Link href="/document-requests" onClick={() => onLater(`Approved: ${approval.request.title}. It waits in Document requests → To prepare.`)}
+        className="rounded-md px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-white">Later</Link>
     </header>
-    <div className="flex flex-wrap items-center gap-3 px-4 py-3">
-      <FileText className="size-4 shrink-0 text-sky-700" aria-hidden />
-      <p className="min-w-0 flex-1 text-xs text-slate-700"><span className="font-semibold text-[#192646]">Next step:</span> {todo}.</p>
-      <div className="flex flex-wrap items-center gap-1">
-        {/* Relu et envoyé : la carte s'en va ; relu (à la main) : le brouillon est refait, la carte reste. */}
-        <TextEditorButton document={document} onSaved={(updated) => updated.state === 'READY'
-          ? onFinished(`Sent to the employee: ${who}.`) : onFinished(`Text saved: ${who}. Print the new draft in Document requests.`)} />
-        <PrintButton document={document} />
-        {document.can_upload && !document.has_file && <UploadButton document={document}
-          onUploaded={() => onFinished(`Sent to the employee: ${who}.`)} />}
-        <OriginalButtons document={document} onDone={() => onFinished(`Original ready at the HR office: ${who}. The employee is notified.`)} />
-        <Link href="/document-requests" onClick={() => onFinished(`Approved: ${approval.request.title}. It waits in Document requests → To prepare.`)}
-          className="rounded-md px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100">Later</Link>
-      </div>
-    </div>
+    <ul className="divide-y divide-slate-100">
+      {documents.map((document) => <NextStepRow key={document.id} document={document} onDone={onDone} />)}
+    </ul>
   </article>
+}
+
+/** Un document de la carte : son nom, son délai, puis les 3 étapes et leurs boutons (les mêmes que Document requests). */
+function NextStepRow({ document, onDone }: { document: DocumentRequest; onDone: (message: string) => void }) {
+  return <li className="flex flex-col gap-2 px-4 py-3">
+    <p className="flex items-center gap-2 text-xs font-semibold text-[#192646]">
+      <FileText className="size-4 shrink-0 text-sky-700" aria-hidden />
+      {document.doc_type}{document.due_date ? <span className="font-normal text-slate-500">· expected by {formatDate(document.due_date)}</span> : ''}
+    </p>
+    <PrepareSteps document={document} onChanged={onDone} />
+  </li>
 }
 
 // Le statut en anglais (la page est en anglais), avec les couleurs de "My requests".

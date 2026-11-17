@@ -18,10 +18,9 @@ import { formatDate } from '@/lib/leaves'
 import { cn } from '@/lib/utils'
 import { actionClass } from '@/components/expenses/claim-actions'
 import { DocumentPanel } from './document-panel'
-import { DownloadButton, PrintButton } from './download-button'
+import { DownloadButton } from './download-button'
 import { OriginalButtons } from './original-buttons'
-import { TextEditorButton } from './text-editor'
-import { UploadButton } from './upload-button'
+import { PrepareSteps } from './prepare-steps'
 
 const FILTERS = [
   { id: 'to_prepare', label: 'To prepare' },
@@ -184,6 +183,7 @@ function Row({ document, onChanged, onOpen }: { document: DocumentRequest; onCha
     document.collected_by && `handed over by ${document.collected_by}`,
   ].filter(Boolean)
 
+  const preparing = document.state === 'TO_PREPARE'
   return <li className="flex flex-wrap items-center gap-3 px-4 py-3">
     <div className="min-w-0 flex-1">
       <p className="flex min-w-0 items-center gap-2 text-sm font-semibold text-[#192646]">
@@ -203,18 +203,14 @@ function Row({ document, onChanged, onOpen }: { document: DocumentRequest; onCha
     {document.late && <span className="rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-700 ring-1 ring-inset ring-red-200">Late</span>}
     <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset', state.badge)}>{state.label}</span>
     <div className="flex items-center gap-1">
-      {/* Le PDF signé pas encore livré : "Upload PDF". Livré, il ne se remplace plus (une erreur = une nouvelle demande). */}
-      {document.can_upload && <UploadButton document={document} onUploaded={() => onChanged(`Sent to the employee: ${who}. They get a notification and an email.`)} />}
-      {/* Step 3 : relire / compléter le texte d'un document généré ("Review & send" quand c'est demandé). */}
-      {document.state === 'TO_PREPARE' && <TextEditorButton document={document} onSaved={(updated) => onChanged(updated.state === 'READY'
-        ? `Sent to the employee: ${who}.` : `Text saved: ${who}. Print the new draft.`)} />}
-      {/* À préparer : le brouillon sans signature à imprimer (signer, tamponner) ; livré : le PDF. */}
-      {document.state === 'TO_PREPARE' && <PrintButton document={document} />}
-      <DownloadButton document={document} />
-      <OriginalButtons document={document} onDone={(updated) => onChanged(updated.original_state === 'COLLECTED'
-        ? `Original handed over to ${updated.handed_to ?? updated.employee}: ${who}.` : `Original ready at the HR office: ${who}. The employee is notified.`)} />
+      {/* Livré : le PDF ; l'original attend au bureau RH : "Handed over". (À préparer : les étapes, en dessous.) */}
+      {!preparing && <DownloadButton document={document} />}
+      {!preparing && <OriginalButtons document={document} onDone={(updated) => onChanged(updated.original_state === 'COLLECTED'
+        ? `Original handed over to ${updated.handed_to ?? updated.employee}: ${who}.` : `Original ready at the HR office: ${who}. The employee is notified.`)} />}
       <button type="button" onClick={onOpen} className={actionClass}>Details</button>
     </div>
+    {/* À préparer (2026-11-17) : les 3 étapes écrites et leurs boutons, sur toute la largeur. */}
+    {preparing && <PrepareSteps document={document} onChanged={onChanged} />}
   </li>
 }
 

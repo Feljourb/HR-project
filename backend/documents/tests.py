@@ -20,7 +20,8 @@ from workflows.models import Request
 from workflows.test_engine import EngineTestCase
 
 from .models import DocumentRequest, DocumentSettings, DocumentSignatory, DocumentType
-from .services import add_working_days, mark_handed_over, mark_original_ready, request_document, save_text, upload
+from .services import (add_working_days, mark_handed_over, mark_original_ready, request_document, request_documents,
+                       save_text, upload)
 
 User = get_user_model()
 MEDIA = tempfile.mkdtemp()  # les PDF des tests vont ici (effacé à la fin), pas dans media/
@@ -149,6 +150,32 @@ class FlowTests(DocumentTestCase):
         self.assertTrue(self.ready_notices().exists())  # le PDF tout de suite
         self.assertEqual((document.state, document.original_state), ("TO_PREPARE", "TO_SIGN"))  # reste l'original
 
+    def test_several_documents_in_one_request(self):
+        # 2026-11-17 (comme l'outil actuel des RH) : Sara coche 2 documents -> UNE demande, UNE validation des RH.
+        work, salary = request_documents(self.sara, [self.work, self.salary], "Banque")
+        self.assertEqual(work.request_id, salary.request_id)
+        self.assertEqual(work.request.title, "Attestation de travail + Attestation de salaire (Banque)")
+        self.assertEqual(work.request.steps.count(), 1)
+        self.approve(work)
+        work.refresh_from_db()
+        salary.refresh_from_db()
+        # Puis chacun son chemin : l'attestation de travail générée tout de suite, celle de salaire préparée par les RH.
+        self.assertEqual((work.state, salary.state), ("READY", "TO_PREPARE"))
+        notice = self.ready_notices().get()
+        self.assertIn("Attestation de travail", message(notice))
+        upload(salary, self.nadia.user, pdf())
+        salary.refresh_from_db()
+        self.assertEqual(salary.state, "READY")
+        # Le 2e "Document prêt" parle de l'attestation de salaire (pas de la première).
+        latest = self.ready_notices().order_by("-created_at", "-id").first()
+        self.assertIn("Attestation de salaire", message(latest))
+        # Déjà en cours pour un type : refusé (avec son nom), rien n'est créé.
+        request_document(self.sara, self.salary)
+        with self.assertRaisesMessage(ValidationError, "Attestation de salaire"):
+            request_documents(self.sara, [self.work, self.salary])
+        with self.assertRaises(ValidationError):
+            request_documents(self.sara, [])
+
     def test_admin_rh_settings_managers_and_formats(self):
         # 2026-11-17 : Admin RH choisit si les managers demandent pour leur équipe (défaut : non) et quels formats.
         options = DocumentSettings.load()
@@ -247,13 +274,13 @@ class HandSignedTests(DocumentTestCase):
         self.assertEqual((bool(document.draft), bool(document.file), document.state), (True, False, "TO_PREPARE"))
         self.assertFalse(self.ready_notices().exists())
         client = APIClient()
-        url = reverse("documents:file-detail", args=[document.request_id]) + "?draft=1"
+        url = reverse("documents:file-detail", args=[document.pk]) + "?draft=1"
         for employee, status_code in ((self.sara, 404), (self.nadia, 200)):
             employee.user.must_change_password = False
             employee.user.save()
             client.force_authenticate(employee.user)
             self.assertEqual(client.get(url).status_code, status_code)
-        data = client.get(reverse("documents:by-request-detail", args=[document.request_id])).json()
+        data = client.get(reverse("documents:by-request-detail", args=[document.request_id])).json()[0]
         self.assertEqual((data["can_print"], data["can_upload"]), (True, True))  # Nadia : imprimer, puis déposer
         # Avant d'imprimer, Nadia peut modifier le texte : le brouillon est refait (toujours rien pour Sara).
         draft_before = document.draft.name
@@ -345,11 +372,11 @@ class ApiTests(DocumentTestCase):
         self.assertIn("Attestation de travail", [t["name"] for t in self.client.get(reverse("documents:type-list")).json()])
         response = self.client.post(reverse("documents:mine-list"), {"doc_type": self.work.pk, "purpose": "Visa"})
         self.assertEqual(response.status_code, 201, response.json())
-        self.assertEqual((response.json()["state"], response.json()["automatic"]), ("IN_PROGRESS", True))
-        document = self.approve(DocumentRequest.objects.get(pk=response.json()["id"]))
+        self.assertEqual((response.json()[0]["state"], response.json()[0]["automatic"]), ("IN_PROGRESS", True))
+        document = self.approve(DocumentRequest.objects.get(pk=response.json()[0]["id"]))
         mine = self.client.get(reverse("documents:mine-list")).json()
         self.assertEqual((mine[0]["state"], mine[0]["has_file"]), ("READY", True))
-        file_url = reverse("documents:file-detail", args=[document.request_id])
+        file_url = reverse("documents:file-detail", args=[document.pk])
         self.assertEqual(self.client.get(file_url).status_code, 200)
         # Youssef (son N+1, pas RH) : 404, comme si le document n'existait pas.
         self.login(self.youssef)
@@ -358,15 +385,53 @@ class ApiTests(DocumentTestCase):
         self.login(self.nadia)
         self.assertEqual(self.client.get(file_url).status_code, 200)
 
+    def test_hr_download_draft_or_model(self):
+        # ① "Download" (2026-11-17) : généré -> le brouillon PDF (même avant "Customize") ; préparé -> le modèle Word.
+        DocumentType.objects.filter(pk=self.work.pk).update(hr_review=True)  # rien n'est fabriqué à la validation
+        work = self.approve(request_document(self.sara, self.work))
+        salary = self.approve(request_document(self.sara, self.salary))
+        self.login(self.nadia)
+        response = self.client.get(reverse("documents:hr-download", args=[work.pk]))
+        self.assertEqual((response.status_code, response["Content-Type"]), (200, "application/pdf"))
+        self.assertEqual(self.client.get(reverse("documents:hr-download", args=[salary.pk])).status_code, 404)  # pas de modèle
+        # Admin RH met le modèle Word de l'attestation de salaire ; une RH ne peut pas.
+        model_url = reverse("documents:type-model", args=[self.salary.pk])
+        word = SimpleUploadedFile("Attestation salaire.docx", b"PK word", content_type="application/octet-stream")
+        self.assertEqual(self.client.post(model_url, {"file": word}, format="multipart").status_code, 403)
+        admin = User.objects.create_user("admin.rh2", role=User.Role.HR_ADMIN, must_change_password=False)
+        self.client.force_authenticate(admin)
+        self.assertEqual(self.client.post(model_url, {"file": SimpleUploadedFile("virus.exe", b"x")}, format="multipart").status_code, 400)
+        word.seek(0)
+        data = self.client.post(model_url, {"file": word}, format="multipart").json()
+        self.assertEqual((data["has_model"], data["model_name"]), (True, "Attestation salaire.docx"))
+        self.login(self.nadia)
+        self.assertEqual(self.client.get(reverse("documents:by-request-detail", args=[salary.request_id])).json()[0]["hr_download"], "model")
+        model = self.client.get(reverse("documents:hr-download", args=[salary.pk]))
+        self.assertEqual((model.status_code, b"".join(model.streaming_content)), (200, b"PK word"))
+        # Le collaborateur : jamais (404, comme s'il n'existait pas).
+        self.login(self.sara)
+        self.assertEqual(self.client.get(model_url).status_code, 404)
+
+    def test_api_several_documents(self):
+        # Le formulaire envoie les cases cochées : une demande, deux documents (un par ligne dans les listes).
+        self.login(self.sara)
+        response = self.client.post(reverse("documents:mine-list"), {"doc_types": [self.work.pk, self.salary.pk]}, format="json")
+        self.assertEqual(response.status_code, 201, response.json())
+        self.assertEqual([item["doc_type"] for item in response.json()], ["Attestation de travail", "Attestation de salaire"])
+        request_id = response.json()[0]["request"]
+        both = self.client.get(reverse("documents:by-request-detail", args=[request_id])).json()
+        self.assertEqual(len(both), 2)
+        self.assertEqual(self.client.post(reverse("documents:mine-list"), {"doc_types": []}, format="json").status_code, 400)
+
     def test_the_document_of_a_request(self):
         # L'historique de la demande (et Team approvals) savent où en est le document, et qui peut le déposer.
         document = self.approve(request_document(self.sara, self.salary))
         url = reverse("documents:by-request-detail", args=[document.request_id])
         self.login(self.nadia)
-        data = self.client.get(url).json()
+        data = self.client.get(url).json()[0]
         self.assertEqual((data["state"], data["can_upload"], data["due_date"] is not None), ("TO_PREPARE", True, True))
         self.login(self.sara)
-        self.assertFalse(self.client.get(url).json()["can_upload"])  # Sara attend, elle ne dépose pas
+        self.assertFalse(self.client.get(url).json()[0]["can_upload"])  # Sara attend, elle ne dépose pas
         self.login(self.youssef)
         self.assertEqual(self.client.get(url).status_code, 404)    # son N+1 : rien à voir
 
@@ -393,11 +458,11 @@ class ApiTests(DocumentTestCase):
         self.assertIn(self.sara.pk, [member["id"] for member in members])
         response = self.client.post(reverse("documents:mine-list"), {"doc_type": self.work.pk, "employee": self.sara.pk})
         self.assertEqual(response.status_code, 201, response.json())
-        document = self.approve(DocumentRequest.objects.get(pk=response.json()["id"]))  # signé par l'application
+        document = self.approve(DocumentRequest.objects.get(pk=response.json()[0]["id"]))  # signé par l'application
         self.assertTrue(document.file)
         mine = self.client.get(reverse("documents:mine-for-team")).json()
         self.assertEqual([(item["state"], item["can_download"]) for item in mine], [("READY", False)])
-        self.assertEqual(self.client.get(reverse("documents:file-detail", args=[document.request_id])).status_code, 404)
+        self.assertEqual(self.client.get(reverse("documents:file-detail", args=[document.pk])).status_code, 404)
         # Il suit l'historique (il a saisi la demande), et tout le monde voit "saisie par Youssef".
         history = self.client.get(reverse("workflows:history-detail", args=[document.request_id]))
         self.assertEqual(history.status_code, 200)
@@ -410,7 +475,7 @@ class ApiTests(DocumentTestCase):
         self.assertTrue(message(notice).startswith("La demande de"))
         # Sara, elle, le télécharge.
         self.login(self.sara)
-        self.assertEqual(self.client.get(reverse("documents:file-detail", args=[document.request_id])).status_code, 200)
+        self.assertEqual(self.client.get(reverse("documents:file-detail", args=[document.pk])).status_code, 200)
 
     def test_hr_review_before_sending(self):
         # Step 3 : "Relecture RH avant l'envoi" sur l'attestation de travail : rien ne part à la validation.
@@ -419,8 +484,8 @@ class ApiTests(DocumentTestCase):
         self.assertEqual((bool(document.file), bool(document.draft), document.state), (False, False, "TO_PREPARE"))
         self.assertFalse(self.ready_notices().exists())
         self.login(self.nadia)
-        text_url = reverse("documents:hr-text", args=[document.request_id])
-        data = self.client.get(reverse("documents:by-request-detail", args=[document.request_id])).json()
+        text_url = reverse("documents:hr-text", args=[document.pk])
+        data = self.client.get(reverse("documents:by-request-detail", args=[document.request_id])).json()[0]
         self.assertEqual((data["needs_review"], data["can_edit_text"]), (True, True))
         # Le texte de la fiche (avec le CIN), qu'elle complète ; l'aperçu, puis l'envoi.
         text = self.client.get(text_url).json()["text"]
@@ -429,7 +494,7 @@ class ApiTests(DocumentTestCase):
         # Rien ne part avant la relecture (ni un PDF déposé à la place).
         with self.assertRaisesMessage(ValidationError, "Relisez d'abord"):
             upload(document, self.nadia.user, pdf())
-        preview = self.client.post(reverse("documents:hr-preview-text", args=[document.request_id]), {"text": text})
+        preview = self.client.post(reverse("documents:hr-preview-text", args=[document.pk]), {"text": text})
         self.assertEqual((preview.status_code, preview["Content-Type"]), (200, "application/pdf"))
         sent = self.client.post(text_url, {"text": text}).json()
         self.assertEqual((sent["state"], sent["text_reviewed_by"] is not None), ("READY", True))  # signé : livré
@@ -441,7 +506,7 @@ class ApiTests(DocumentTestCase):
         self.login(self.sara)
         self.assertEqual(self.client.post(text_url, {"text": "x"}).status_code, 403)
         # La relecture est une étape interne des RH : Sara ne la voit pas.
-        mine = self.client.get(reverse("documents:by-request-detail", args=[document.request_id])).json()
+        mine = self.client.get(reverse("documents:by-request-detail", args=[document.request_id])).json()[0]
         self.assertEqual((mine["text_reviewed_by"], mine["body_edited_at"]), (None, None))
 
     def test_hr_search_and_filters(self):
@@ -466,18 +531,18 @@ class ApiTests(DocumentTestCase):
         self.login(self.nadia)
         to_prepare = self.client.get(reverse("documents:hr-list"), {"status": "to_prepare"}).json()
         self.assertEqual([item["request"] for item in to_prepare], [document.request_id])
-        response = self.client.post(reverse("documents:hr-upload", args=[document.request_id]), {"file": pdf()}, format="multipart")
+        response = self.client.post(reverse("documents:hr-upload", args=[document.pk]), {"file": pdf()}, format="multipart")
         self.assertEqual((response.status_code, response.json()["state"]), (200, "READY"))
         self.assertEqual(self.client.get(reverse("documents:hr-list"), {"status": "to_prepare"}).json(), [])
         # Un original papier : "Original ready" puis "Handed over", et le filtre "à remettre".
         original = self.approve(request_document(self.sara, self.work, format="ORIGINAL"))
-        self.client.post(reverse("documents:hr-original-ready", args=[original.request_id]))
+        self.client.post(reverse("documents:hr-original-ready", args=[original.pk]))
         pickup = self.client.get(reverse("documents:hr-list"), {"status": "pickup"}).json()
         self.assertEqual([(item["request"], item["original_state"]) for item in pickup], [(original.request_id, "PICKUP")])
-        response = self.client.post(reverse("documents:hr-handed-over", args=[original.request_id]))
+        response = self.client.post(reverse("documents:hr-handed-over", args=[original.pk]))
         self.assertEqual((response.json()["state"], response.json()["collected_by"] is not None), ("READY", True))
         # Le brouillon d'un "original seul" : pour les RH (à imprimer), pas pour Sara.
-        file_url = reverse("documents:file-detail", args=[original.request_id]) + "?draft=1"
+        file_url = reverse("documents:file-detail", args=[original.pk]) + "?draft=1"
         self.assertEqual(self.client.get(file_url).status_code, 200)
         # Un collaborateur n'a pas la page RH.
         self.login(self.sara)

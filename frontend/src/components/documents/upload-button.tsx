@@ -41,7 +41,7 @@ export function UploadButton({ document, onUploaded }: { document: DocumentReque
     setError('')
     const form = new FormData()
     form.append('file', chosen.file)
-    const result = await sendChange(() => apiFetch(`/api/documents/hr/${document.request}/upload/`, { method: 'POST', body: form }),
+    const result = await sendChange(() => apiFetch(`/api/documents/hr/${document.id}/upload/`, { method: 'POST', body: form }),
       'Only HR of this employee\'s pôle can upload this document.')
     setBusy(false)
     if ('error' in result) return setError(result.error)

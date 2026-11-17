@@ -5,17 +5,21 @@ GET  mine/                           -> mes demandes de document
 GET  mine/team-members/              -> mon équipe (je suis leur N+1) ; mine/for-team/ : ce que j'ai demandé pour elle
 GET  mine/options/                   -> les formats proposés (réglage d'Admin RH)
 GET / PATCH settings/                -> les réglages des documents (Admin RH) : formats, managers
-POST mine/                           -> demander un document {"doc_type": id, "purpose": "Banque", "format": "PDF|ORIGINAL|BOTH"}
-GET  requests/<request>/             -> le document d'une demande (historique, Team approvals ; mêmes droits)
-GET  files/<request>/                -> le PDF (le collaborateur, ses RH, Admin RH, IT ; sinon 404)
-GET  files/<request>/?draft=1        -> le brouillon sans signature, à imprimer (les RH seulement)
+POST mine/                           -> demander un ou plusieurs documents {"doc_types": [ids], "purpose": "Banque",
+                                        "format": "PDF|ORIGINAL|BOTH"} (une demande, une validation) ; répond la liste
+GET  requests/<request>/             -> LES documents d'une demande (historique, Team approvals ; mêmes droits)
+Désormais <document> = le numéro du DOCUMENT (une demande peut en avoir plusieurs, 2026-11-17) :
+GET  files/<document>/               -> le PDF (le collaborateur, ses RH, Admin RH, IT ; sinon 404)
+GET  files/<document>/?draft=1       -> le brouillon sans signature, à imprimer (les RH seulement)
 GET  hr/?status=to_prepare|in_progress|pickup|ready|all -> les demandes du pôle (RH ; Admin RH et IT : les deux pôles)
          &search=halima &type=<id> &from=2026-10-01 &to=2026-10-31 -> le nom / matricule, le type, la période
-POST hr/<request>/upload/            -> déposer le PDF signé (multipart "file")
-GET/POST hr/<request>/text/          -> le texte d'un document généré, à relire / modifier avant l'envoi (step 3)
-POST hr/<request>/preview-text/      -> l'aperçu PDF avec ce texte (rien n'est enregistré)
-POST hr/<request>/original-ready/    -> l'original papier signé attend au bureau RH (le collaborateur est prévenu)
-POST hr/<request>/handed-over/       -> l'original est remis au collaborateur ({"to": "manager"} : à son manager)
+GET  hr/<document>/download/         -> ① le brouillon à imprimer (généré) ou le modèle Word du type (préparé par les RH)
+GET/POST/DELETE types/<id>/model/    -> le modèle Word / PDF d'un type (GET : les RH ; POST / DELETE : Admin RH)
+POST hr/<document>/upload/           -> déposer le PDF signé (multipart "file")
+GET/POST hr/<document>/text/         -> le texte d'un document généré, à relire / modifier avant l'envoi (step 3)
+POST hr/<document>/preview-text/     -> l'aperçu PDF avec ce texte (rien n'est enregistré)
+POST hr/<document>/original-ready/   -> l'original papier signé attend au bureau RH (le collaborateur est prévenu)
+POST hr/<document>/handed-over/      -> l'original est remis au collaborateur ({"to": "manager"} : à son manager)
 Valider / refuser : Team approvals (le moteur). Annuler : /api/workflows/requests/<request>/cancel/.
 """
 from django.core.exceptions import PermissionDenied as DjangoPermissionDenied
@@ -41,7 +45,8 @@ from .models import DocumentRequest, DocumentSettings, DocumentSignatory, Docume
 from .pdf import TEMPLATES, work_certificate
 from .serializers import DocumentRequestSerializer, DocumentSettingsSerializer, DocumentTypeSerializer, SignatorySerializer
 from .services import (
-    MAX_TEXT, auto_signed, can_prepare, mark_handed_over, mark_original_ready, request_document, save_text, text_of, upload,
+    MAX_TEXT, auto_signed, can_prepare, draft_bytes, mark_handed_over, mark_original_ready, request_documents, save_text,
+    set_model, text_of, upload,
 )
 
 
@@ -65,6 +70,31 @@ def documents():
 class TypeViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = DocumentType.objects.filter(is_active=True)
     serializer_class = DocumentTypeSerializer
+    parser_classes = [MultiPartParser, FormParser, JSONParser]  # le modèle est un fichier
+
+    def get_queryset(self):
+        # Le modèle d'un type désactivé reste gérable par Admin RH (page Réglages des documents).
+        return DocumentType.objects.all() if self.action == "model" else super().get_queryset()
+
+    @action(detail=True, methods=["get", "post", "delete"])
+    def model(self, request, pk=None):
+        """Le modèle Word / PDF d'un type (2026-11-17) : GET -> le télécharger (les RH) ; POST {"file"} -> le mettre ou
+        le remplacer, DELETE -> l'enlever (Admin RH et l'IT)."""
+        doc_type = self.get_object()
+        if request.method == "GET":
+            if not IsHR().has_permission(request, self) or not doc_type.model_file:
+                raise NotFound()
+            return FileResponse(doc_type.model_file.open("rb"), as_attachment=True, filename=doc_type.model_name or "modele")
+        if not IsHRAdmin().has_permission(request, self):
+            raise PermissionDenied("Seule Admin RH change les modèles.")
+        if request.method == "DELETE":
+            if doc_type.model_file:
+                doc_type.model_file.delete(save=False)
+            doc_type.model_name = ""
+            doc_type.save(update_fields=["model_file", "model_name"])
+        else:
+            run(lambda: set_model(doc_type, request.FILES.get("file")))
+        return Response(DocumentTypeSerializer(doc_type).data)
 
 
 class MyDocumentViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
@@ -105,13 +135,19 @@ class MyDocumentViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
             employee = Employee.objects.filter(user=request.user).first()
         if employee is None:
             raise NotFound("Aucun dossier RH n'est lié à ce compte." if not employee_id else "Collaborateur introuvable.")
-        doc_type = DocumentType.objects.filter(pk=request.data.get("doc_type")).first()
-        if doc_type is None:
-            raise serializers.ValidationError({"doc_type": ["Choisissez un document."]})
-        document = run(lambda: request_document(employee, doc_type, request.data.get("purpose", ""), by=request.user,
-                                                format=request.data.get("format") or DocumentRequest.Format.PDF))
-        data = DocumentRequestSerializer(documents().get(pk=document.pk), context={"request": request}).data
-        return Response(data, status=status.HTTP_201_CREATED)
+        # "doc_types": [ids] (cases à cocher, 2026-11-17 : un ou plusieurs documents dans une demande) ; "doc_type" :
+        # un seul (l'ancienne forme, gardée).
+        wanted = request.data.get("doc_types")
+        if not isinstance(wanted, list):
+            wanted = [request.data.get("doc_type")] if request.data.get("doc_type") else []
+        ids = [str(value) for value in wanted if str(value).isdigit()]
+        found = {str(doc_type.pk): doc_type for doc_type in DocumentType.objects.filter(pk__in=ids)}
+        if not ids or len(found) != len(set(ids)):
+            raise serializers.ValidationError({"doc_type": ["Choisissez au moins un document."]})
+        created = run(lambda: request_documents(employee, [found[value] for value in ids], request.data.get("purpose", ""),
+                                                by=request.user, format=request.data.get("format") or DocumentRequest.Format.PDF))
+        rows = documents().filter(pk__in=[document.pk for document in created]).order_by("id")
+        return Response(DocumentRequestSerializer(rows, many=True, context={"request": request}).data, status=status.HTTP_201_CREATED)
 
 
 class DocumentSettingsView(APIView):
@@ -187,29 +223,27 @@ class SignatoryViewSet(mixins.ListModelMixin, mixins.UpdateModelMixin, viewsets.
         return response
 
 
-class ByRequestViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet):
-    """GET requests/<request>/ -> le document d'une demande (où il en est : à préparer, livré, la référence...), pour
-    l'historique de la demande et Team approvals. Mêmes droits que l'historique ; sinon 404."""
+class ByRequestViewSet(viewsets.GenericViewSet):
+    """GET requests/<request>/ -> LES documents d'une demande (2026-11-17 : un ou plusieurs ; où chacun en est : à
+    préparer, livré, la référence...), pour l'historique de la demande, Team approvals et le panneau Détails.
+    Mêmes droits que l'historique ; sinon 404 (aussi une demande sans document)."""
 
-    serializer_class = DocumentRequestSerializer
-    lookup_field = "request"
-    lookup_url_kwarg = "request_id"
-
-    def get_queryset(self):
-        return documents().filter(request__in=engine.requests_visible_to(self.request.user))
+    def retrieve(self, request, pk=None):
+        rows = documents().filter(request=pk, request__in=engine.requests_visible_to(request.user)).order_by("id")
+        if not rows:
+            raise NotFound()
+        return Response(DocumentRequestSerializer(rows, many=True, context={"request": request}).data)
 
 
 class FileViewSet(viewsets.GenericViewSet):
-    """GET files/<request>/ -> le PDF livré. Pour ceux que la demande concerne (le collaborateur, les RH de son pôle,
-    Admin RH, IT : la même règle que l'historique) ; sinon 404, comme s'il n'existait pas."""
-
-    lookup_field = "request"
-    lookup_url_kwarg = "request_id"
+    """GET files/<document>/ -> le PDF livré (le numéro du DOCUMENT : une demande peut en avoir plusieurs). Pour ceux
+    que la demande concerne (le collaborateur, les RH de son pôle, Admin RH, IT : la même règle que l'historique) ;
+    sinon 404, comme s'il n'existait pas."""
 
     def get_queryset(self):
         return DocumentRequest.objects.filter(request__in=engine.requests_visible_to(self.request.user))
 
-    def retrieve(self, request, request_id=None):
+    def retrieve(self, request, pk=None):
         document = self.get_object()
         # Le fichier : le collaborateur et ses RH SEULEMENT. Le manager qui a saisi la demande suit son historique,
         # mais le document est privé (2026-11-16) : 404, comme s'il n'existait pas.
@@ -232,8 +266,7 @@ class HrDocumentViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     serializer_class = DocumentRequestSerializer
     permission_classes = [IsHR]
     parser_classes = [MultiPartParser, FormParser, JSONParser]  # multipart : le PDF est un fichier
-    lookup_field = "request"
-    lookup_url_kwarg = "request_id"
+    # hr/<document>/... : le numéro du DOCUMENT (2026-11-17 : une demande peut en avoir plusieurs, chacun préparé à part).
 
     @staticmethod
     def filters():
@@ -275,13 +308,29 @@ class HrDocumentViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         return queryset
 
     @action(detail=True, methods=["post"])
-    def upload(self, request, request_id=None):
+    def upload(self, request, pk=None):
         document = self.get_object()
         run(lambda: upload(document, request.user, request.FILES.get("file")))
         return Response(DocumentRequestSerializer(documents().get(pk=document.pk), context={"request": request}).data)
 
+    @action(detail=True, methods=["get"])
+    def download(self, request, pk=None):
+        """"Download" (étape ① des RH, 2026-11-17) : un document GÉNÉRÉ -> le PDF sans signature (texte du moment) ;
+        un document préparé par les RH -> le modèle Word / PDF de son type (mis par Admin RH). Sinon 404."""
+        document = self.get_object()
+        if not can_prepare(request.user, document):
+            raise NotFound()
+        if document.doc_type.template:
+            response = HttpResponse(draft_bytes(document), content_type="application/pdf")
+            response["Content-Disposition"] = f'attachment; filename="brouillon-{document.reference}.pdf"'
+            return response
+        if not document.doc_type.model_file:
+            raise NotFound("Pas de modèle pour ce document : Admin RH peut en mettre un (Réglages des documents).")
+        return FileResponse(document.doc_type.model_file.open("rb"), as_attachment=True,
+                            filename=document.doc_type.model_name or "modele")
+
     @action(detail=True, methods=["get", "post"])
-    def text(self, request, request_id=None):
+    def text(self, request, pk=None):
         """Step 3 : GET -> le texte à relire (relu, sinon celui de la fiche) ; POST {"text"} -> l'enregistrer et
         (re)fabriquer le document : livré s'il est signé par l'application, sinon le brouillon à imprimer."""
         document = self.get_object()
@@ -293,7 +342,7 @@ class HrDocumentViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         return Response(DocumentRequestSerializer(documents().get(pk=document.pk), context={"request": request}).data)
 
     @action(detail=True, methods=["post"], url_path="preview-text")
-    def preview_text(self, request, request_id=None):
+    def preview_text(self, request, pk=None):
         """L'aperçu du document avec CE texte (rien n'est enregistré), comme il sera envoyé."""
         document = self.get_object()
         if not document.doc_type.template:
@@ -307,13 +356,13 @@ class HrDocumentViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         return response
 
     @action(detail=True, methods=["post"], url_path="original-ready")
-    def original_ready(self, request, request_id=None):
+    def original_ready(self, request, pk=None):
         document = self.get_object()
         run(lambda: mark_original_ready(document, request.user))
         return Response(DocumentRequestSerializer(documents().get(pk=document.pk), context={"request": request}).data)
 
     @action(detail=True, methods=["post"], url_path="handed-over")
-    def handed_over(self, request, request_id=None):
+    def handed_over(self, request, pk=None):
         document = self.get_object()
         # {"to": "manager"} : remis à son manager venu pour lui ; sinon au collaborateur lui-même.
         run(lambda: mark_handed_over(document, request.user, to_manager=request.data.get("to") == "manager"))

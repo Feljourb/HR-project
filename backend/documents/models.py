@@ -44,6 +44,11 @@ class DocumentType(ReferenceItem):
     # Step 3 (2026-11-16, standard Workday "Review document") : un document GÉNÉRÉ n'est pas envoyé tout de suite :
     # les RH relisent son texte (et peuvent ajouter une phrase), voient l'aperçu, puis l'envoient.
     hr_review = models.BooleanField("Relecture RH avant l'envoi", default=False)
+    # Le modèle de l'entreprise (2026-11-17) pour un document PRÉPARÉ par les RH (attestation de salaire...) : un Word
+    # (ou PDF) mis UNE fois par Admin RH ; les RH le téléchargent, le complètent, le signent, puis déposent le PDF.
+    model_file = models.FileField("Modèle à télécharger (Word / PDF)", upload_to="document-models/%Y/",
+                                  blank=True, validators=[FileExtensionValidator(["docx", "doc", "odt", "pdf"])])
+    model_name = models.CharField("Nom du modèle", max_length=200, blank=True)
 
     class Meta(ReferenceItem.Meta):
         verbose_name = "Type de document"
@@ -172,7 +177,9 @@ class DocumentRequest(models.Model):
         ORIGINAL = "ORIGINAL", "Original signé (à récupérer au bureau RH)"
         BOTH = "BOTH", "PDF + original signé"
 
-    request = models.OneToOneField(Request, on_delete=models.CASCADE, related_name="document", verbose_name="Demande")
+    # Plusieurs documents dans UNE demande (2026-11-17, comme l'outil actuel des RH : "Documents demandés", cases à
+    # cocher) : une validation des RH pour tous, puis chaque document suit son chemin (généré, préparé, original).
+    request = models.ForeignKey(Request, on_delete=models.CASCADE, related_name="documents", verbose_name="Demande")
     employee = models.ForeignKey(Employee, on_delete=models.PROTECT, related_name="document_requests", verbose_name="Collaborateur")
     doc_type = models.ForeignKey(DocumentType, on_delete=models.PROTECT, related_name="requests", verbose_name="Type")
     purpose = models.CharField("Motif / destinataire", max_length=200, blank=True)  # ex. "Banque", "Visa"

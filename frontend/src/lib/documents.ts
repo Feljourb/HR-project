@@ -10,6 +10,8 @@ export type DocumentType = {
   delivery_days: number  // le délai promis, en jours ouvrés (0 : tout de suite)
   manager_can_request: boolean  // le N+1 peut le demander pour son équipe (choisi par Admin RH)
   hr_review: boolean            // un document généré : les RH relisent son texte avant l'envoi
+  has_model: boolean            // un modèle Word / PDF à télécharger (mis par Admin RH, types préparés par les RH)
+  model_name: string
 }
 
 /** Une personne de MON équipe (je suis son N+1) : "For" dans le formulaire d'un manager. */
@@ -27,8 +29,8 @@ export const FORMATS: { id: DocumentFormat; title: string; text: string; short: 
 ]
 
 export type DocumentRequest = {
-  id: number
-  request: number          // la demande du moteur : son historique /requests/<n>, son fichier /api/documents/files/<n>/
+  id: number              // le DOCUMENT : son fichier /api/documents/files/<id>/, ses actions RH /api/documents/hr/<id>/...
+  request: number          // la demande du moteur (un ou plusieurs documents) : son historique /requests/<n>
   doc_type: string
   automatic: boolean
   purpose: string
@@ -65,6 +67,9 @@ export type DocumentRequest = {
   body_edited_at: string | null
   handed_to: string | null     // à qui l'original a été remis : le collaborateur, ou son manager venu pour lui
   manager: string | null       // son manager (N+1), quand l'original attend : "Handed over to ... his manager"
+  // ① "Download" des RH : 'draft' (généré : le PDF sans signature), 'model' (le modèle Word du type), null (rien).
+  hr_download: 'draft' | 'model' | null
+  model_name: string           // le nom du modèle Word (ex. "Attestation salaire.docx")
 }
 
 // Les états en anglais (les pages sont en anglais), avec les couleurs des autres pages.
@@ -95,5 +100,6 @@ export function originalText(document: DocumentRequest) {
   return ''
 }
 
-/** Le lien de téléchargement du PDF (à donner à getFile de lib/expenses : il garde les cookies). */
-export const fileUrl = (document: DocumentRequest) => `/api/documents/files/${document.request}/`
+/** Le lien de téléchargement du PDF (à donner à getFile de lib/expenses : il garde les cookies).
+ *  Le numéro du DOCUMENT (2026-11-17 : une demande peut avoir plusieurs documents). */
+export const fileUrl = (document: DocumentRequest) => `/api/documents/files/${document.id}/`

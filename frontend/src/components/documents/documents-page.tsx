@@ -6,15 +6,15 @@
  * filtres en pastilles, les 5 dernières puis "Show all"). Une attestation de travail est générée par l'application
  * dès que les RH valident ; les autres documents sont préparés et déposés par les RH.
  */
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import Link from 'next/link'
-import { CheckCircle2, ChevronRight, FileText, Loader2, Send, UsersRound } from 'lucide-react'
+import { CheckCircle2, ChevronDown, ChevronRight, FileText, Loader2, Send, UsersRound, X } from 'lucide-react'
 import { apiFetch, isHr, type Me } from '@/lib/api'
 import { FORMATS, originalText, stateOf, type DocumentFormat, type DocumentRequest, type DocumentType, type TeamMember } from '@/lib/documents'
 import { formatDate } from '@/lib/leaves'
 import { cn } from '@/lib/utils'
 import { sendChange } from '@/lib/workflows'
-import { SelectField, TextField } from '@/components/employees/form-fields'
+import { SelectField, TextField, controlClass } from '@/components/employees/form-fields'
 import { CancelClaim, actionClass } from '@/components/expenses/claim-actions'
 import { Message } from '@/components/leaves/leaves-page'
 import { StatTiles } from '@/components/leaves/stat-tiles'
@@ -119,13 +119,6 @@ function HowItWorks() {
   </section>
 }
 
-/** Le délai annoncé d'un type : "Generated at once" ou "Ready within 2 working days". */
-function delayHint(type: DocumentType) {
-  if (type.automatic) return 'Generated automatically as soon as HR approve.'
-  const days = type.delivery_days
-  return `Prepared and signed by HR: ready within ${days} working day${days > 1 ? 's' : ''}.`
-}
-
 /** "Request a document" : le type, et pour qui / pourquoi (facultatif, ex. "Banque").
  *  Un RH peut demander POUR un collaborateur de son pôle (champ "Employee", comme l'outil actuel) : acceptée tout de suite.
  *  Un manager (2026-11-16) : "For" = moi-même ou quelqu'un de son équipe (ex. un ouvrier qui n'utilise pas l'application) ;
@@ -136,7 +129,8 @@ function RequestForm({ types, hr, team, formats, onSent }: {
   // Les formats proposés (réglage d'Admin RH, 2026-11-17) ; les RH gardent les trois. Un seul : pas de question.
   const offered = hr ? FORMATS : FORMATS.filter((option) => formats.includes(option.id))
   const firstFormat = offered[0]?.id ?? 'PDF'
-  const [typeId, setTypeId] = useState('')
+  // Les documents cochés (2026-11-17, comme l'outil actuel des RH : un ou plusieurs dans UNE demande).
+  const [typeIds, setTypeIds] = useState<number[]>([])
   const [purpose, setPurpose] = useState('')
   const [format, setFormat] = useState<DocumentFormat>(firstFormat)
   const [forEmployee, setForEmployee] = useState<Person | null>(null)  // null : pour moi-même
@@ -146,12 +140,17 @@ function RequestForm({ types, hr, team, formats, onSent }: {
   // Un manager qui demande pour son équipe : seulement les documents permis par Admin RH.
   const forTeam = !hr && forEmployee !== null
   const choices = forTeam ? types.filter((type) => type.manager_can_request) : types
-  const chosen = choices.find((type) => String(type.id) === typeId)
+
+  function toggle(id: number) {
+    setTypeIds((old) => (old.includes(id) ? old.filter((other) => other !== id) : [...old, id]))
+    setError('')
+    setSent('')
+  }
 
   function chooseFor(id: string) {
     const member = team.find((person) => String(person.id) === id) ?? null
     setForEmployee(member)
-    setTypeId('')
+    setTypeIds([])
     // Pour un membre de l'équipe : le papier (qu'il récupère au bureau RH), s'il est proposé.
     setFormat(member && offered.some((option) => option.id === 'ORIGINAL') ? 'ORIGINAL' : firstFormat)
     setError('')
@@ -162,16 +161,19 @@ function RequestForm({ types, hr, team, formats, onSent }: {
     event.preventDefault()
     setBusy(true)
     setError('')
-    const body = { doc_type: typeId, purpose, format, ...(forEmployee ? { employee: forEmployee.id } : {}) }
-    const result = await sendChange<DocumentRequest>(
+    const body = { doc_types: typeIds, purpose, format, ...(forEmployee ? { employee: forEmployee.id } : {}) }
+    const result = await sendChange<DocumentRequest[]>(
       () => apiFetch('/api/documents/mine/', { method: 'POST', body: JSON.stringify(body) }),
       'You cannot request this document.')
     setBusy(false)
     if ('error' in result) return setError(result.error)
-    setSent(!forEmployee ? result.data.doc_type
-      : hr ? `${result.data.doc_type} for ${result.data.employee} (see Document requests)`
-      : `${result.data.doc_type} for ${result.data.employee} (follow it in Team approvals → For my team)`)
-    setTypeId('')
+    // Django répond la liste des documents créés (une demande).
+    const names = result.data.map((document) => document.doc_type).join(' + ')
+    const employee = result.data[0]?.employee
+    setSent(!forEmployee ? names
+      : hr ? `${names} for ${employee} (see Document requests)`
+      : `${names} for ${employee} (follow it in Team approvals → For my team)`)
+    setTypeIds([])
     setPurpose('')
     setFormat(firstFormat)
     setForEmployee(null)
@@ -193,9 +195,8 @@ function RequestForm({ types, hr, team, formats, onSent }: {
       options={team.map((person) => ({ id: String(person.id), name: `${person.first_name} ${person.last_name} · ${person.position}` }))}
       placeholder="Myself"
       hint={forTeam ? 'For your team: HR approve it, the employee is notified. You follow the progress; the document goes to the employee.' : undefined} />}
-    <SelectField id="doc-type" label="Document" required value={typeId} onChange={(value) => { setTypeId(value); setError(''); setSent('') }}
-      options={choices.map((type) => ({ id: String(type.id), name: type.name }))} placeholder="Choose a document"
-      hint={chosen ? delayHint(chosen) : undefined} />
+    {/* Les documents : une liste déroulante à cases (comme l'outil actuel des RH), les choisis en puces dessous. */}
+    <DocumentPicker types={choices} selected={typeIds} onToggle={toggle} onClear={() => setTypeIds([])} />
     <TextField id="doc-purpose" label="For / purpose" value={purpose} onChange={setPurpose} placeholder="e.g. Bank, visa, rental (optional)" />
     {/* Le format : une banque ou un consulat demandent souvent l'ORIGINAL signé et tamponné à la main. */}
     {offered.length > 1 && <fieldset>
@@ -219,11 +220,66 @@ function RequestForm({ types, hr, team, formats, onSent }: {
     {sent && <p role="status" className="flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800">
       <CheckCircle2 className="size-4" /> Sent to HR: {sent}.
     </p>}
-    <button type="submit" disabled={busy || !typeId}
+    <button type="submit" disabled={busy || typeIds.length === 0}
       className="flex w-fit items-center gap-1.5 self-end rounded-lg bg-[#23355d] px-4 py-2 text-xs font-semibold text-white hover:bg-[#192646] disabled:opacity-50">
       {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Send className="size-3.5" />} Send request
     </button>
   </form>
+}
+
+/** "Documents *" : une liste déroulante à cases à cocher (2026-11-17, comme l'outil NOOR des RH) : on l'ouvre, on coche
+ *  un ou plusieurs documents ; les choisis apparaissent en puces dessous (× pour en retirer un, "Clear all").
+ *  À côté de chaque document : son délai ("at once" = généré dès la validation, "2 days" = préparé par les RH). */
+function DocumentPicker({ types, selected, onToggle, onClear }: {
+  types: DocumentType[]; selected: number[]; onToggle: (id: number) => void; onClear: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const box = useRef<HTMLDivElement>(null)
+
+  // Un clic ailleurs ou Échap : la liste se ferme.
+  useEffect(() => {
+    if (!open) return
+    const close = (event: MouseEvent) => { if (!box.current?.contains(event.target as Node)) setOpen(false) }
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') setOpen(false) }
+    window.document.addEventListener('mousedown', close)
+    window.document.addEventListener('keydown', escape)
+    return () => {
+      window.document.removeEventListener('mousedown', close)
+      window.document.removeEventListener('keydown', escape)
+    }
+  }, [open])
+
+  const chosen = types.filter((type) => selected.includes(type.id))
+  return <div ref={box} className="relative">
+    <p id="doc-types-label" className="text-xs font-semibold text-slate-700">Documents <span className="text-red-500" aria-hidden>*</span></p>
+    <button type="button" aria-haspopup="listbox" aria-expanded={open} aria-labelledby="doc-types-label" onClick={() => setOpen((old) => !old)}
+      className={cn(controlClass, 'flex items-center justify-between text-left', !chosen.length && 'text-slate-400')}>
+      <span className="truncate">{chosen.length ? `${chosen.length} document${chosen.length > 1 ? 's' : ''} selected` : 'Choose one or more documents'}</span>
+      <ChevronDown className={cn('size-4 shrink-0 text-slate-500 transition-transform', open && 'rotate-180')} aria-hidden />
+    </button>
+    {open && <ul role="listbox" aria-multiselectable="true" aria-labelledby="doc-types-label"
+      className="absolute z-20 mt-1 max-h-72 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
+      {types.map((type) => {
+        const checked = selected.includes(type.id)
+        return <li key={type.id} role="option" aria-selected={checked}>
+          <label className={cn('flex cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-2 text-xs', checked ? 'bg-[#E4E9F2]/60' : 'hover:bg-slate-50')}>
+            <input type="checkbox" checked={checked} onChange={() => onToggle(type.id)} className="size-4 accent-[#192646]" />
+            <span className="min-w-0 flex-1 font-medium text-[#192646]">{type.name}</span>
+            <span className="shrink-0 text-[10px] text-slate-400">{type.automatic ? 'at once' : `${type.delivery_days} working day${type.delivery_days > 1 ? 's' : ''}`}</span>
+          </label>
+        </li>
+      })}
+    </ul>}
+    {chosen.length > 0 && <div className="mt-2 flex flex-wrap items-center gap-1.5">
+      {chosen.map((type) => <span key={type.id}
+        className="flex items-center gap-1 rounded-full bg-[#E4E9F2] py-1 pl-2.5 pr-1 text-[11px] font-semibold text-[#23355d]">
+        {type.name}
+        <button type="button" aria-label={`Remove ${type.name}`} onClick={() => onToggle(type.id)}
+          className="rounded-full p-0.5 hover:bg-white/70"><X className="size-3" /></button>
+      </span>)}
+      <button type="button" onClick={onClear} className="text-[11px] font-semibold text-[#23355d] hover:underline">Clear all</button>
+    </div>}
+  </div>
 }
 
 // Les filtres (comme "My leaves") : "Closed" regroupe refusées et annulées.
