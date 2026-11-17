@@ -106,9 +106,8 @@ export const DOCUMENT_LISTS: ListConfig[] = [
     // Le N+1 peut le demander pour son équipe (ex. des ouvriers) ; pas pour un document qui montre le salaire.
     { name: 'manager_can_request', label: 'Managers can request', type: 'checkbox' },
   ] },
-  // Qui signe les documents générés, et comment (à la main, ou signature + cachet posés par l'application) : par pôle.
-  { name: 'signatories', title: 'Signatures', singular: 'Signature', panel: 'signatures' },
-  // Les formats proposés et les managers qui demandent pour leur équipe (2026-11-17) : Admin RH.
+  // Tous les réglages des documents, en 4 questions dans UNE page (2026-11-17) : ce que le collaborateur demande,
+  // comment le PDF est fait (les signatures, par pôle : automatique ou par les RH), les modèles, les managers.
   { name: 'document-settings', title: 'Réglages des documents', singular: 'Réglage', panel: 'document-settings' },
 ]
 

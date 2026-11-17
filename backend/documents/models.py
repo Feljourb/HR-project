@@ -127,9 +127,11 @@ class DocumentSettings(models.Model):
         CHOSEN = "CHOSEN", "Oui, seulement les managers choisis"
 
     # Les formats proposés au collaborateur dans le formulaire (au moins un) ; un seul = pas de question.
-    offer_pdf = models.BooleanField("Proposer : PDF", default=True)
+    # Par défaut l'ORIGINAL seul (décision de l'utilisatrice, 2026-11-17 : comme aujourd'hui chez eux) ; le PDF est une
+    # option qu'Admin RH ajoute (il est alors fait automatiquement par l'application, ou par les RH : voir les signatures).
+    offer_pdf = models.BooleanField("Proposer : PDF", default=False)
     offer_original = models.BooleanField("Proposer : original signé", default=True)
-    offer_both = models.BooleanField("Proposer : PDF + original", default=True)
+    offer_both = models.BooleanField("Proposer : PDF + original", default=False)
     manager_requests = models.CharField("Les managers demandent pour leur équipe", max_length=10,
                                         choices=ManagerRequests.choices, default=ManagerRequests.OFF)
     # Avec CHOSEN : les managers permis (ex. les chefs d'équipe de l'usine).

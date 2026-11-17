@@ -213,7 +213,7 @@ class MyDocumentViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         if request.data.get("needed_by") and needed_by is None:
             raise serializers.ValidationError({"needed_by": ["Date impossible."]})
         created = run(lambda: request_documents(employee, [found[value] for value in ids], request.data.get("purpose", ""),
-                                                by=request.user, format=request.data.get("format") or DocumentRequest.Format.PDF,
+                                                by=request.user, format=request.data.get("format") or None,
                                                 needed_by=needed_by))
         rows = documents().filter(pk__in=[document.pk for document in created]).order_by("id")
         return Response(DocumentRequestSerializer(rows, many=True, context={"request": request}).data, status=status.HTTP_201_CREATED)

@@ -63,7 +63,8 @@ class DocumentTestCase(EngineTestCase):
                                                        defaults={"mode": "IMAGE", "signature": png()})
         # Les tests "manager" d'avant le réglage (2026-11-17) : Admin RH a ouvert la demande à tous les managers
         # (le défaut est "Non" ; SettingsTests vérifie Non / managers choisis / formats).
-        DocumentSettings.objects.update_or_create(pk=1, defaults={"manager_requests": "ALL"})
+        # (Et les 3 formats ouverts : le défaut est l'original seul depuis le 2026-11-17.)
+        DocumentSettings.objects.update_or_create(pk=1, defaults={"manager_requests": "ALL", "offer_pdf": True, "offer_both": True})
 
     def approve(self, document, by=None):
         step = document.request.steps.get(status="PENDING")
@@ -403,7 +404,8 @@ class DemoAndAdminTests(TestCase):
         with self.assertLogs("django.request", level="WARNING"):  # Django note le refus (403) dans ses logs
             self.assertEqual(self.client.post(url, {"purpose": "changé", "format": "BOTH"}).status_code, 403)
         document.refresh_from_db()
-        self.assertEqual((document.purpose, document.format), ("démo", "PDF"))  # ... sans pouvoir la changer
+        # ... sans pouvoir la changer (format : le défaut d'Admin RH, l'original seul depuis le 2026-11-17).
+        self.assertEqual((document.purpose, document.format), ("démo", "ORIGINAL"))
 
 
 class ApiTests(DocumentTestCase):

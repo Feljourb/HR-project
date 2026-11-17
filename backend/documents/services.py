@@ -87,13 +87,13 @@ def is_manager_of(user, employee):
     return boss is not None and boss.user_id == user.pk
 
 
-def request_document(employee, doc_type, purpose="", by=None, format=DocumentRequest.Format.PDF, needed_by=None):
+def request_document(employee, doc_type, purpose="", by=None, format=None, needed_by=None):
     """UN document (les démos, les tests) : une demande avec ce seul document."""
     return request_documents(employee, [doc_type], purpose, by, format, needed_by)[0]
 
 
 @transaction.atomic
-def request_documents(employee, doc_types, purpose="", by=None, format=DocumentRequest.Format.PDF, needed_by=None):
+def request_documents(employee, doc_types, purpose="", by=None, format=None, needed_by=None):
     """Demander UN OU PLUSIEURS documents dans UNE demande (2026-11-17 : "Documents demandés", cases à cocher, comme
     l'outil actuel des RH) : les RH valident une fois, puis chaque document suit son chemin. Rend les documents créés.
     Une règle refusée -> ValidationError({"doc_type": [...]}).
@@ -110,6 +110,8 @@ def request_documents(employee, doc_types, purpose="", by=None, format=DocumentR
     if for_other and not (hr or manager):
         raise PermissionDenied("Seuls les RH du pôle ou le manager (N+1) du collaborateur demandent un document pour lui.")
     options = DocumentSettings.load()
+    # Pas de format choisi (une démo, un ancien appel) : le premier proposé par Admin RH (par défaut l'original).
+    format = format or (options.formats() or [DocumentRequest.Format.ORIGINAL])[0]
     if manager and not options.manager_allowed(by):
         # Le réglage d'Admin RH (2026-11-17) : fermé, ou ouvert seulement à certains managers.
         raise PermissionDenied("Votre entreprise ne permet pas aux managers de demander un document pour leur équipe : "

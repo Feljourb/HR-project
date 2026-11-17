@@ -42,7 +42,8 @@ class Command(BaseCommand):
             requester = Employee.objects.filter(user__username=username).first()
             if requester is None:
                 raise CommandError(f"{username} n'a pas de dossier RH : lancez d'abord make seed.")
-            if Request.objects.filter(requester=requester, title=title).exists():
+            # startswith : une attestation porte aussi son format dans le titre ("... (démo) · original").
+            if Request.objects.filter(requester=requester, title__startswith=title).exists():
                 self.stdout.write(f"- {title} : déjà envoyée, ignorée")
                 continue
             if code == "ADMIN_REQUEST":

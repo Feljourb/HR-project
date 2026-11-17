@@ -238,7 +238,14 @@ Standard (Workday / SAP / BambooHR), done in one go before a meeting (asked by t
     - generated: the text with the codes + Preview + the list of codes + checkbox "HR read the text before it is sent";
     - prepared by HR: "Advanced (optional): a Word model for HR".
     API `PATCH /api/documents/types/<id>/setup/` {generated, body_template, hr_review}; the work certificate stays "WORK" (empty text = its built-in text); a generated type needs a text. The separate "Text models" / "Word models" sections and the Lists columns "Prepared by" / "HR review before sending" were REMOVED (one place). 471 tests.
-  - [ ] Browser test of D1-D6 + commits (the user was exhausted on 2026-11-17: give the full simple explanation, then test calmly).
+  - [x] D7. The user's own model, "no more, no less" (2026-11-17):
+    - Formats: Admin RH chooses; by DEFAULT the signed ORIGINAL only (`DocumentSettings` defaults + migration documents 0019 updates the saved row). A request without a format takes the first one offered.
+    - The PDF (only if offered) has 2 ways = the existing per-pôle signature mode, renamed: "Automatic" (IMAGE: the app fills the form and adds the signature + stamp) / "By HR" (HAND: HR download the filled form, sign, stamp, scan, upload).
+    - The "form" = the document's MODEL (text with codes); no model = HR upload their own document (e.g. a payslip).
+    - ONE page "Réglages des documents" with 4 numbered cards: 1 What employees can request (formats, needed by, pickup days, Save) · 2 How the PDF is made (`SignaturesPanel embedded`; only when the PDF is offered) · 3 Document models (`document-types-setup.tsx`: "Model ready" / "No model", Edit model -> text + codes + Preview + Save / "Remove the model") · 4 Managers (Save).
+    - The separate "Signatures" list entry is removed. The "HR review" and Word-model UIs are hidden; the backend keeps them.
+    - 471 tests.
+  - [ ] Browser test of D1-D7 + commits (the user was exhausted on 2026-11-17: give the full simple explanation, then test calmly).
   - [ ] Step 2. "Handed over to": the employee OR his manager (who takes it for him), recorded.
   - [ ] Step 3. HR edit before sending (option A): per type "HR review before sending"; the body text (paragraphs) stored and editable in a textarea, header / reference / signature locked; Preview; history "Text edited by ...".
 - To ask HR: the list of types, THEIR Word models (only `pdf.py` changes), the signatory name / title and city per pôle, logo / letterhead, stamp + signature (scanned image, or printed and signed by hand), where the salary comes from (salary certificate could be generated later).
