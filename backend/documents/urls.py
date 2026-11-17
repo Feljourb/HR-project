@@ -1,10 +1,12 @@
 """Adresses de l'app documents (incluses sous /api/documents/ dans core/urls.py)."""
+from django.urls import path
 from rest_framework.routers import SimpleRouter
 
 from employees.views import make_viewset
 
 from .models import DocumentType
-from .views import ByRequestViewSet, FileViewSet, HrDocumentViewSet, MyDocumentViewSet, SignatoryViewSet, TypeViewSet
+from .views import (ByRequestViewSet, DocumentSettingsView, FileViewSet, HrDocumentViewSet, MyDocumentViewSet,
+                    SignatoryViewSet, TypeViewSet)
 
 app_name = "documents"
 
@@ -18,4 +20,6 @@ router.register("files", FileViewSet, basename="file")
 router.register("hr", HrDocumentViewSet, basename="hr")
 router.register("signatories", SignatoryViewSet, basename="signatory")  # Admin RH : qui signe, et comment
 
-urlpatterns = router.urls
+urlpatterns = [
+    path("settings/", DocumentSettingsView.as_view(), name="settings"),  # Admin RH : formats proposés, managers
+] + router.urls

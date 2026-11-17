@@ -19,7 +19,7 @@ from workflows import engine
 from workflows.models import Request
 from workflows.test_engine import EngineTestCase
 
-from .models import DocumentRequest, DocumentSignatory, DocumentType
+from .models import DocumentRequest, DocumentSettings, DocumentSignatory, DocumentType
 from .services import add_working_days, mark_handed_over, mark_original_ready, request_document, save_text, upload
 
 User = get_user_model()
@@ -49,6 +49,9 @@ class DocumentTestCase(EngineTestCase):
         if self.auto_sign:
             DocumentSignatory.objects.update_or_create(pole=self.sara.department.direction.entity.pole,
                                                        defaults={"mode": "IMAGE", "signature": png()})
+        # Les tests "manager" d'avant le réglage (2026-11-17) : Admin RH a ouvert la demande à tous les managers
+        # (le défaut est "Non" ; SettingsTests vérifie Non / managers choisis / formats).
+        DocumentSettings.objects.update_or_create(pk=1, defaults={"manager_requests": "ALL"})
 
     def approve(self, document, by=None):
         step = document.request.steps.get(status="PENDING")
@@ -145,6 +148,28 @@ class FlowTests(DocumentTestCase):
         document = self.approve(request_document(self.sara, self.work, format="BOTH"))
         self.assertTrue(self.ready_notices().exists())  # le PDF tout de suite
         self.assertEqual((document.state, document.original_state), ("TO_PREPARE", "TO_SIGN"))  # reste l'original
+
+    def test_admin_rh_settings_managers_and_formats(self):
+        # 2026-11-17 : Admin RH choisit si les managers demandent pour leur équipe (défaut : non) et quels formats.
+        options = DocumentSettings.load()
+        options.manager_requests = "OFF"
+        options.save()
+        with self.assertRaises(PermissionDenied):
+            request_document(self.sara, self.work, by=self.youssef.user)
+        # Seulement les managers choisis (ex. les chefs de l'usine) : Youssef n'y est pas, puis il y est.
+        options.manager_requests = "CHOSEN"
+        options.save()
+        with self.assertRaises(PermissionDenied):
+            request_document(self.sara, self.work, by=self.youssef.user)
+        options.chosen_managers.add(self.youssef)
+        request_document(self.sara, self.work, by=self.youssef.user, format="ORIGINAL")
+        # Les formats : seulement le PDF proposé -> l'original est refusé au collaborateur, pas aux RH.
+        options.offer_original = options.offer_both = False
+        options.save()
+        self.assertEqual(options.formats(), ["PDF"])
+        with self.assertRaises(ValidationError):
+            request_document(self.sara, self.salary, format="ORIGINAL")
+        request_document(self.sara, self.salary, by=self.nadia.user, format="ORIGINAL")  # les RH : tous les formats
 
     def test_the_manager_requests_for_his_team(self):
         # Youssef (N+1 de Sara) demande l'original de son attestation de travail : les RH valident quand même.

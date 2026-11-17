@@ -2,7 +2,25 @@ from django.contrib import admin
 
 from employees.admin import ReferenceAdmin
 
-from .models import DocumentRequest, DocumentSignatory, DocumentType
+from .models import DocumentRequest, DocumentSettings, DocumentSignatory, DocumentType
+
+
+@admin.register(DocumentSettings)
+class DocumentSettingsAdmin(admin.ModelAdmin):
+    """Une seule ligne (Admin RH la change dans la page Reference lists ; ici pour l'IT)."""
+    list_display = ("__str__", "manager_requests", "offer_pdf", "offer_original", "offer_both", "updated_at")
+    filter_horizontal = ("chosen_managers",)
+    readonly_fields = ("updated_at", "updated_by")
+
+    def save_model(self, request, obj, form, change):
+        obj.updated_by = request.user
+        super().save_model(request, obj, form, change)
+
+    def has_add_permission(self, request):
+        return not DocumentSettings.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(DocumentType)

@@ -1,8 +1,9 @@
 from rest_framework import serializers
 
+from employees.models import Employee
 from workflows.serializers import name_of, person
 
-from .models import DocumentRequest, DocumentSignatory, DocumentType
+from .models import DocumentRequest, DocumentSettings, DocumentSignatory, DocumentType
 from .services import can_prepare
 
 
@@ -16,6 +17,34 @@ class DocumentTypeSerializer(serializers.ModelSerializer):
 
     def get_automatic(self, doc_type):
         return bool(doc_type.template)
+
+
+class DocumentSettingsSerializer(serializers.ModelSerializer):
+    """Les réglages des documents (Admin RH). chosen_managers = des ids de fiches ; chosen_labels = leurs noms."""
+
+    chosen_managers = serializers.PrimaryKeyRelatedField(many=True, queryset=Employee.objects.all(), required=False)
+    chosen_labels = serializers.SerializerMethodField()
+    updated_by = serializers.SerializerMethodField()
+
+    class Meta:
+        model = DocumentSettings
+        fields = ["offer_pdf", "offer_original", "offer_both", "manager_requests", "chosen_managers", "chosen_labels",
+                  "updated_at", "updated_by"]
+        read_only_fields = ["updated_at"]
+
+    def get_chosen_labels(self, current):
+        return [{"id": employee.pk, "name": person(employee)} for employee in current.chosen_managers.all()]
+
+    def get_updated_by(self, current):
+        return name_of(current.updated_by) if current.updated_by_id else None
+
+    def validate(self, data):
+        # Au moins un format proposé (sinon le formulaire ne pourrait rien envoyer).
+        current = self.instance
+        pick = {name: data.get(name, getattr(current, name)) for name in ("offer_pdf", "offer_original", "offer_both")}
+        if not any(pick.values()):
+            raise serializers.ValidationError({"offer_pdf": ["Proposez au moins un format."]})
+        return data
 
 
 class SignatorySerializer(serializers.ModelSerializer):

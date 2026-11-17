@@ -22,7 +22,7 @@ from workflows import engine
 from workflows.models import Request, Workflow
 from workflows.serializers import person
 
-from .models import MAX_FILE_SIZE, DocumentRequest, DocumentSignatory
+from .models import MAX_FILE_SIZE, DocumentRequest, DocumentSettings, DocumentSignatory
 from .pdf import TEMPLATES, TEXTS, signatory_of
 
 
@@ -63,6 +63,14 @@ def request_document(employee, doc_type, purpose="", by=None, format=DocumentReq
     manager = for_other and not hr and is_manager_of(by, employee)
     if for_other and not (hr or manager):
         raise PermissionDenied("Seuls les RH du pôle ou le manager (N+1) du collaborateur demandent un document pour lui.")
+    options = DocumentSettings.load()
+    if manager and not options.manager_allowed(by):
+        # Le réglage d'Admin RH (2026-11-17) : fermé, ou ouvert seulement à certains managers.
+        raise PermissionDenied("Votre entreprise ne permet pas aux managers de demander un document pour leur équipe : "
+                               "demandez aux RH.")
+    if not hr and format not in options.formats():
+        # Les RH gardent tous les formats (ils préparent eux-mêmes) ; les autres : ceux qu'Admin RH propose.
+        raise ValidationError({"format": ["Ce format n'est pas proposé : choisissez-en un autre."]})
     if manager and not doc_type.manager_can_request:
         raise ValidationError({"doc_type": ["Ce document ne se demande pas par le manager : le collaborateur ou les RH "
                                             "le demandent."]})

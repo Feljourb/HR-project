@@ -20,6 +20,7 @@ import { SelectField } from '@/components/employees/form-fields'
 import { useList } from '@/components/employees/use-list'
 import { DOCUMENT_LISTS, EXPENSE_LISTS, LEAVE_LISTS, LISTS_API, ORGANISATION, OTHER_LISTS, filtersOf, type ListConfig, type ListValue } from './lists-config'
 import { HolidaysPanel } from './holidays-panel'
+import { DocumentSettingsPanel } from './document-settings-panel'
 import { ExpenseSettingsPanel } from './expense-settings-panel'
 import { LeaveSettingsPanel } from './leave-settings-panel'
 import { SignaturesPanel } from './signatures-panel'
@@ -134,6 +135,7 @@ export function ListsManager() {
       {/* Les jours fériés : leur propre page (année par année, onglets fixes / variables). */}
       {current.panel === 'holidays' ? <HolidaysPanel list={current} /> : current.panel === 'settings' ? <LeaveSettingsPanel /> :
       current.panel === 'signatures' ? <SignaturesPanel /> : current.panel === 'expense-settings' ? <ExpenseSettingsPanel /> :
+      current.panel === 'document-settings' ? <DocumentSettingsPanel /> :
       <section className="min-w-0 rounded-xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
         <header className="flex flex-wrap items-center gap-3 border-b border-slate-100 px-4 py-3">
           <div className="min-w-0 flex-1">

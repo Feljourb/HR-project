@@ -103,7 +103,7 @@ export function ClaimForm({ categories, scale, currencies = [], onSent, inPanel 
     <div className="flex flex-col gap-3 p-4">
       {/* La règle de l'entreprise (comme leur outil actuel, demandé par les RH le 2026-11-16). */}
       <p className="rounded-lg border border-red-100 bg-red-50/60 px-3 py-2 text-[11px] font-medium text-red-700">
-        Il faut remettre les notes de frais au plus tard le 10 du mois suivant.
+        Expense claims must be submitted by the 10th of the following month at the latest.
       </p>
       <div>
         <label htmlFor="claim-title" className="block text-xs font-semibold text-slate-700">Purpose <span className="text-red-500" aria-hidden>*</span></label>

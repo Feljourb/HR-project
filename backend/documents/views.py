@@ -3,6 +3,8 @@
 GET  types/                          -> les types actifs (le formulaire)
 GET  mine/                           -> mes demandes de document
 GET  mine/team-members/              -> mon équipe (je suis leur N+1) ; mine/for-team/ : ce que j'ai demandé pour elle
+GET  mine/options/                   -> les formats proposés (réglage d'Admin RH)
+GET / PATCH settings/                -> les réglages des documents (Admin RH) : formats, managers
 POST mine/                           -> demander un document {"doc_type": id, "purpose": "Banque", "format": "PDF|ORIGINAL|BOTH"}
 GET  requests/<request>/             -> le document d'une demande (historique, Team approvals ; mêmes droits)
 GET  files/<request>/                -> le PDF (le collaborateur, ses RH, Admin RH, IT ; sinon 404)
@@ -26,6 +28,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from accounts.permissions import IsHR, IsHRAdmin
 from employees.models import Employee, Pole
@@ -34,9 +37,9 @@ from leaves.views import my_team
 from workflows import engine
 from workflows.models import Request
 
-from .models import DocumentRequest, DocumentSignatory, DocumentType
+from .models import DocumentRequest, DocumentSettings, DocumentSignatory, DocumentType
 from .pdf import TEMPLATES, work_certificate
-from .serializers import DocumentRequestSerializer, DocumentTypeSerializer, SignatorySerializer
+from .serializers import DocumentRequestSerializer, DocumentSettingsSerializer, DocumentTypeSerializer, SignatorySerializer
 from .services import (
     MAX_TEXT, auto_signed, can_prepare, mark_handed_over, mark_original_ready, request_document, save_text, text_of, upload,
 )
@@ -75,9 +78,17 @@ class MyDocumentViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     @action(detail=False, url_path="team-members")
     def team_members(self, request):
         """Les personnes dont je suis le N+1 (pour "For": demander un document pour l'une d'elles). Vide : pas d'équipe."""
+        # Admin RH ne le permet pas (ou pas à moi) : liste vide, donc pas de champ "For" dans le formulaire.
+        if not DocumentSettings.load().manager_allowed(request.user):
+            return Response([])
         me = Employee.objects.filter(user=request.user).select_related("department__direction__entity__pole").first()
         return Response([{"id": member.pk, "first_name": member.first_name, "last_name": member.last_name,
                           "position": member.position.name} for member in my_team(me)])
+
+    @action(detail=False)
+    def options(self, request):
+        """Ce que le formulaire propose (réglages d'Admin RH) : {"formats": ["PDF", "ORIGINAL", "BOTH"]}."""
+        return Response({"formats": DocumentSettings.load().formats()})
 
     @action(detail=False, url_path="for-team")
     def for_team(self, request):
@@ -101,6 +112,21 @@ class MyDocumentViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
                                                 format=request.data.get("format") or DocumentRequest.Format.PDF))
         data = DocumentRequestSerializer(documents().get(pk=document.pk), context={"request": request}).data
         return Response(data, status=status.HTTP_201_CREATED)
+
+
+class DocumentSettingsView(APIView):
+    """GET / PATCH settings/ : les réglages des documents (formats proposés, managers), Admin RH et l'IT."""
+
+    permission_classes = [IsHRAdmin]
+
+    def get(self, request):
+        return Response(DocumentSettingsSerializer(DocumentSettings.load()).data)
+
+    def patch(self, request):
+        data = DocumentSettingsSerializer(DocumentSettings.load(), data=request.data, partial=True)
+        data.is_valid(raise_exception=True)
+        data.save(updated_by=request.user)
+        return Response(DocumentSettingsSerializer(DocumentSettings.load()).data)
 
 
 class SignatoryViewSet(mixins.ListModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet):

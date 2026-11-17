@@ -22,8 +22,9 @@ import { PersonPicker, type Person } from '@/components/requests/out-of-office'
 import { DocumentPanel } from './document-panel'
 import { DownloadButton } from './download-button'
 
-// team : MON équipe (je suis leur N+1) ; forTeam : ce que j'ai demandé pour elle (2026-11-16, "Manager Self-Service").
-type Loaded = { documents: DocumentRequest[]; types: DocumentType[]; team: TeamMember[]; forTeam: DocumentRequest[] }
+// team : MON équipe (je suis leur N+1 ; vide si Admin RH ne le permet pas) ; forTeam : ce que j'ai demandé pour elle
+// (2026-11-16, "Manager Self-Service") ; formats : ceux qu'Admin RH propose (2026-11-17).
+type Loaded = { documents: DocumentRequest[]; types: DocumentType[]; team: TeamMember[]; forTeam: DocumentRequest[]; formats: DocumentFormat[] }
 
 export function DocumentsPage({ me }: { me: Me }) {
   const [loaded, setLoaded] = useState<Loaded | null>(null)
@@ -33,12 +34,14 @@ export function DocumentsPage({ me }: { me: Me }) {
   const [opened, setOpened] = useState<number | null>(null)  // la demande ouverte dans le panneau (son n°)
 
   useEffect(() => {
-    const paths = ['/api/documents/mine/', '/api/documents/types/', '/api/documents/mine/team-members/', '/api/documents/mine/for-team/']
+    const paths = ['/api/documents/mine/', '/api/documents/types/', '/api/documents/mine/team-members/', '/api/documents/mine/for-team/',
+      '/api/documents/mine/options/']
     Promise.all(paths.map((path) => apiFetch(path)))
-      .then(async ([documents, types, team, forTeam]) => {
+      .then(async ([documents, types, team, forTeam, options]) => {
         if (!documents.ok || !types.ok) throw new Error()
+        const offered: { formats: DocumentFormat[] } = options.ok ? await options.json() : { formats: ['PDF', 'ORIGINAL', 'BOTH'] }
         setLoaded({ documents: await documents.json(), types: await types.json(),
-          team: team.ok ? await team.json() : [], forTeam: forTeam.ok ? await forTeam.json() : [] })
+          team: team.ok ? await team.json() : [], forTeam: forTeam.ok ? await forTeam.json() : [], formats: offered.formats })
       })
       .catch(() => setProblem('Could not load your documents. Please try again later.'))
   }, [version])
@@ -66,7 +69,7 @@ export function DocumentsPage({ me }: { me: Me }) {
 
     <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
       <div className="flex min-w-0 flex-col gap-4">
-        <RequestForm types={loaded.types} hr={isHr(me)} team={loaded.team} onSent={reload} />
+        <RequestForm types={loaded.types} hr={isHr(me)} team={loaded.team} formats={loaded.formats} onSent={reload} />
         <HowItWorks />
       </div>
       <div className="flex min-w-0 flex-col gap-4">
@@ -127,10 +130,15 @@ function delayHint(type: DocumentType) {
  *  Un RH peut demander POUR un collaborateur de son pôle (champ "Employee", comme l'outil actuel) : acceptée tout de suite.
  *  Un manager (2026-11-16) : "For" = moi-même ou quelqu'un de son équipe (ex. un ouvrier qui n'utilise pas l'application) ;
  *  seulement les types choisis par Admin RH, l'original papier par défaut, et les RH valident comme d'habitude. */
-function RequestForm({ types, hr, team, onSent }: { types: DocumentType[]; hr: boolean; team: TeamMember[]; onSent: () => void }) {
+function RequestForm({ types, hr, team, formats, onSent }: {
+  types: DocumentType[]; hr: boolean; team: TeamMember[]; formats: DocumentFormat[]; onSent: () => void
+}) {
+  // Les formats proposés (réglage d'Admin RH, 2026-11-17) ; les RH gardent les trois. Un seul : pas de question.
+  const offered = hr ? FORMATS : FORMATS.filter((option) => formats.includes(option.id))
+  const firstFormat = offered[0]?.id ?? 'PDF'
   const [typeId, setTypeId] = useState('')
   const [purpose, setPurpose] = useState('')
-  const [format, setFormat] = useState<DocumentFormat>('PDF')
+  const [format, setFormat] = useState<DocumentFormat>(firstFormat)
   const [forEmployee, setForEmployee] = useState<Person | null>(null)  // null : pour moi-même
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -144,7 +152,8 @@ function RequestForm({ types, hr, team, onSent }: { types: DocumentType[]; hr: b
     const member = team.find((person) => String(person.id) === id) ?? null
     setForEmployee(member)
     setTypeId('')
-    setFormat(member ? 'ORIGINAL' : 'PDF')  // pour un membre de l'équipe : le papier, qu'il récupère au bureau RH
+    // Pour un membre de l'équipe : le papier (qu'il récupère au bureau RH), s'il est proposé.
+    setFormat(member && offered.some((option) => option.id === 'ORIGINAL') ? 'ORIGINAL' : firstFormat)
     setError('')
     setSent('')
   }
@@ -164,7 +173,7 @@ function RequestForm({ types, hr, team, onSent }: { types: DocumentType[]; hr: b
       : `${result.data.doc_type} for ${result.data.employee} (follow it in Team approvals → For my team)`)
     setTypeId('')
     setPurpose('')
-    setFormat('PDF')
+    setFormat(firstFormat)
     setForEmployee(null)
     onSent()
   }
@@ -189,10 +198,10 @@ function RequestForm({ types, hr, team, onSent }: { types: DocumentType[]; hr: b
       hint={chosen ? delayHint(chosen) : undefined} />
     <TextField id="doc-purpose" label="For / purpose" value={purpose} onChange={setPurpose} placeholder="e.g. Bank, visa, rental (optional)" />
     {/* Le format : une banque ou un consulat demandent souvent l'ORIGINAL signé et tamponné à la main. */}
-    <fieldset>
+    {offered.length > 1 && <fieldset>
       <legend className="text-xs font-semibold text-slate-700">Format</legend>
-      <div className="mt-1.5 grid gap-2 sm:grid-cols-3">
-        {FORMATS.map((option) => {
+      <div className={cn('mt-1.5 grid gap-2', offered.length === 3 ? 'sm:grid-cols-3' : 'sm:grid-cols-2')}>
+        {offered.map((option) => {
           const selected = format === option.id
           return <label key={option.id} className={cn('flex cursor-pointer gap-2 rounded-lg border px-2.5 py-2 transition-colors',
             selected ? 'border-[#23355d] bg-[#E4E9F2]/50 ring-1 ring-[#23355d]' : 'border-slate-200 hover:border-slate-300')}>
@@ -205,7 +214,7 @@ function RequestForm({ types, hr, team, onSent }: { types: DocumentType[]; hr: b
         })}
       </div>
       {format !== 'PDF' && <p className="mt-1.5 text-[11px] text-slate-500">Banks and consulates often ask for the original. You get a notification when it is ready at the HR office.</p>}
-    </fieldset>
+    </fieldset>}
     {error && <p role="alert" className="text-[11px] font-medium text-red-600">{error}</p>}
     {sent && <p role="status" className="flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800">
       <CheckCircle2 className="size-4" /> Sent to HR: {sent}.

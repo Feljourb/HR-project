@@ -98,6 +98,60 @@ class DocumentSignatory(models.Model):
             raise ValidationError({"signature": "Ajoutez l'image de la signature pour ce mode."})
 
 
+class DocumentSettings(models.Model):
+    """Les réglages des documents (2026-11-17, remarques de la réunion) : UNE ligne, changée par Admin RH dans la page
+    Reference lists -> Documents -> "Réglages des documents". Principe de l'utilisatrice : on n'enlève aucune
+    fonction, Admin RH choisit ce qui est proposé dans SON entreprise."""
+
+    class ManagerRequests(models.TextChoices):
+        # Le manager (N+1) demande un document POUR quelqu'un de son équipe (ex. un ouvrier qui n'utilise pas
+        # l'application). L'encadrant : chez eux ce sont les RH qui le font -> fermé par défaut.
+        OFF = "OFF", "Non"
+        ALL = "ALL", "Oui, tous les managers"
+        CHOSEN = "CHOSEN", "Oui, seulement les managers choisis"
+
+    # Les formats proposés au collaborateur dans le formulaire (au moins un) ; un seul = pas de question.
+    offer_pdf = models.BooleanField("Proposer : PDF", default=True)
+    offer_original = models.BooleanField("Proposer : original signé", default=True)
+    offer_both = models.BooleanField("Proposer : PDF + original", default=True)
+    manager_requests = models.CharField("Les managers demandent pour leur équipe", max_length=10,
+                                        choices=ManagerRequests.choices, default=ManagerRequests.OFF)
+    # Avec CHOSEN : les managers permis (ex. les chefs d'équipe de l'usine).
+    chosen_managers = models.ManyToManyField(Employee, blank=True, related_name="+", verbose_name="Managers choisis")
+    updated_at = models.DateTimeField("Modifié le", auto_now=True)
+    updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name="+", verbose_name="Modifié par")
+
+    class Meta:
+        verbose_name = "Réglages des documents"
+        verbose_name_plural = "Réglages des documents"
+
+    def __str__(self):
+        return "Réglages des documents"
+
+    def save(self, *args, **kwargs):
+        self.pk = 1  # toujours la même ligne
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def load(cls):
+        current, _ = cls.objects.get_or_create(pk=1)
+        return current
+
+    def formats(self):
+        """Les formats proposés, dans l'ordre du formulaire : ["PDF", "ORIGINAL", "BOTH"]."""
+        offered = [("PDF", self.offer_pdf), ("ORIGINAL", self.offer_original), ("BOTH", self.offer_both)]
+        return [code for code, on in offered if on]
+
+    def manager_allowed(self, user):
+        """Ce compte (un manager) peut-il demander pour son équipe ?"""
+        if self.manager_requests == self.ManagerRequests.ALL:
+            return True
+        if self.manager_requests == self.ManagerRequests.CHOSEN:
+            return self.chosen_managers.filter(user=user).exists()
+        return False
+
+
 def document_path(document, filename):
     """documents/2026/11/<nom au hasard>.pdf : on ne devine pas l'adresse d'un fichier (comme les justificatifs)."""
     return f"documents/{timezone.localdate():%Y/%m}/{uuid.uuid4().hex}{Path(filename).suffix.lower()}"
