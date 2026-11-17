@@ -31,8 +31,15 @@ class DocumentType(ReferenceItem):
         # Le modèle de PDF que l'APPLICATION remplit (écrit dans documents/pdf.py). Vide : les RH préparent le document.
         NONE = "", "Aucun : préparé par les RH"
         WORK = "WORK", "Attestation de travail (générée)"
+        # 2026-11-17 : n'importe quel document, généré en PDF à partir du TEXTE écrit par Admin RH (body_template, avec
+        # les codes {{ nom }}...), avec le même en-tête, la même référence et la même signature que l'attestation.
+        TEXT = "TEXT", "Généré à partir du modèle de texte"
 
     template = models.CharField("Modèle", max_length=10, choices=Template.choices, default=Template.NONE, blank=True)
+    # Le texte du document (2026-11-17), écrit par Admin RH dans la page Réglages des documents : une ligne vide = un
+    # paragraphe, **mot** = gras, {{ nom }} = les données du collaborateur. Vide (attestation de travail) : le texte
+    # écrit dans le code (pdf.work_certificate_text, qui accorde au féminin et parle des anciens collaborateurs).
+    body_template = models.TextField("Modèle de texte", blank=True)
     # Le délai promis (standard "SLA") : le document est prêt au plus tard N jours OUVRÉS après la demande (lundi ->
     # vendredi, sans les jours fériés). 0 = tout de suite (un document généré). Valeurs de départ : à confirmer par les RH.
     delivery_days = models.PositiveSmallIntegerField("Délai (jours ouvrés)", default=2,
@@ -131,6 +138,10 @@ class DocumentSettings(models.Model):
     # mercredi et vendredi). 0 = lundi ... 4 = vendredi. Une demande faite avant midi un jour de retrait est prête
     # l'après-midi même ; sinon au jour de retrait suivant. Vide = pas de jours fixes (le délai du type compte).
     pickup_days = models.JSONField("Jours de retrait (après-midi)", default=default_pickup_days, blank=True)
+    # La "Date souhaitée" : au plus tôt N jours après la demande, sans les dimanches ni les jours fériés (2026-11-17 :
+    # demandé le 17 -> au plus tôt le 19). Les RH ont le temps de préparer et de faire signer.
+    min_notice_days = models.PositiveSmallIntegerField("Délai minimum avant la date souhaitée (jours)", default=2,
+                                                       validators=[MaxValueValidator(15)])
     updated_at = models.DateTimeField("Modifié le", auto_now=True)
     updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
                                    related_name="+", verbose_name="Modifié par")

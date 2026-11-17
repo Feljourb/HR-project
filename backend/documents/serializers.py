@@ -4,7 +4,7 @@ from employees.models import Employee
 from workflows.serializers import name_of, person
 
 from .models import DocumentRequest, DocumentSettings, DocumentSignatory, DocumentType
-from .services import can_prepare
+from .services import auto_signed, can_prepare
 
 
 class DocumentTypeSerializer(serializers.ModelSerializer):
@@ -15,7 +15,7 @@ class DocumentTypeSerializer(serializers.ModelSerializer):
     class Meta:
         model = DocumentType
         fields = ["id", "name", "template", "automatic", "delivery_days", "manager_can_request", "hr_review",
-                  "has_model", "model_name"]
+                  "has_model", "model_name", "body_template"]
 
     def get_automatic(self, doc_type):
         return bool(doc_type.template)
@@ -34,7 +34,7 @@ class DocumentSettingsSerializer(serializers.ModelSerializer):
     class Meta:
         model = DocumentSettings
         fields = ["offer_pdf", "offer_original", "offer_both", "manager_requests", "chosen_managers", "chosen_labels",
-                  "pickup_days", "updated_at", "updated_by"]
+                  "pickup_days", "min_notice_days", "updated_at", "updated_by"]
         read_only_fields = ["updated_at"]
 
     def validate_pickup_days(self, days):
@@ -121,6 +121,8 @@ class DocumentRequestSerializer(serializers.ModelSerializer):
     # PDF du type), ou null (rien à télécharger : les RH le préparent dans leur outil).
     hr_download = serializers.SerializerMethodField()
     model_name = serializers.CharField(source="doc_type.model_name", read_only=True)  # le nom du fichier téléchargé
+    # Les RH : la signature est posée par l'application (pas besoin d'imprimer un PDF : "Send to the employee").
+    signed_by_app = serializers.SerializerMethodField()
     handed_to = serializers.SerializerMethodField()   # à qui l'original a été remis (le collaborateur ou son manager)
     manager = serializers.SerializerMethodField()     # son manager (N+1), pour "Handed over to: ... his manager"
 
@@ -130,7 +132,10 @@ class DocumentRequestSerializer(serializers.ModelSerializer):
                   "employee", "department", "reference", "file_name", "has_file", "delivered_at", "delivered_by", "refusal",
                   "requested_by", "due_date", "late", "can_upload", "can_download", "can_print",
                   "original_state", "original_ready_at", "original_ready_by", "collected_at", "collected_by", "can_handle_original",
-                  "handed_to", "manager", "needs_review", "can_edit_text", "text_reviewed_by", "body_edited_at", "hr_download", "model_name", "needed_by"]
+                  "handed_to", "manager", "needs_review", "can_edit_text", "text_reviewed_by", "body_edited_at", "hr_download", "model_name", "needed_by", "signed_by_app"]
+
+    def get_signed_by_app(self, document):
+        return bool(document.doc_type.template) and self.is_hr(document) and auto_signed(document)
 
     def get_hr_download(self, document):
         if document.request.status != "APPROVED" or not self.is_hr(document):

@@ -12,6 +12,8 @@ export type DocumentType = {
   hr_review: boolean            // un document généré : les RH relisent son texte avant l'envoi
   has_model: boolean            // un modèle Word / PDF à télécharger (mis par Admin RH, types préparés par les RH)
   model_name: string
+  template: '' | 'WORK' | 'TEXT'  // préparé par les RH / attestation de travail / généré depuis le modèle de texte
+  body_template: string           // le modèle de texte (codes {{ nom }}...) écrit par Admin RH
 }
 
 /** Une personne de MON équipe (je suis son N+1) : "For" dans le formulaire d'un manager. */
@@ -71,6 +73,7 @@ export type DocumentRequest = {
   hr_download: 'draft' | 'model' | null
   model_name: string           // le nom du modèle Word (ex. "Attestation salaire.docx")
   needed_by: string | null     // la date souhaitée par le collaborateur ("Date souhaitée", 2026-11-17)
+  signed_by_app: boolean       // les RH : signature posée par l'application (pas besoin d'imprimer : "Send")
 }
 
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']

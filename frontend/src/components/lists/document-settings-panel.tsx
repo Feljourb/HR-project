@@ -9,24 +9,23 @@
  * Lu et enregistré dans /api/documents/settings/.
  */
 import { useEffect, useState } from 'react'
-import { CheckCircle2, FileText, Loader2, Upload, X } from 'lucide-react'
+import { CheckCircle2, Loader2, X } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
-import type { DocumentType } from '@/lib/documents'
-import { getFile } from '@/lib/expenses'
 import { cn } from '@/lib/utils'
-import { sendChange } from '@/lib/workflows'
 import { formatDateTime } from '@/components/employees/history-changes'
-import { actionClass } from '@/components/expenses/claim-actions'
 import { PersonPicker, type Person } from '@/components/requests/out-of-office'
+import { DocumentTypesSetup } from './document-types-setup'
 
 type Settings = {
   offer_pdf: boolean; offer_original: boolean; offer_both: boolean
   manager_requests: 'OFF' | 'ALL' | 'CHOSEN'; chosen_managers: number[]; chosen_labels: { id: number; name: string }[]
   pickup_days: number[]  // les jours de retrait des originaux (après-midi) : 0 = lundi ... 4 = vendredi
+  min_notice_days: number  // la "Date souhaitée" au plus tôt N jours après la demande
   codes: Record<string, string>  // les codes du publipostage ({{ nom }} -> "Nom (en majuscules)")
   updated_at: string; updated_by: string | null
 }
-type Draft = Pick<Settings, 'offer_pdf' | 'offer_original' | 'offer_both' | 'manager_requests' | 'pickup_days'> & { chosen: { id: number; name: string }[] }
+type Draft = Pick<Settings, 'offer_pdf' | 'offer_original' | 'offer_both' | 'manager_requests' | 'pickup_days' | 'min_notice_days'>
+  & { chosen: { id: number; name: string }[] }
 
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
 
@@ -41,77 +40,10 @@ const MANAGERS = [
   { id: 'CHOSEN', title: 'Only chosen managers', text: 'E.g. the factory team leaders, for workers who do not use the app.' },
 ] as const
 
-/** Les modèles Word / PDF de l'entreprise (2026-11-17), pour les documents PRÉPARÉS par les RH (salaire, congé...) :
- *  mis une fois ici ; les RH le téléchargent ("Download the model") dans Document requests, le complètent, le signent.
- *  Enregistré tout de suite (sans le bouton Save d'en bas). */
-function ModelsSection({ codes }: { codes: Record<string, string> }) {
-  const [types, setTypes] = useState<DocumentType[] | null>(null)
-  const [busy, setBusy] = useState<number | null>(null)
-  const [error, setError] = useState('')
-
-  useEffect(() => {
-    apiFetch('/api/documents/types/')
-      .then(async (response) => { if (response.ok) setTypes(await response.json()) })
-      .catch(() => setTypes([]))
-  }, [])
-
-  async function change(type: DocumentType, file: File | null) {
-    setBusy(type.id)
-    setError('')
-    const body = new FormData()
-    if (file) body.append('file', file)
-    const result = await sendChange<DocumentType>(() => apiFetch(`/api/documents/types/${type.id}/model/`,
-      file ? { method: 'POST', body } : { method: 'DELETE' }), 'Only Admin RH can change the models.')
-    setBusy(null)
-    if ('error' in result) return setError(`${type.name}: ${result.error}`)
-    setTypes((old) => old && old.map((item) => (item.id === type.id ? result.data : item)))
-  }
-
-  const prepared = (types ?? []).filter((type) => !type.automatic)  // un document généré n'a pas besoin de modèle
-  return <fieldset>
-    <legend className="text-xs font-semibold text-slate-700">Word models (documents prepared by HR)</legend>
-    <p className="text-[11px] text-slate-500">HR download the model in Document requests, check it, sign it, then upload the signed PDF. Word, OpenOffice or PDF, 5 MB.</p>
-    {/* Le publipostage : dans un Word (.docx), ces codes sont remplacés par les données du collaborateur au téléchargement. */}
-    <details className="mt-1.5 rounded-lg bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
-      <summary className="cursor-pointer font-semibold text-[#23355d]">Codes to fill the Word model automatically (.docx)</summary>
-      <p className="mt-1">Write them in the Word file, e.g. <code className="rounded bg-white px-1">Monsieur {'{{ nom }} {{ prenom }}'}, CIN {'{{ cin }}'}</code>: when HR download the model, each code is replaced by the employee&apos;s data.</p>
-      <ul className="mt-1.5 grid gap-x-4 gap-y-0.5 sm:grid-cols-2">
-        {Object.entries(codes).map(([code, meaning]) => <li key={code}>
-          <code className="rounded bg-white px-1 font-semibold text-[#192646]">{`{{ ${code} }}`}</code> {meaning}
-        </li>)}
-      </ul>
-    </details>
-    {types === null
-      ? <p className="mt-2 text-[11px] text-slate-400">Loading...</p>
-      : <ul className="mt-1.5 divide-y divide-slate-100 rounded-lg border border-slate-200">
-          {prepared.map((type) => <li key={type.id} className="flex flex-wrap items-center gap-2 px-3 py-2 text-xs">
-            <FileText className="size-4 shrink-0 text-slate-400" aria-hidden />
-            <span className="min-w-0 flex-1">
-              <span className="block font-semibold text-[#192646]">{type.name}</span>
-              <span className={cn('block truncate text-[11px]', type.has_model ? 'text-emerald-700' : 'text-slate-400')}>
-                {type.has_model ? type.model_name : 'No model yet'}
-              </span>
-            </span>
-            {busy === type.id && <Loader2 className="size-3.5 animate-spin text-slate-400" />}
-            {type.has_model && <button type="button" className={actionClass}
-              onClick={async () => setError(await getFile(`/api/documents/types/${type.id}/model/`, type.model_name, true))}>Download</button>}
-            {/* Un vrai <input type="file"> caché derrière un bouton lisible ; vidé après chaque choix. */}
-            <label className={cn(actionClass, 'cursor-pointer')}>
-              <Upload className="size-3.5" /> {type.has_model ? 'Replace' : 'Upload'}
-              <input type="file" accept=".docx,.doc,.odt,.pdf" className="sr-only"
-                onChange={(event) => { change(type, event.target.files?.[0] ?? null); event.target.value = '' }} />
-            </label>
-            {type.has_model && <button type="button" onClick={() => change(type, null)}
-              className={cn(actionClass, 'text-red-600 hover:bg-red-50')}>Remove</button>}
-          </li>)}
-        </ul>}
-    {error && <p role="alert" className="mt-1.5 text-[11px] font-medium text-red-600">{error}</p>}
-  </fieldset>
-}
-
 const draftOf = (data: Settings): Draft => ({
   offer_pdf: data.offer_pdf, offer_original: data.offer_original, offer_both: data.offer_both,
   manager_requests: data.manager_requests, chosen: data.chosen_labels, pickup_days: [...data.pickup_days].sort(),
+  min_notice_days: data.min_notice_days,
 })
 
 export function DocumentSettingsPanel() {
@@ -157,7 +89,8 @@ export function DocumentSettingsPanel() {
     setError('')
     try {
       const body = { offer_pdf: draft.offer_pdf, offer_original: draft.offer_original, offer_both: draft.offer_both,
-        manager_requests: draft.manager_requests, chosen_managers: draft.chosen.map((item) => item.id), pickup_days: draft.pickup_days }
+        manager_requests: draft.manager_requests, chosen_managers: draft.chosen.map((item) => item.id), pickup_days: draft.pickup_days,
+        min_notice_days: draft.min_notice_days }
       const response = await apiFetch('/api/documents/settings/', { method: 'PATCH', body: JSON.stringify(body) })
       const data = await response.json().catch(() => ({}))
       if (!response.ok) {
@@ -182,6 +115,9 @@ export function DocumentSettingsPanel() {
     {saved === null || draft === null
       ? <p className="px-4 py-10 text-center text-sm text-slate-500">{failed ? 'Could not load the settings (Admin RH only).' : 'Loading...'}</p>
       : <div className="flex flex-col gap-5 p-4">
+          {/* D'abord : comment chaque document est fait (une seule place par type, 2026-11-17). */}
+          <DocumentTypesSetup codes={saved.codes} />
+
           {/* Les formats proposés (cases à cocher : un, deux ou les trois). */}
           <fieldset>
             <legend className="text-xs font-semibold text-slate-700">Formats offered to employees</legend>
@@ -252,7 +188,18 @@ export function DocumentSettingsPanel() {
             </div>
           </fieldset>
 
-          <ModelsSection codes={saved.codes} />
+          {/* La "Date souhaitée" : au plus tôt N jours après la demande (sans dimanches ni jours fériés). */}
+          <div>
+            <label htmlFor="min-notice" className="text-xs font-semibold text-slate-700">&ldquo;Needed by&rdquo;: at the earliest</label>
+            <div className="mt-1.5 flex items-center gap-2">
+              <input id="min-notice" type="number" min={0} max={15} step={1} value={draft.min_notice_days}
+                onChange={(e) => edit({ min_notice_days: Math.max(0, Math.min(15, Number(e.target.value) || 0)) })}
+                className="w-20 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:border-[#23355d] focus:bg-white" />
+              <span className="text-xs text-slate-500">days after the request (Sundays and public holidays not counted)</span>
+            </div>
+          </div>
+
+
 
           <div className="flex flex-wrap items-center justify-end gap-3">
             {error && <p role="alert" className="mr-auto text-xs font-medium text-red-600">{error}</p>}

@@ -13,7 +13,8 @@ app_name = "documents"
 router = SimpleRouter()
 # Les types dans la page "Reference lists" (Admin RH), avec les mêmes règles que les autres listes.
 # (Le modèle Word / PDF d'un type se change à part : types/<id>/model/, page Réglages des documents.)
-router.register("lists/types", make_viewset(DocumentType, exclude=["model_file", "model_name"]), basename="list-types")
+router.register("lists/types", make_viewset(DocumentType, exclude=["model_file", "model_name", "body_template"]),
+                basename="list-types")
 router.register("types", TypeViewSet, basename="type")
 router.register("mine", MyDocumentViewSet, basename="mine")
 router.register("requests", ByRequestViewSet, basename="by-request")

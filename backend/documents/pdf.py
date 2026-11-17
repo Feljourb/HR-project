@@ -89,18 +89,30 @@ def paragraphs(text, style):
             for block in blocks]
 
 
+def model_text(document):
+    """Le texte d'un document généré, rempli avec la fiche : le modèle de texte d'Admin RH (codes {{ nom }}...), sinon
+    (l'attestation de travail sans modèle) le texte écrit dans le code."""
+    from .merge import merge_text, values_of  # (merge importe pdf : importé ici, au moment du besoin)
+    doc_type = document.doc_type if document.doc_type_id else None
+    if doc_type and doc_type.body_template.strip():
+        return merge_text(doc_type.body_template, values_of(document))
+    return work_certificate_text(document)
+
+
 def work_certificate(document, signed=True, text=None):
-    """L'attestation de travail de cette demande, en octets (le fichier PDF).
+    """Le PDF d'un document GÉNÉRÉ (l'attestation de travail, et depuis le 2026-11-17 tout type avec un modèle de
+    texte) : l'en-tête de la société, le TITRE du type, la référence, le corps, "Fait à ..., le", la signature.
     signed=False : le brouillon des RH (sans les images de signature et de cachet), à signer à la main.
-    text : le corps à utiliser (un aperçu) ; sinon celui relu par les RH (document.body), sinon le texte de la fiche."""
+    text : le corps à utiliser (un aperçu) ; sinon celui relu par les RH (document.body), sinon le modèle rempli."""
     employee = document.employee
     company = escape(employee.department.direction.entity.name)
     signatory = signatory_of(employee)
-    body_text = text if text is not None else (document.body or work_certificate_text(document))
+    body_text = text if text is not None else (document.body or model_text(document))
+    name = document.doc_type.name if document.doc_type_id else "Attestation de travail"  # l'exemple n'a pas de type
 
     buffer = BytesIO()
     pdf = SimpleDocTemplate(buffer, pagesize=A4, leftMargin=25 * mm, rightMargin=25 * mm, topMargin=22 * mm,
-                            bottomMargin=20 * mm, title=f"Attestation de travail - {employee.last_name} {employee.first_name}")
+                            bottomMargin=20 * mm, title=f"{name} - {employee.last_name} {employee.first_name}")
     styles = getSampleStyleSheet()
     header = styles["Normal"].clone("header", fontName="Helvetica-Bold", fontSize=13, leading=17, textColor=NAVY)
     small = styles["Normal"].clone("small", fontSize=8.5, textColor=GREY, leading=11)
@@ -115,7 +127,7 @@ def work_certificate(document, signed=True, text=None):
         Paragraph("Direction des Ressources Humaines", small),
         Spacer(1, 4),
         HRFlowable(width="100%", thickness=0.8, color=NAVY),
-        Paragraph("ATTESTATION DE TRAVAIL", title),
+        Paragraph(escape(name.upper()), title),
         Paragraph(f"Réf. : {document.reference}", styles["Normal"].clone("ref", fontSize=9, textColor=GREY, alignment=TA_CENTER)),
         Spacer(1, 26),
         *paragraphs(body_text, body),  # le corps : le seul morceau que les RH peuvent modifier
@@ -138,5 +150,6 @@ def work_certificate(document, signed=True, text=None):
 
 
 # Le modèle (DocumentType.template) -> la fonction qui fabrique son PDF, et celle qui donne son texte modifiable.
-TEMPLATES = {"WORK": work_certificate}
-TEXTS = {"WORK": work_certificate_text}
+# "TEXT" (2026-11-17) : le même PDF, avec le modèle de texte écrit par Admin RH.
+TEMPLATES = {"WORK": work_certificate, "TEXT": work_certificate}
+TEXTS = {"WORK": model_text, "TEXT": model_text}

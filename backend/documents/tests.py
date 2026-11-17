@@ -22,8 +22,8 @@ from workflows.models import Request
 from workflows.test_engine import EngineTestCase
 
 from .models import DocumentRequest, DocumentSettings, DocumentSignatory, DocumentType
-from .services import (add_working_days, mark_handed_over, mark_original_ready, next_pickup, request_document,
-                       request_documents, save_text, upload)
+from .services import (add_working_days, draft_bytes, earliest_needed_by, mark_handed_over, mark_original_ready,
+                       next_pickup, request_document, request_documents, save_text, text_of, upload)
 
 User = get_user_model()
 MEDIA = tempfile.mkdtemp()  # les PDF des tests vont ici (effacé à la fin), pas dans media/
@@ -173,13 +173,31 @@ class FlowTests(DocumentTestCase):
         # Mercredi 18/11/2026 = Fête de l'Indépendance (férié) : le bureau RH est fermé -> vendredi 20.
         self.assertEqual(next_pickup(at(16, 9, month=11), days), datetime.date(2026, 11, 20))
         self.assertIsNone(next_pickup(at(7, 9), []))
-        # Un original : prévu le prochain jour de retrait ; la date souhaitée est gardée, jamais dans le passé.
-        tomorrow = timezone.localdate() + datetime.timedelta(days=1)
-        document = request_document(self.sara, self.salary, format="ORIGINAL", needed_by=tomorrow)
+        # La date souhaitée : au plus tôt + 2 jours, sans les dimanches ni les jours fériés (réglage d'Admin RH).
+        self.assertEqual(earliest_needed_by(datetime.date(2026, 12, 8), 2), datetime.date(2026, 12, 10))  # mardi -> jeudi
+        self.assertEqual(earliest_needed_by(datetime.date(2026, 12, 5), 2), datetime.date(2026, 12, 8))   # samedi : sans le dimanche
+        self.assertEqual(earliest_needed_by(datetime.date(2026, 11, 17), 2), datetime.date(2026, 11, 20))  # le 18 est férié
+        # Un original : prévu le prochain jour de retrait ; la date souhaitée est gardée.
+        earliest = earliest_needed_by()
+        document = request_document(self.sara, self.salary, format="ORIGINAL", needed_by=earliest)
         self.assertEqual(document.due_date, next_pickup(timezone.now(), days))
-        self.assertEqual(document.needed_by, tomorrow)
+        self.assertEqual(document.needed_by, earliest)
+        with self.assertRaisesMessage(ValidationError, "au plus tôt"):
+            request_document(self.sara, self.work, needed_by=earliest - datetime.timedelta(days=1))
         with self.assertRaisesMessage(ValidationError, "passé"):
             request_document(self.sara, self.work, needed_by=timezone.localdate() - datetime.timedelta(days=1))
+
+    def test_text_model_generates_any_document(self):
+        # 2026-11-17 : Admin RH écrit le texte d'un type (codes {{ ... }}) -> généré en PDF comme l'attestation.
+        DocumentType.objects.filter(pk=self.salary.pk).update(
+            template="TEXT", hr_review=True, body_template="{{ civilite }} **{{ nom }} {{ prenom }}**, CIN {{ cin }}. {{ inconnu }}Salaire : ...")
+        document = self.approve(request_document(self.sara, self.salary))
+        self.assertEqual(document.state, "TO_PREPARE")  # relecture demandée : les RH complètent le salaire
+        text = text_of(document)
+        self.assertIn(f"**{self.sara.last_name.upper()} {self.sara.first_name}**, CIN {self.sara.cin}. Salaire", text)
+        self.assertTrue(draft_bytes(document).startswith(b"%PDF"))
+        document = save_text(document, self.nadia.user, text.replace("...", "12 000 MAD"))
+        self.assertEqual(document.state, "READY")  # signé par l'application : livré
 
     def test_several_documents_in_one_request(self):
         # 2026-11-17 (comme l'outil actuel des RH) : Sara coche 2 documents -> UNE demande, UNE validation des RH.
@@ -449,6 +467,34 @@ class ApiTests(DocumentTestCase):
         # Le collaborateur : jamais (404, comme s'il n'existait pas).
         self.login(self.sara)
         self.assertEqual(self.client.get(model_url).status_code, 404)
+
+    def test_admin_rh_writes_a_text_model(self):
+        url = reverse("documents:type-text-model", args=[self.salary.pk])
+        self.login(self.nadia)
+        self.assertEqual(self.client.patch(url, {"body_template": "x"}, format="json").status_code, 403)
+        admin = User.objects.create_user("admin.rh3", role=User.Role.HR_ADMIN, must_change_password=False)
+        self.client.force_authenticate(admin)
+        text = "Nous attestons que {{ civilite }} **{{ nom }}** perçoit un salaire de ..."
+        self.assertEqual(self.client.patch(url, {"body_template": text}, format="json").json()["body_template"], text)
+        preview = self.client.post(reverse("documents:type-preview-model", args=[self.salary.pk]), {"text": text}, format="json")
+        self.assertEqual((preview.status_code, preview["Content-Type"]), (200, "application/pdf"))
+        # L'option "le plus tôt" du formulaire.
+        self.login(self.sara)
+        self.assertEqual(self.client.get(reverse("documents:mine-options")).json()["earliest_needed_by"], earliest_needed_by().isoformat())
+
+    def test_one_place_to_set_up_a_type(self):
+        # 2026-11-17 : "Comment est-il fait ?" au même endroit : préparé par les RH, ou généré à partir d'un texte.
+        url = reverse("documents:type-setup", args=[self.salary.pk])
+        admin = User.objects.create_user("admin.rh4", role=User.Role.HR_ADMIN, must_change_password=False)
+        self.client.force_authenticate(admin)
+        self.assertEqual(self.client.patch(url, {"generated": True, "body_template": ""}, format="json").status_code, 400)
+        data = self.client.patch(url, {"generated": True, "body_template": "Salaire de {{ nom }} : ...", "hr_review": True}, format="json").json()
+        self.assertEqual((data["template"], data["automatic"], data["hr_review"]), ("TEXT", True, True))
+        data = self.client.patch(url, {"generated": False}, format="json").json()
+        self.assertEqual((data["template"], data["hr_review"]), ("", False))
+        # L'attestation de travail générée reste "WORK" (texte vide = le texte prévu par l'application).
+        work = self.client.patch(reverse("documents:type-setup", args=[self.work.pk]), {"generated": True, "body_template": ""}, format="json")
+        self.assertEqual((work.status_code, work.json()["template"]), (200, "WORK"))
 
     def test_api_several_documents(self):
         # Le formulaire envoie les cases cochées : une demande, deux documents (un par ligne dans les listes).

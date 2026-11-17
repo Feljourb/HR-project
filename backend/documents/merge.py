@@ -6,6 +6,7 @@ Fait avec la bibliothèque docxtpl (le standard en Python : elle retrouve un cod
 plusieurs morceaux). Un code inconnu (faute de frappe) devient vide ; un code mal fermé ("{{ nom") est refusé dès
 qu'Admin RH met le modèle (check_model), avec un message clair.
 """
+import re
 from io import BytesIO
 
 from django.core.exceptions import ValidationError
@@ -63,6 +64,15 @@ def values_of(document):
         "reference": document.reference or "",
         "motif": document.purpose,
     }
+
+
+CODE = re.compile(r"\{\{\s*(\w+)\s*\}\}")
+
+
+def merge_text(template, values):
+    """Le modèle de TEXTE d'Admin RH (2026-11-17) -> le texte rempli : chaque {{ code }} remplacé par sa valeur
+    (un code inconnu devient vide). Le PDF est ensuite fabriqué comme l'attestation de travail."""
+    return CODE.sub(lambda match: str(values.get(match.group(1), "")), template)
 
 
 def fill(model_file, values):

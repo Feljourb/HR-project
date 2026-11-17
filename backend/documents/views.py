@@ -28,6 +28,7 @@ from django.core.exceptions import PermissionDenied as DjangoPermissionDenied
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Q
 from django.http import FileResponse, HttpResponse
+from django.shortcuts import get_object_or_404
 from django.utils.dateparse import parse_date
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -43,12 +44,12 @@ from leaves.views import my_team
 from workflows import engine
 from workflows.models import Request
 
-from .merge import CODES
+from .merge import CODES, merge_text, values_of
 from .models import DocumentRequest, DocumentSettings, DocumentSignatory, DocumentType
-from .pdf import TEMPLATES, work_certificate
+from .pdf import TEMPLATES, model_text, work_certificate
 from .serializers import DocumentRequestSerializer, DocumentSettingsSerializer, DocumentTypeSerializer, SignatorySerializer
 from .services import (
-    MAX_TEXT, auto_signed, can_prepare, draft_bytes, filled_model, mark_handed_over, mark_original_ready, request_documents, save_text,
+    MAX_TEXT, auto_signed, can_prepare, draft_bytes, earliest_needed_by, filled_model, mark_handed_over, mark_original_ready, request_documents, save_text,
     set_model, text_of, upload,
 )
 
@@ -77,7 +78,7 @@ class TypeViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         # Le modèle d'un type désactivé reste gérable par Admin RH (page Réglages des documents).
-        return DocumentType.objects.all() if self.action == "model" else super().get_queryset()
+        return DocumentType.objects.all() if self.action == "model" else super().get_queryset().order_by("name")
 
     @action(detail=True, methods=["get", "post", "delete"])
     def model(self, request, pk=None):
@@ -98,6 +99,59 @@ class TypeViewSet(viewsets.ReadOnlyModelViewSet):
         else:
             run(lambda: set_model(doc_type, request.FILES.get("file")))
         return Response(DocumentTypeSerializer(doc_type).data)
+
+    @action(detail=True, methods=["patch"])
+    def setup(self, request, pk=None):
+        """"Comment est-il fait ?" (2026-11-17 : UNE seule place par type, l'utilisatrice était perdue entre 3 pages) :
+        {"generated": true/false, "body_template": "...", "hr_review": true/false}. Généré : l'application fait le PDF à
+        partir du texte (l'attestation de travail garde son texte prévu si le texte est vide) ; sinon les RH le préparent."""
+        if not IsHRAdmin().has_permission(request, self):
+            raise PermissionDenied("Seule Admin RH change la façon dont un document est fait.")
+        doc_type = get_object_or_404(DocumentType, pk=pk)
+        text = str(request.data.get("body_template", "")).replace("\r", "").strip()
+        if len(text) > MAX_TEXT:
+            raise serializers.ValidationError({"body_template": [f"Au plus {MAX_TEXT} caractères."]})
+        generated = bool(request.data.get("generated"))
+        if generated and not text and doc_type.template != DocumentType.Template.WORK:
+            raise serializers.ValidationError({"body_template": ["Écrivez le texte du document (avec les codes {{ nom }}...)."]})
+        if not generated:
+            doc_type.template = DocumentType.Template.NONE
+        elif doc_type.template != DocumentType.Template.WORK:
+            doc_type.template = DocumentType.Template.TEXT  # (l'attestation de travail reste "WORK" : son texte prévu)
+        doc_type.body_template = text
+        doc_type.hr_review = bool(request.data.get("hr_review")) and generated
+        doc_type.save(update_fields=["template", "body_template", "hr_review"])
+        return Response(DocumentTypeSerializer(doc_type).data)
+
+    @action(detail=True, methods=["patch"], url_path="text-model")
+    def text_model(self, request, pk=None):
+        """Admin RH écrit le MODÈLE DE TEXTE d'un type (2026-11-17) : {"body_template": "... {{ nom }} ..."}.
+        Le type "Prepared by: the app (text model)" est alors généré en PDF, comme l'attestation de travail."""
+        if not IsHRAdmin().has_permission(request, self):
+            raise PermissionDenied("Seule Admin RH change les modèles.")
+        doc_type = get_object_or_404(DocumentType, pk=pk)
+        text = str(request.data.get("body_template", "")).replace("\r", "")
+        if len(text) > MAX_TEXT:
+            raise serializers.ValidationError({"body_template": [f"Au plus {MAX_TEXT} caractères."]})
+        doc_type.body_template = text.strip()
+        doc_type.save(update_fields=["body_template"])
+        return Response(DocumentTypeSerializer(doc_type).data)
+
+    @action(detail=True, methods=["post"], url_path="preview-model")
+    def preview_model(self, request, pk=None):
+        """L'aperçu PDF d'un modèle de texte (rien n'est enregistré), avec un collaborateur d'exemple."""
+        if not IsHRAdmin().has_permission(request, self):
+            raise PermissionDenied("Seule Admin RH change les modèles.")
+        doc_type = get_object_or_404(DocumentType, pk=pk)
+        employee =(Employee.objects.filter(user=request.user).first()
+                    or Employee.objects.select_related("department__direction__entity__pole", "position").order_by("id").first())
+        if employee is None:
+            raise NotFound("Aucun collaborateur pour l'exemple.")
+        example = DocumentRequest(employee=employee, doc_type=doc_type, reference="EXEMPLE", purpose="Banque")
+        text = merge_text(str(request.data.get("text", "")) or doc_type.body_template, values_of(example)) or model_text(example)
+        response = HttpResponse(work_certificate(example, signed=False, text=text), content_type="application/pdf")
+        response["Content-Disposition"] = 'inline; filename="apercu.pdf"'
+        return response
 
 
 class MyDocumentViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
@@ -123,7 +177,9 @@ class MyDocumentViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         """Ce que le formulaire propose (réglages d'Admin RH) : {"formats": ["PDF", "ORIGINAL", "BOTH"],
         "pickup_days": [2, 4]} (les jours de retrait des originaux : le message du formulaire)."""
         current = DocumentSettings.load()
-        return Response({"formats": current.formats(), "pickup_days": sorted(current.pickup_days or [])})
+        return Response({"formats": current.formats(), "pickup_days": sorted(current.pickup_days or []),
+                         # la "Date souhaitée" la plus proche (le calendrier ne propose rien avant)
+                         "earliest_needed_by": earliest_needed_by().isoformat()})
 
     @action(detail=False, url_path="for-team")
     def for_team(self, request):

@@ -27,6 +27,7 @@ import { DownloadButton } from './download-button'
 type Loaded = {
   documents: DocumentRequest[]; types: DocumentType[]; team: TeamMember[]; forTeam: DocumentRequest[]; formats: DocumentFormat[]
   pickupDays: number[]  // les jours de retrait des originaux (réglage d'Admin RH) : le message du formulaire
+  earliest: string      // la "Date souhaitée" la plus proche (aujourd'hui + 2 jours, sans dimanches ni fériés)
 }
 
 export function DocumentsPage({ me }: { me: Me }) {
@@ -42,11 +43,11 @@ export function DocumentsPage({ me }: { me: Me }) {
     Promise.all(paths.map((path) => apiFetch(path)))
       .then(async ([documents, types, team, forTeam, options]) => {
         if (!documents.ok || !types.ok) throw new Error()
-        const offered: { formats: DocumentFormat[]; pickup_days: number[] } = options.ok ? await options.json()
-          : { formats: ['PDF', 'ORIGINAL', 'BOTH'], pickup_days: [] }
+        const offered: { formats: DocumentFormat[]; pickup_days: number[]; earliest_needed_by: string } = options.ok ? await options.json()
+          : { formats: ['PDF', 'ORIGINAL', 'BOTH'], pickup_days: [], earliest_needed_by: '' }
         setLoaded({ documents: await documents.json(), types: await types.json(),
           team: team.ok ? await team.json() : [], forTeam: forTeam.ok ? await forTeam.json() : [], formats: offered.formats,
-          pickupDays: offered.pickup_days })
+          pickupDays: offered.pickup_days, earliest: offered.earliest_needed_by })
       })
       .catch(() => setProblem('Could not load your documents. Please try again later.'))
   }, [version])
@@ -74,7 +75,7 @@ export function DocumentsPage({ me }: { me: Me }) {
 
     <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
       <div className="flex min-w-0 flex-col gap-4">
-        <RequestForm types={loaded.types} hr={isHr(me)} team={loaded.team} formats={loaded.formats} pickupDays={loaded.pickupDays} onSent={reload} />
+        <RequestForm types={loaded.types} hr={isHr(me)} team={loaded.team} formats={loaded.formats} pickupDays={loaded.pickupDays} earliest={loaded.earliest} onSent={reload} />
         <HowItWorks />
       </div>
       <div className="flex min-w-0 flex-col gap-4">
@@ -128,11 +129,14 @@ function HowItWorks() {
  *  Un RH peut demander POUR un collaborateur de son pôle (champ "Employee", comme l'outil actuel) : acceptée tout de suite.
  *  Un manager (2026-11-16) : "For" = moi-même ou quelqu'un de son équipe (ex. un ouvrier qui n'utilise pas l'application) ;
  *  seulement les types choisis par Admin RH, l'original papier par défaut, et les RH valident comme d'habitude. */
-function RequestForm({ types, hr, team, formats, pickupDays, onSent }: {
-  types: DocumentType[]; hr: boolean; team: TeamMember[]; formats: DocumentFormat[]; pickupDays: number[]; onSent: () => void
+function RequestForm({ types, hr, team, formats, pickupDays, earliest, onSent }: {
+  types: DocumentType[]; hr: boolean; team: TeamMember[]; formats: DocumentFormat[]; pickupDays: number[]; earliest: string; onSent: () => void
 }) {
   const [neededBy, setNeededBy] = useState('')  // "Date souhaitée" (obligatoire, comme l'outil actuel des RH)
+  // Le calendrier ne propose rien avant (aujourd'hui + 2 jours, sans dimanches ni fériés : Django le calcule) ;
+  // les RH, qui s'organisent eux-mêmes : dès aujourd'hui.
   const today = isoDate(new Date())
+  const minimum = hr || !earliest ? today : earliest
   const pickup = pickupMessage(pickupDays)
   // Les formats proposés (réglage d'Admin RH, 2026-11-17) ; les RH gardent les trois. Un seul : pas de question.
   const offered = hr ? FORMATS : FORMATS.filter((option) => formats.includes(option.id))
@@ -212,7 +216,8 @@ function RequestForm({ types, hr, team, formats, pickupDays, onSent }: {
     {/* Les documents : une liste déroulante à cases (comme l'outil actuel des RH), les choisis en puces dessous. */}
     <DocumentPicker types={choices} selected={typeIds} onToggle={toggle} onClear={() => setTypeIds([])} />
     {/* "Date souhaitée" : quand j'en ai besoin (jamais dans le passé) ; les RH la voient pour s'organiser. */}
-    <TextField id="doc-needed-by" type="date" label="Needed by" required min={today} value={neededBy} onChange={setNeededBy} />
+    <TextField id="doc-needed-by" type="date" label="Needed by" required min={minimum} value={neededBy} onChange={setNeededBy}
+      hint={minimum !== today ? `At the earliest ${formatDate(minimum)}: HR need time to prepare and sign it.` : undefined} />
     <TextField id="doc-purpose" label="For / purpose" value={purpose} onChange={setPurpose} placeholder="e.g. Bank, visa, rental (optional)" />
     {/* Le format : une banque ou un consulat demandent souvent l'ORIGINAL signé et tamponné à la main. */}
     {offered.length > 1 && <fieldset>

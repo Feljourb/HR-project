@@ -41,6 +41,23 @@ def add_working_days(start, days):
     return day
 
 
+def earliest_needed_by(today=None, days=None):
+    """La "Date souhaitée" la plus proche possible (2026-11-17) : aujourd'hui + N jours (réglage d'Admin RH, 2 par
+    défaut), sans compter les DIMANCHES ni les jours fériés actifs. Ex. demandé mardi 17 -> au plus tôt jeudi 19 ;
+    un jour férié au milieu -> un jour de plus."""
+    today = today or timezone.localdate()
+    days = DocumentSettings.load().min_notice_days if days is None else days
+    ensure_years(today, today + timedelta(days=days * 2 + 14))
+    holidays = set(PublicHoliday.objects.filter(is_active=True, date__gt=today, date__lte=today + timedelta(days=days * 2 + 14))
+                   .values_list("date", flat=True))
+    day = today
+    while days > 0:
+        day += timedelta(days=1)
+        if day.weekday() != 6 and day not in holidays:  # 6 = dimanche
+            days -= 1
+    return day
+
+
 def next_pickup(moment, days):
     """Le prochain jour de RETRAIT d'un original au bureau RH (l'après-midi), pour une demande faite à `moment`
     (2026-11-17, comme l'outil actuel des RH). Ex. jours = mercredi + vendredi : demandé lundi -> mercredi ; mercredi
@@ -115,6 +132,11 @@ def request_documents(employee, doc_types, purpose="", by=None, format=DocumentR
         raise ValidationError({"format": ["Choisissez le format : PDF, original ou les deux."]})
     if needed_by is not None and needed_by < timezone.localdate():
         raise ValidationError({"needed_by": ["La date souhaitée ne peut pas être dans le passé."]})
+    # Le délai minimum (sauf pour les RH, qui s'organisent eux-mêmes) : le temps de préparer et de signer.
+    earliest = earliest_needed_by()
+    if needed_by is not None and not hr and needed_by < earliest:
+        raise ValidationError({"needed_by": [f"Date souhaitée au plus tôt le {earliest:%d/%m/%Y} (le temps de préparer "
+                                             "et de signer le document)."]})
     # Une seule demande en cours par type (standard) : à valider, ou validée et pas encore préparée par les RH.
     waiting = Q(request__status=Request.Status.IN_PROGRESS) | DocumentRequest.to_prepare_filter()
     busy = DocumentRequest.objects.filter(waiting, employee=employee, doc_type__in=doc_types).select_related("doc_type")
