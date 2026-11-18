@@ -351,8 +351,13 @@ function MyDocuments({ documents, onChanged, onOpen }: { documents: DocumentRequ
           </div>
           {shown.length === 0
             ? <p className="px-4 py-8 text-center text-xs text-slate-500">Nothing here.</p>
-            : <ul className="divide-y divide-slate-100">{shown.map((document) => <DocumentLine key={document.id} document={document} onChanged={onChanged}
-                onOpen={() => onOpen(document.request)} />)}</ul>}
+            : <ul className="divide-y divide-slate-100">{shown.map((document) => {
+                // Plusieurs documents dans UNE demande : le même n° sur chaque ligne, et "Cancel" sur une seule (il
+                // annule toute la demande).
+                const together = documents.filter((other) => other.request === document.request)
+                return <DocumentLine key={document.id} document={document} onChanged={onChanged} onOpen={() => onOpen(document.request)}
+                  together={together.length} cancellable={together[0].id === document.id} />
+              })}</ul>}
           {filtered.length > FIRST && <button type="button" onClick={() => setAll((old) => !old)}
             className="w-full border-t border-slate-100 px-4 py-2.5 text-xs font-semibold text-[#23355d] hover:bg-slate-50">
             {all ? 'Show less' : `Show all (${filtered.length})`}
@@ -361,13 +366,16 @@ function MyDocuments({ documents, onChanged, onOpen }: { documents: DocumentRequ
   </section>
 }
 
-function DocumentLine({ document, onChanged, onOpen }: { document: DocumentRequest; onChanged: () => void; onOpen: () => void }) {
+function DocumentLine({ document, onChanged, onOpen, together = 1, cancellable = true }: {
+  document: DocumentRequest; onChanged: () => void; onOpen: () => void; together?: number; cancellable?: boolean
+}) {
   const sent = document.created_at.slice(0, 10)
   const ended = document.state === 'REJECTED' || document.state === 'CANCELLED'
   const state = stateOf(document)
   const waiting = document.state === 'IN_PROGRESS' || document.state === 'TO_PREPARE'
   // Le détail en petit, sans répéter : la date est déjà dans le calendrier à gauche, la référence dans "Details".
   const extras = [
+    together > 1 && `N° ${document.request} · ${together} documents`,  // demandés ensemble
     document.purpose && `for ${document.purpose}`,
     document.format !== 'PDF' && FORMATS.find((option) => option.id === document.format)?.short,
     document.requested_by && `requested by ${document.requested_by}`,  // un RH, ou mon manager
@@ -393,7 +401,7 @@ function DocumentLine({ document, onChanged, onOpen }: { document: DocumentReque
     <div className="flex shrink-0 items-center gap-1">
       <span className={cn('mr-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset', state.badge)}>{state.label}</span>
       <DownloadButton document={document} />
-      <CancelClaim claim={document} onCancelled={onChanged} />
+      {cancellable && <CancelClaim claim={document} onCancelled={onChanged} />}
       <button type="button" onClick={onOpen} className={actionClass}>Details</button>
     </div>
   </li>

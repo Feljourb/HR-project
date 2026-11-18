@@ -163,10 +163,12 @@ class DocumentRequestSerializer(serializers.ModelSerializer):
 
     def get_manager(self, document):
         # Seulement quand l'original attend : le RH choisit à qui il le remet. Sinon inutile (et une requête de moins).
+        # Et seulement si Admin RH permet aux managers de s'occuper des documents de leur équipe (2026-11-18 : sinon
+        # "remis à son manager" n'a pas de sens, l'original est remis au collaborateur, sans question).
         if document.original_state != "PICKUP":
             return None
         boss = document.employee.n_plus_1
-        return person(boss) if boss else None
+        return person(boss) if boss and DocumentSettings.load().manager_allowed(boss.user) else None
 
     def is_hr(self, document):
         """Celui qui lit est un RH qui s'occupe de ce document (RH du pôle, Admin RH, IT)."""

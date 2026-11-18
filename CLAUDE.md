@@ -269,6 +269,11 @@ Standard (Workday / SAP / BambooHR), done in one go before a meeting (asked by t
     - Test helper `DocumentTestCase.approve(..., send=True)` also does HR's Send.
     - 471 tests.
   - [x] Browser test of D1-D12: everything works (the user, 2026-11-17). MODULE COMPLETE.
+  - [x] 2026-11-18 (final test day, Test 1 OK): the choice "Handed over to: the employee / his manager" only exists when Admin RH lets that manager request for his team (card ④ ≠ No, or he is a chosen manager). Otherwise the original is handed to the employee without a question. Serializer `manager` = null; `mark_handed_over(to_manager=True)` is refused.
+  - [x] 2026-11-18 final tests:
+    - D1 to D6 OK. "My documents": several documents of one request show "N° x · n documents", and "Cancel" (which cancels the whole request) appears on one row only.
+    - Bug fixed: when HR request for an employee, `tell()` no longer notifies that HR (initiator) of "Document prêt" / "Original prêt"; only a MANAGER initiator is told.
+    - ADMINISTRATIVE DOCUMENTS MODULE: MVP DONE.
   - [ ] Left:
     - the user's commits;
     - (done 2026-11-17) card ② is now "Who signs" and is ALWAYS shown: the signatory per pôle (name, title, city "Fait à", printed on the originals too). The "How the PDF is made" choice (By HR / Automatic) and the images only appear when the PDF is offered (`SignaturesPanel showMode`);

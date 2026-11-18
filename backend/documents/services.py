@@ -201,7 +201,9 @@ def tell(document, kind):
     qui n'utilise pas l'application ; le manager le prévient). Le manager ne reçoit jamais le document lui-même."""
     people = [document.employee.user]
     initiator = document.request.initiated_by
-    if initiator and initiator.pk != document.employee.user_id:
+    # Seulement le MANAGER qui a saisi la demande : un RH qui l'a faite pour le collaborateur (2026-11-18) est celui
+    # qui prépare le document ; le prévenir de son propre travail n'a pas de sens.
+    if initiator and initiator.pk != document.employee.user_id and not can_prepare(initiator, document):
         people.append(initiator)
     Notification.objects.bulk_create(Notification(recipient=user, employee=document.employee, kind=kind,
                                                    request=document.request) for user in people)
@@ -456,6 +458,10 @@ def mark_handed_over(document, user, to_manager=False):
         taker = document.employee.n_plus_1
         if taker is None:
             raise ValidationError("Ce collaborateur n'a pas de manager (N+1) : remettez l'original au collaborateur.")
+        # Le réglage d'Admin RH (2026-11-18) : les managers ne s'occupent pas des documents de leur équipe.
+        if not DocumentSettings.load().manager_allowed(taker.user):
+            raise ValidationError("Votre entreprise ne fait pas remettre les documents au manager : remettez l'original "
+                                  "au collaborateur.")
     document.collected_at, document.collected_by, document.handed_to = timezone.now(), user, taker
     document.save(update_fields=["collected_at", "collected_by", "handed_to"])
     if to_manager:

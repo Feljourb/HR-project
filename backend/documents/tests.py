@@ -22,6 +22,7 @@ from workflows.models import Request
 from workflows.test_engine import EngineTestCase
 
 from .models import DocumentRequest, DocumentSettings, DocumentSignatory, DocumentType
+from .serializers import DocumentRequestSerializer
 from .services import (add_working_days, auto_signed, draft_bytes, earliest_needed_by, mark_handed_over, mark_original_ready,
                        next_pickup, request_document, request_documents, save_text, text_of, upload, word_bytes)
 
@@ -262,6 +263,15 @@ class FlowTests(DocumentTestCase):
         with self.assertRaises(ValidationError):
             request_document(self.sara, self.salary, format="ORIGINAL")
         request_document(self.sara, self.salary, by=self.nadia.user, format="ORIGINAL")  # les RH : tous les formats
+        # 2026-11-18 : managers fermés -> l'original ne se remet pas "à son manager" (pas de choix, refusé).
+        options.manager_requests = "OFF"
+        options.save()
+        DocumentRequest.objects.filter(doc_type=self.work).delete()  # (celle du manager, plus haut, est encore en cours)
+        # (demandée par les RH : déjà acceptée)
+        original = mark_original_ready(request_document(self.sara, self.work, format="ORIGINAL", by=self.nadia.user), self.nadia.user)
+        self.assertIsNone(DocumentRequestSerializer(original).data["manager"])
+        with self.assertRaisesMessage(ValidationError, "remettez l'original au collaborateur"):
+            mark_handed_over(original, self.nadia.user, to_manager=True)
 
     def test_the_manager_requests_for_his_team(self):
         # Youssef (N+1 de Sara) demande l'original de son attestation de travail : les RH valident quand même.
@@ -306,6 +316,8 @@ class FlowTests(DocumentTestCase):
         document = save_text(document, self.nadia.user, text_of(document))
         self.assertEqual(document.state, "READY")
         self.assertTrue(self.ready_notices().exists())  # Sara est prévenue
+        # Nadia, elle, n'est pas prévenue de son propre travail (2026-11-18) : seulement un manager qui a saisi.
+        self.assertFalse(Notification.objects.filter(recipient=self.nadia.user, kind=Notification.Kind.DOCUMENT_READY).exists())
         # Un document préparé par les RH : à préparer tout de suite.
         self.assertEqual(request_document(self.sara, self.salary, by=self.nadia.user).state, "TO_PREPARE")
         # Youssef (son N+1, pas RH) peut demander pour elle (2026-11-16), mais SANS l'accepter : les RH valident.
