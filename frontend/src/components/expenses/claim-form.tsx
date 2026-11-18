@@ -11,7 +11,7 @@
 import { useState, type FormEvent } from 'react'
 import { CheckCircle2, FileText, Loader2, Paperclip, Plus, Trash2, X } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
-import { MAX_RECEIPTS, ceilingOf, formatMad, type Currency, type ExpenseCategory, type ExpenseClaim, type Scale } from '@/lib/expenses'
+import { MAX_RECEIPTS, formatMad, type Currency, type ExpenseCategory, type ExpenseClaim } from '@/lib/expenses'
 import { isoDate } from '@/lib/leaves'
 import { cn } from '@/lib/utils'
 import { controlClass } from '@/components/employees/form-fields'
@@ -24,14 +24,16 @@ type Line = { key: number; date: string; category: string; amount: string; curre
 let nextKey = 1
 const emptyLine = (): Line => ({ key: nextKey++, date: '', category: '', amount: '', currency: '', description: '', justification: '', files: [] })
 const MAX_LINES = 20
+const MAX_RECEIPT_SIZE = 5 * 1024 * 1024  // le même maximum que Django (5 Mo par justificatif)
 // Le même maximum que Django (MAX_LINE_AMOUNT) : une sécurité contre un zéro de trop.
 const MAX_AMOUNT = 100000
 
-const PER: Record<string, string> = { DAILY_ALLOWANCE: 'per day', TRANSPORT: 'per trip', HOTEL: 'per night' }
+// L'unité du plafond d'une catégorie (une ligne = une dépense / un jour / un trajet / une nuit).
+const PER: Record<string, string> = { EXPENSE: 'per expense', DAY: 'per day', TRIP: 'per trip', NIGHT: 'per night' }
 
 // inPanel : le formulaire est dans le panneau "New expense claim" (le panneau a déjà le titre et l'aide).
-export function ClaimForm({ categories, scale, currencies = [], onSent, inPanel = false }: {
-  categories: ExpenseCategory[]; scale: Scale | null; currencies?: Currency[]; onSent: (claim: ExpenseClaim) => void; inPanel?: boolean
+export function ClaimForm({ categories, grade, currencies = [], onSent, inPanel = false }: {
+  categories: ExpenseCategory[]; grade: string | null; currencies?: Currency[]; onSent: (claim: ExpenseClaim) => void; inPanel?: boolean
 }) {
   const [title, setTitle] = useState('')
   const [lines, setLines] = useState<Line[]>(() => [emptyLine()])
@@ -49,6 +51,21 @@ export function ClaimForm({ categories, scale, currencies = [], onSent, inPanel 
     return currency ? Math.round(amount * currency.rate_to_mad * 100) / 100 : amount
   }
   const total = lines.reduce((sum, line) => sum + madOf(line), 0)
+  // Le maximum de chaque ligne (2026-11-18, la même règle que Django) : "par jour" / "par nuit" = le TOTAL de la
+  // catégorie ce jour-là, "par trajet" = toute la mission, "par dépense" = la ligne seule. before = ce que les lignes
+  // précédentes du même groupe ont déjà pris.
+  const used: Record<string, number> = {}
+  const limits = lines.map((line) => {
+    const category = categories.find((c) => String(c.id) === line.category)
+    const max = category?.my_ceiling ?? null
+    if (!category || max === null) return null
+    if (category.per === 'EXPENSE') return { max, before: 0 }
+    const key = category.per === 'TRIP' ? `${category.id}` : `${category.id}-${line.date}`
+    const before = used[key] ?? 0
+    used[key] = before + madOf(line)
+    return { max, before }
+  })
+  const WHEN: Record<string, string> = { DAY: 'on this day', NIGHT: 'for this night', TRIP: 'on this mission' }
 
   function change(key: number, field: keyof Line, value: string | File[]) {
     setLines((old) => old.map((line) => (line.key === key ? { ...line, [field]: value } : line)))
@@ -57,8 +74,16 @@ export function ClaimForm({ categories, scale, currencies = [], onSent, inPanel 
   }
 
   // Les fichiers choisis s'AJOUTENT à ceux de la ligne (on peut cliquer "Add" plusieurs fois), au plus 5.
+  // Refusés tout de suite (2026-11-18, standard) : un format autre que PDF / JPG / PNG, ou plus de 5 Mo.
   function addFiles(line: Line, picked: FileList | null) {
-    if (picked?.length) change(line.key, 'files', [...line.files, ...Array.from(picked)].slice(0, MAX_RECEIPTS))
+    if (!picked?.length) return
+    const files = Array.from(picked)
+    const wrong = files.find((file) => !/\.(pdf|jpe?g|png)$/i.test(file.name) || file.size > MAX_RECEIPT_SIZE)
+    if (wrong) {
+      setErrors({ [`line_${lines.indexOf(line)}`]: [`${wrong.name}: only PDF, JPG or PNG, 5 MB max each.`] })
+      return
+    }
+    change(line.key, 'files', [...line.files, ...files].slice(0, MAX_RECEIPTS))
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -96,7 +121,7 @@ export function ClaimForm({ categories, scale, currencies = [], onSent, inPanel 
       <h2 className="text-sm font-semibold text-[#192646]">New expense claim</h2>
       <p className="text-[11px] text-slate-500">
         One line per expense (one day, one trip, one night), with its receipts (e.g. the invoice and the card slip). Your N+1 validates, then HR checks it.
-        {scale && <> Your grade: <b className="font-semibold text-slate-700">{scale.grade_label}</b>.</>}
+        {grade && <> Your grade: <b className="font-semibold text-slate-700">{grade}</b>.</>}
       </p>
     </header>}
 
@@ -114,10 +139,12 @@ export function ClaimForm({ categories, scale, currencies = [], onSent, inPanel 
 
       {lines.map((line, index) => {
         const category = categories.find((c) => String(c.id) === line.category)
-        const ceiling = ceilingOf(scale, category)
+        const limit = limits[index]  // le maximum de MON grade, et ce que les lignes d'avant en ont déjà pris
+        const ceiling = limit ? limit.max : null
+        const room = limit ? Math.max(limit.max - limit.before, 0) : null  // ce qui reste pour cette ligne
         const currency = currencyOf(line)
         const mad = madOf(line)  // le plafond se compare en MAD
-        const over = ceiling !== null && mad > ceiling
+        const over = room !== null && mad > room
         // Au-dessus du plafond, mais permis par Admin RH pour cette catégorie : on demande pourquoi (orange, pas rouge).
         const allowed = over && Boolean(category?.above_ceiling_allowed)
         const tooHigh = mad > MAX_AMOUNT
@@ -187,6 +214,8 @@ export function ClaimForm({ categories, scale, currencies = [], onSent, inPanel 
             </li>)}
             <li className="text-[11px] text-slate-400">{line.files.length} / {MAX_RECEIPTS}</li>
           </ul>}
+          {/* Ce qui est accepté, écrit sous le bouton (standard : Concur, Expensify, Gmail). */}
+          <p className="mt-1 text-[11px] text-slate-400">Receipts: PDF, JPG or PNG · 5 MB max each · up to {MAX_RECEIPTS} files (e.g. the invoice and the card slip).</p>
           {/* Une autre devise : la conversion en MAD, au taux du jour. */}
           {currency && Number(line.amount) > 0 && <p className="mt-1.5 text-[11px] text-slate-600">
             {line.amount} {currency.name} × {currency.rate_to_mad.toLocaleString('fr-FR')} = <b className="font-semibold text-[#192646]">{formatMad(mad)}</b>
@@ -197,12 +226,14 @@ export function ClaimForm({ categories, scale, currencies = [], onSent, inPanel 
             Too high: at most {formatMad(MAX_AMOUNT)} per expense (check the amount).
           </p>}
           {ceiling !== null && !tooHigh && !allowed && <p className={cn('mt-1.5 text-[11px]', over ? 'font-medium text-red-600' : 'text-slate-500')}>
-            Max for your grade: {formatMad(ceiling)} {PER[category!.ceiling]}{over ? ' — this amount is above.' : '.'}
+            Max for your grade: {formatMad(ceiling)} {PER[category!.per]}
+            {limit && limit.before > 0 ? ` (already ${formatMad(limit.before)} ${WHEN[category!.per]}: ${formatMad(room ?? 0)} left)` : ''}
+            {over ? ' — this amount is above.' : '.'}
           </p>}
           {/* Le dépassement permis : la raison est obligatoire, le N+1 et les RH la lisent avant de décider. */}
           {allowed && !tooHigh && <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50/60 p-2.5">
             <label htmlFor={`justification-${line.key}`} className="block text-[11px] font-semibold text-amber-800">
-              Above your ceiling ({formatMad(ceiling!)} {PER[category!.ceiling]}) by {formatMad(mad - ceiling!)}: why? <span className="text-red-500" aria-hidden>*</span>
+              Above your maximum ({formatMad(ceiling!)} {PER[category!.per]}) by {formatMad(mad - (room ?? 0))}: why? <span className="text-red-500" aria-hidden>*</span>
             </label>
             <input id={`justification-${line.key}`} required value={line.justification} maxLength={300}
               placeholder="e.g. Only hotel available during the festival"

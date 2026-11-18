@@ -6,7 +6,7 @@ from django.test import TestCase
 
 from employees.models import Grade
 
-from .models import ExpenseCategory, ExpenseScale
+from .models import CategoryCeiling, ExpenseCategory, ExpenseScale
 
 
 class InitialValuesTests(TestCase):
@@ -15,7 +15,9 @@ class InitialValuesTests(TestCase):
         self.assertEqual(ExpenseCategory.objects.count(), 11)
         self.assertFalse(ExpenseCategory.objects.filter(receipt_required=True).exists())
         # Seules l'indemnité, le transport et l'hôtel suivent le barème.
-        self.assertEqual(ExpenseCategory.objects.exclude(ceiling=ExpenseCategory.Ceiling.NONE).count(), 3)
+        # (2026-11-18) les plafonds de l'ancien barème recopiés sur ces 3 catégories, pour les 5 grades.
+        self.assertEqual(CategoryCeiling.objects.values('category').distinct().count(), 3)
+        self.assertEqual(CategoryCeiling.objects.count(), 15)
 
     def test_the_scale_of_each_grade(self):
         self.assertEqual(ExpenseScale.objects.count(), 5)  # grades A -> E
@@ -23,11 +25,11 @@ class InitialValuesTests(TestCase):
         self.assertEqual((scale.daily_allowance, scale.transport, scale.hotel), (450, 700, 700))
 
     def test_ceiling_of_a_category_for_a_grade(self):
-        scale = ExpenseScale.objects.get(grade__name="Grade E — Employé")
         hotel = ExpenseCategory.objects.get(name="Hébergement (hôtel)")
         fuel = ExpenseCategory.objects.get(name="Carburant")
-        self.assertEqual(scale.ceiling_for(hotel), Decimal("400"))
-        self.assertIsNone(scale.ceiling_for(fuel))  # pas de plafond
+        row = CategoryCeiling.objects.get(category=hotel, grade__name="Grade E — Employé")
+        self.assertEqual((row.amount, hotel.per), (Decimal("400"), "NIGHT"))
+        self.assertFalse(CategoryCeiling.objects.filter(category=fuel).exists())  # pas de plafond
 
 
 class RulesTests(TestCase):

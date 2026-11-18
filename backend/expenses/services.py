@@ -13,7 +13,7 @@ from employees.models import Employee, Notification
 from workflows import engine
 from workflows.models import Request, Workflow, WorkflowStep
 
-from .models import ExpenseClaim, ExpenseCorrection, ExpenseLine, ExpenseReceipt, ExpenseSettings
+from .models import ExpenseCategory, ExpenseClaim, ExpenseCorrection, ExpenseLine, ExpenseReceipt, ExpenseSettings
 
 MAX_LINES = 50
 
@@ -21,6 +21,38 @@ MAX_LINES = 50
 def money(value):
     """1250.5 -> "1 250,50" (à la marocaine / française)."""
     return f"{value:,.2f}".replace(",", " ").replace(".", ",")
+
+
+TOTAL_OF = {
+    # Ce que regroupe le maximum d'une catégorie (la clé du groupe à partir d'une ligne) :
+    ExpenseCategory.Per.DAY: lambda line: (line.category_id, line.date),    # tout ce jour-là
+    ExpenseCategory.Per.NIGHT: lambda line: (line.category_id, line.date),  # cette nuit-là
+    ExpenseCategory.Per.TRIP: lambda line: (line.category_id, None),        # toute la mission (la note)
+}
+WHAT = {ExpenseCategory.Per.DAY: "ce jour-là", ExpenseCategory.Per.NIGHT: "cette nuit-là", ExpenseCategory.Per.TRIP: "cette mission"}
+
+
+def check_maximums(lines):
+    """Le maximum par jour / par nuit / par trajet (2026-11-18, standard SAP Concur) : les lignes d'une même catégorie
+    du même jour (ou de toute la note, "par trajet") s'additionnent. Ex. Taxi, 300 MAD par jour : 100 + 120 + 80 le
+    même jour = 300, permis ; une 4e ligne de 50 ce jour-là dépasse de 50.
+    Chaque ligne reçoit `ceiling` = ce qui restait quand elle arrive : la ligne qui fait déborder (et les suivantes)
+    dépasse ; refusée, ou permise avec une raison si Admin RH le permet. lines = [(index, line)] -> {index: message}."""
+    errors, used = {}, {}
+    for index, line in lines:
+        group = TOTAL_OF.get(line.category.per)
+        if group is None or getattr(line, "maximum", None) is None:
+            continue  # "par dépense" (déjà vérifié par la ligne), ou pas de plafond pour ce grade
+        key = group(line)
+        before = used.get(key, Decimal("0"))
+        used[key] = before + line.amount
+        line.ceiling = max(line.maximum - before, Decimal("0"))  # ce qui restait pour cette ligne
+        try:
+            line.check_above(f"Maximum {line.category} ({line.category.get_per_display()}) pour votre grade : "
+                             f"{line.maximum:.2f} MAD (total {WHAT[line.category.per]} : {used[key]:.2f} MAD)")
+        except ValidationError as problem:
+            errors[index] = problem.messages[0]
+    return errors
 
 
 @transaction.atomic
@@ -74,6 +106,11 @@ def submit_claim(employee, title, lines):
         if messages:
             errors[f"line_{index}"] = messages
         built.append((line, files))
+    # Les maximums "par jour / par nuit / par trajet" : le TOTAL des lignes d'une catégorie (le même jour, ou toute la
+    # mission), pas chaque ligne seule (2026-11-18).
+    for index, message in check_maximums([(index, line) for index, (line, _) in enumerate(built)
+                                          if f"line_{index}" not in errors]).items():
+        errors.setdefault(f"line_{index}", []).append(message)
     if errors:
         raise ValidationError(errors)
 

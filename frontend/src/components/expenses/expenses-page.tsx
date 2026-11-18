@@ -9,8 +9,8 @@
  */
 import { useCallback, useEffect, useState } from 'react'
 import { ReceiptText } from 'lucide-react'
-import { apiFetch, seesBothPoles, type Me } from '@/lib/api'
-import { claimStatus, formatMad, type Currency, type ExpenseCategory, type ExpenseClaim, type Scale } from '@/lib/expenses'
+import { apiFetch, type Me } from '@/lib/api'
+import { claimStatus, formatMad, type Currency, type ExpenseCategory, type ExpenseClaim, type MyCeiling } from '@/lib/expenses'
 import { formatDate } from '@/lib/leaves'
 import { cn } from '@/lib/utils'
 import { SidePanel } from '@/components/ui/side-panel'
@@ -23,8 +23,11 @@ import { ScaleCard } from './scale-card'
 
 // grade : le nom de MON grade, ou null (ancienne fiche sans grade : les catégories plafonnées sont refusées).
 // currencies : les devises et leur taux du jour (MAD, EUR, USD), pour la liste à côté du montant.
-type Loaded = { claims: ExpenseClaim[]; categories: ExpenseCategory[]; grade: string | null; scale: Scale | null; scales: Scale[]; currencies: Currency[] }
+// ceilings : MES plafonds (une ligne par catégorie plafonnée pour mon grade, 2026-11-18).
+type Loaded = { claims: ExpenseClaim[]; categories: ExpenseCategory[]; grade: string | null; ceilings: MyCeiling[]; currencies: Currency[] }
 
+// (me : plus utilisé depuis que le barème se change dans Réglages des notes de frais ; gardé pour la page.)
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function ExpensesPage({ me }: { me: Me }) {
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [problem, setProblem] = useState('')
@@ -35,15 +38,15 @@ export function ExpensesPage({ me }: { me: Me }) {
   const [openedId, setOpenedId] = useState<number | null>(null)
 
   useEffect(() => {
-    const paths = ['/api/expenses/mine/', '/api/expenses/categories/', '/api/expenses/mine/scale/', '/api/expenses/scales/', '/api/expenses/currencies/']
+    const paths = ['/api/expenses/mine/', '/api/expenses/categories/', '/api/expenses/mine/ceilings/', '/api/expenses/currencies/']
     Promise.all(paths.map((path) => apiFetch(path)))
-      .then(async ([claims, categories, scale, scales, currencies]) => {
-        // 404 sur MON barème : un compte sans dossier RH (ex. un compte IT) n'a pas de notes de frais.
-        if (scale.status === 404) return setProblem('No HR file is linked to this account: there is no expense claim to show.')
-        if (![claims, categories, scale, scales].every((r) => r.ok)) throw new Error()
-        const mine: { grade: string | null; scale: Scale | null } = await scale.json()
-        setLoaded({ claims: await claims.json(), categories: await categories.json(), grade: mine.grade, scale: mine.scale,
-          scales: await scales.json(), currencies: currencies.ok ? await currencies.json() : [] })
+      .then(async ([claims, categories, ceilings, currencies]) => {
+        // 404 sur MES plafonds : un compte sans dossier RH (ex. un compte IT) n'a pas de notes de frais.
+        if (ceilings.status === 404) return setProblem('No HR file is linked to this account: there is no expense claim to show.')
+        if (![claims, categories, ceilings].every((r) => r.ok)) throw new Error()
+        const mine: { grade: string | null; ceilings: MyCeiling[] } = await ceilings.json()
+        setLoaded({ claims: await claims.json(), categories: await categories.json(), grade: mine.grade, ceilings: mine.ceilings,
+          currencies: currencies.ok ? await currencies.json() : [] })
       })
       .catch(() => setProblem('Could not load your expense claims. Please try again later.'))
   }, [version])
@@ -61,7 +64,7 @@ export function ExpensesPage({ me }: { me: Me }) {
 
     {/* Une ancienne fiche sans grade : on le dit clairement (les dépenses plafonnées seraient refusées). */}
     {!loaded.grade && <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-      Your HR file has no grade yet: ask HR to complete it. Until then, allowance, transport and hotel expenses cannot be sent (no ceiling to apply).
+      Your HR file has no grade yet: ask HR to complete it. Until then, expenses of a category with a ceiling cannot be sent.
     </p>}
 
     <StatTiles label="My expense claims" tiles={[
@@ -74,8 +77,9 @@ export function ExpensesPage({ me }: { me: Me }) {
     <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
       {/* À gauche : la note à remplir, et juste dessous MES plafonds (ce qui sert en la remplissant). */}
       <div className="flex min-w-0 flex-col gap-4">
-        <ClaimForm categories={loaded.categories} scale={loaded.scale} currencies={loaded.currencies} onSent={reload} />
-        <ScaleCard scales={loaded.scales} myGrade={loaded.scale?.grade ?? null} editable={seesBothPoles(me)} />
+        <ClaimForm categories={loaded.categories} grade={loaded.grade} currencies={loaded.currencies} onSent={reload} />
+        {/* En lecture ici : Admin RH change les plafonds dans Reference lists -> Réglages des notes de frais (une seule place). */}
+        <ScaleCard grade={loaded.grade} ceilings={loaded.ceilings} />
       </div>
       <MyClaims claims={claims} onOpen={(claim) => setOpenedId(claim.request)} onChanged={reload} />
     </div>

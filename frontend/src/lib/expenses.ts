@@ -3,13 +3,15 @@
  */
 import { apiFetch } from './api'
 
-export type Ceiling = 'NONE' | 'DAILY_ALLOWANCE' | 'TRANSPORT' | 'HOTEL'
+// Une catégorie du formulaire (2026-11-18) : son plafond POUR MON GRADE (my_ceiling, null = pas de plafond) et son unité
+// (per : une ligne = une dépense / un jour / un trajet / une nuit). above_ceiling_allowed : dépassement permis avec une raison.
+export type Per = 'EXPENSE' | 'DAY' | 'TRIP' | 'NIGHT'
+export type ExpenseCategory = {
+  id: number; name: string; per: Per; per_label: string; receipt_required: boolean; above_ceiling_allowed: boolean; my_ceiling: number | null
+}
 
-// above_ceiling_allowed : Admin RH permet de dépasser le plafond, avec une justification (2026-11-16).
-export type ExpenseCategory = { id: number; name: string; ceiling: Ceiling; ceiling_label: string; receipt_required: boolean; above_ceiling_allowed: boolean }
-
-// Le barème d'un grade (MAD) : indemnité par jour, transport par trajet, hôtel par nuit.
-export type Scale = { id: number; grade: number; grade_label: string; daily_allowance: number; transport: number; hotel: number }
+// "My ceilings" : mes plafonds (selon mon grade), une ligne par catégorie plafonnée.
+export type MyCeiling = { category: string; per: string; amount: number }
 
 // Un justificatif : le fichier s'ouvre avec GET /api/expenses/receipts/<id>/.
 export type Receipt = { id: number; name: string }
@@ -54,15 +56,6 @@ export type ExpenseClaim = {
   grade: string | null
   lines: ExpenseLine[]
   can_correct: boolean     // celui qui lit peut diminuer un montant maintenant (bouton "Correct")
-}
-
-/** Le plafond d'une catégorie dans un barème (null : pas de plafond). */
-export function ceilingOf(scale: Scale | null, category: ExpenseCategory | undefined): number | null {
-  if (!scale || !category) return null
-  if (category.ceiling === 'DAILY_ALLOWANCE') return scale.daily_allowance
-  if (category.ceiling === 'TRANSPORT') return scale.transport
-  if (category.ceiling === 'HOTEL') return scale.hotel
-  return null
 }
 
 /** 1250.5 -> "1 250,50 MAD" */

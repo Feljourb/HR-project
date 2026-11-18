@@ -2,13 +2,21 @@ from django.contrib import admin
 
 from employees.admin import ReferenceAdmin
 
-from .models import Currency, ExpenseCategory, ExpenseClaim, ExpenseCorrection, ExpenseLine, ExpenseScale, ExpenseSettings
+from .models import (CategoryCeiling, Currency, ExpenseCategory, ExpenseClaim, ExpenseCorrection, ExpenseLine, ExpenseScale,
+                     ExpenseSettings)
+
+
+class CategoryCeilingInline(admin.TabularInline):
+    """Les plafonds de la catégorie, un par grade (Admin RH les change dans Réglages des notes de frais)."""
+    model = CategoryCeiling
+    extra = 0
 
 
 @admin.register(ExpenseCategory)
 class ExpenseCategoryAdmin(ReferenceAdmin):
-    list_display = ("name", "ceiling", "receipt_required", "above_ceiling_allowed", "is_active")
-    list_filter = ("ceiling", "receipt_required", "above_ceiling_allowed", "is_active")
+    list_display = ("name", "per", "receipt_required", "above_ceiling_allowed", "is_active")
+    list_filter = ("per", "receipt_required", "above_ceiling_allowed", "is_active")
+    inlines = [CategoryCeilingInline]
 
 
 @admin.register(Currency)
@@ -18,10 +26,17 @@ class CurrencyAdmin(ReferenceAdmin):
 
 @admin.register(ExpenseScale)
 class ExpenseScaleAdmin(admin.ModelAdmin):
+    """L'ANCIEN barème (3 colonnes, jusqu'au 18/11/2026), en lecture seule : recopié dans les plafonds par catégorie."""
     list_display = ("grade", "daily_allowance", "transport", "hotel")
 
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
     def has_delete_permission(self, request, obj=None):
-        return False  # un barème se corrige, il ne se supprime pas (comme les listes)
+        return False
 
 
 # --- Les notes de frais : en lecture seule (elles changent seulement par leur circuit et le remboursement) ---

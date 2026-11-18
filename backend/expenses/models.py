@@ -36,16 +36,18 @@ TOO_HIGH = "Montant trop élevé : au plus 100 000 MAD par dépense (vérifiez l
 
 
 class ExpenseCategory(ReferenceItem):
-    """Une catégorie de dépense. Comme les autres listes : jamais supprimée, seulement désactivée."""
+    """Une catégorie de dépense. Comme les autres listes : jamais supprimée, seulement désactivée.
+    Son PLAFOND, par grade (2026-11-18, standard SAP Concur : une limite par type de dépense et par groupe) :
+    CategoryCeiling ; aucun plafond pour un grade = montant libre (seule la sécurité de 100 000 MAD)."""
 
-    class Ceiling(models.TextChoices):
-        # Quel plafond du barème s'applique à UNE dépense de cette catégorie (standard, à confirmer par les RH) :
-        NONE = "NONE", "Aucun plafond"
-        DAILY_ALLOWANCE = "DAILY_ALLOWANCE", "Indemnité (par jour)"
-        TRANSPORT = "TRANSPORT", "Transport (par trajet)"
-        HOTEL = "HOTEL", "Hôtel (par nuit)"
+    class Per(models.TextChoices):
+        # Une ligne de la note = UNE de ces unités ; le plafond s'applique à chaque ligne.
+        EXPENSE = "EXPENSE", "par dépense"
+        DAY = "DAY", "par jour"
+        TRIP = "TRIP", "par trajet"
+        NIGHT = "NIGHT", "par nuit"
 
-    ceiling = models.CharField("Plafond du barème", max_length=20, choices=Ceiling.choices, default=Ceiling.NONE)
+    per = models.CharField("Le plafond s'applique", max_length=10, choices=Per.choices, default=Per.EXPENSE)
     # Un justificatif (photo du ticket, facture PDF) obligatoire pour chaque dépense de cette catégorie.
     # Décoché par défaut (remarque des RH, 2026-11-16 : pas obligatoire, comme leur outil) ; Admin RH peut le cocher.
     receipt_required = models.BooleanField("Justificatif obligatoire", default=False)
@@ -82,9 +84,27 @@ class Currency(ReferenceItem):
             raise ValidationError({"rate_to_mad": "Le dirham (MAD) vaut toujours 1."})
 
 
+class CategoryCeiling(models.Model):
+    """Le plafond d'UNE catégorie pour UN grade (2026-11-18), ex. Hébergement + Grade E = 400 MAD par nuit.
+    Pas de ligne = pas de plafond pour ce grade. Admin RH les remplit dans "Réglages des notes de frais" (un tableau :
+    une ligne par catégorie, une colonne par grade)."""
+
+    category = models.ForeignKey(ExpenseCategory, on_delete=models.CASCADE, related_name="ceilings", verbose_name="Catégorie")
+    grade = models.ForeignKey(Grade, on_delete=models.CASCADE, related_name="expense_ceilings", verbose_name="Grade")
+    amount = models.DecimalField("Plafond (MAD)", max_digits=10, decimal_places=2, validators=POSITIVE)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["category", "grade"], name="expenses_one_ceiling_per_grade")]
+        verbose_name = "Plafond (catégorie, grade)"
+        verbose_name_plural = "Plafonds (catégorie, grade)"
+
+    def __str__(self):
+        return f"{self.category} · {self.grade} : {self.amount} MAD"
+
+
 class ExpenseScale(models.Model):
-    """Le barème d'UN grade : les montants maximum remboursés (MAD). Une ligne par grade.
-    Pas dans l'app employees : le grade appartient à la fiche, mais ces montants appartiennent aux notes de frais."""
+    """ANCIEN barème (jusqu'au 18/11/2026) : 3 colonnes fixes (indemnité / transport / hôtel) par grade. Ses montants
+    ont été recopiés dans CategoryCeiling (migration 0013) ; gardé pour l'historique, plus utilisé par les règles."""
 
     # CASCADE est impossible à atteindre (un grade n'est jamais supprimé) ; PROTECT par sécurité.
     grade = models.OneToOneField(Grade, on_delete=models.PROTECT, related_name="expense_scale", verbose_name="Grade")
@@ -99,14 +119,6 @@ class ExpenseScale(models.Model):
 
     def __str__(self):
         return f"Barème {self.grade}"
-
-    def ceiling_for(self, category):
-        """Le plafond d'une dépense de cette catégorie pour ce grade, ou None (pas de plafond)."""
-        return {
-            ExpenseCategory.Ceiling.DAILY_ALLOWANCE: self.daily_allowance,
-            ExpenseCategory.Ceiling.TRANSPORT: self.transport,
-            ExpenseCategory.Ceiling.HOTEL: self.hotel,
-        }.get(category.ceiling)
 
 
 # --- La note de frais (step 2) ------------------------------------------------------------
@@ -195,25 +207,37 @@ class ExpenseLine(models.Model):
         if not self.category.is_active:
             raise ValidationError({"category": "Cette catégorie n'est plus proposée."})
         # (Règle 3, les justificatifs : check_receipts, car ils sont enregistrés APRÈS la ligne.)
-        # Règle 4 : le plafond du barème, selon le grade du collaborateur (ex. Grade E, hôtel : 400 MAD par nuit).
+        # Règle 4 : le plafond de la catégorie pour le grade du collaborateur (2026-11-18 : un plafond par catégorie et
+        # par grade, ex. Hébergement + Grade E = 400 MAD par nuit). Une catégorie plafonnée et pas de grade : refusé.
         self.ceiling = None
-        if self.category.ceiling != ExpenseCategory.Ceiling.NONE:
+        self.maximum = None  # (pas enregistré) le plafond du grade, pour la vérification par jour / nuit / mission
+        limits = CategoryCeiling.objects.filter(category=self.category)
+        if limits.exists():
             grade = self.claim.employee.grade
             if grade is None:
                 raise ValidationError("Votre fiche n'a pas de grade : demandez aux RH de le compléter.")
-            scale = ExpenseScale.objects.filter(grade=grade).first()
-            self.ceiling = scale.ceiling_for(self.category) if scale else None
+            row = limits.filter(grade=grade).first()
+            self.maximum = row.amount if row else None  # pas de plafond pour CE grade : libre
         self.justification = (self.justification or "").strip()
-        if self.above_ceiling is None:
-            self.justification = ""  # pas de dépassement : rien à justifier
+        # 2026-11-18 (l'utilisatrice, standard SAP Concur) : "par jour" = le TOTAL de la catégorie ce jour-là, "par nuit" =
+        # cette nuit-là, "par trajet" = toute la mission (la note) : vérifié avec les autres lignes de la note
+        # (services.check_maximums). "Par dépense" : chaque ligne seule, ici.
+        if self.category.per != ExpenseCategory.Per.EXPENSE:
             return
-        limit = f"Plafond {self.category.get_ceiling_display().lower()} pour votre grade : {self.ceiling:.2f} MAD"
+        self.ceiling = self.maximum
+        self.check_above(f"Maximum {self.category} ({self.category.get_per_display()}) pour votre grade : "
+                         f"{self.maximum or 0:.2f} MAD (cette dépense : {self.amount:.2f} MAD)")
+
+    def check_above(self, limit):
+        """La ligne dépasse ce qui lui restait (self.ceiling) : refusée, sauf si Admin RH permet le dépassement AVEC une
+        raison (le N+1 et les RH la lisent). Pas de dépassement : rien à justifier."""
+        if self.above_ceiling is None:
+            self.justification = ""
+            return
         if not self.category.above_ceiling_allowed:
-            # La catégorie ne permet pas de dépasser (le choix d'Admin RH) : refusé, comme avant.
-            raise ValidationError({"amount": f"{limit} (cette dépense : {self.amount:.2f} MAD)."})
+            raise ValidationError({"amount": f"{limit}."})
         if not self.justification:
-            # Permis, mais il faut dire pourquoi : le N+1 et les RH le lisent avant de décider.
-            raise ValidationError({"justification": f"{limit} : expliquez pourquoi cette dépense le dépasse."})
+            raise ValidationError({"justification": f"{limit} : expliquez pourquoi elle le dépasse."})
 
     def check_receipts(self, files):
         """Règle 3 : les justificatifs envoyés pour cette dépense (files = les fichiers, pas encore enregistrés).

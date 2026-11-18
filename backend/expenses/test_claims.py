@@ -21,7 +21,7 @@ from workflows import engine
 from workflows.models import Request, RequestStep, WorkflowStep
 from workflows.test_engine import EngineTestCase
 
-from .models import Currency, ExpenseCategory, ExpenseClaim, ExpenseScale, ExpenseSettings
+from .models import CategoryCeiling, Currency, ExpenseCategory, ExpenseClaim, ExpenseSettings
 from .pdf import claim_pdf
 from .rates import update_rates
 from .serializers import ClaimSerializer
@@ -104,7 +104,7 @@ class RulesTests(ClaimTestCase):
     def test_the_ceiling_of_the_grade(self):
         # Grade E : hôtel 400 MAD par nuit.
         errors = self.errors_of([self.line(), self.line(self.hotel, "450")])
-        self.assertIn("Plafond hôtel (par nuit) pour votre grade : 400.00 MAD", errors["line_1"][0])
+        self.assertIn("(par nuit) pour votre grade : 400.00 MAD", errors["line_1"][0])
         self.assertNotIn("line_0", errors)  # la première ligne est bonne
         # Un Grade A : 1200 par nuit -> permis.
         Employee.objects.filter(pk=self.sara.pk).update(grade=Grade.objects.get(name="Grade A — Direction"))
@@ -128,7 +128,7 @@ class RulesTests(ClaimTestCase):
         self.assertEqual((taxi.above_ceiling, taxi.justification), (None, ""))  # sous le plafond : rien à justifier
         self.assertTrue(claim.request.title.endswith("· au-dessus du plafond"))
         # Le barème change plus tard : la note garde le plafond de l'envoi.
-        ExpenseScale.objects.update(hotel=Decimal("900"))
+        CategoryCeiling.objects.filter(category=self.hotel).update(amount=Decimal("900"))
         hotel.refresh_from_db()
         self.assertEqual(hotel.above_ceiling, Decimal("200"))
         # L'API le montre (la puce orange), et le PDF se fabrique avec.
@@ -137,7 +137,27 @@ class RulesTests(ClaimTestCase):
         self.assertEqual(line["justification"], "Festival, seul hôtel libre")
         self.assertTrue(claim_pdf(claim).startswith(b"%PDF"))
         # Une autre catégorie (taxi) ne le permet pas : toujours refusé.
-        self.assertIn("Plafond transport", self.errors_of([self.line(amount="500", justification="Urgent")])["line_0"][0])
+        self.assertIn("(par trajet) pour votre grade", self.errors_of([self.line(amount="500", justification="Urgent")])["line_0"][0])
+
+    def test_maximum_per_day_and_per_trip_are_totals(self):
+        # 2026-11-18 : "par jour" = le TOTAL du jour, "par trajet" = toute la mission (Sara, Grade E).
+        allowance = ExpenseCategory.objects.get(name__startswith="Indemnité journalière")  # 200 MAD par jour
+        day_before = self.yesterday - datetime.timedelta(days=1)
+        # Le même jour : 120 + 100 = 220 > 200 -> la 2e ligne dépasse (refusée : la catégorie ne le permet pas).
+        errors = self.errors_of([self.line(allowance, "120"), self.line(allowance, "100")])
+        self.assertNotIn("line_0", errors)
+        self.assertIn("total ce jour-là : 220.00 MAD", errors["line_1"][0])
+        # Deux jours différents : 120 + 100, chacun sous 200 par jour -> permis.
+        submit_claim(self.sara, "Deux jours", [self.line(allowance, "120"), self.line(allowance, "100", date=day_before)])
+        # Transport, 350 MAD par trajet = toute la mission : 200 + 200 sur deux jours = 400 -> la 2e dépasse.
+        errors = self.errors_of([self.line(amount="200"), self.line(amount="200", date=day_before)])
+        self.assertIn("total cette mission : 400.00 MAD", errors["line_1"][0])
+        # Permis avec une raison : seule la ligne qui fait déborder la donne ; elle garde ce qui lui restait (150).
+        ExpenseCategory.objects.filter(pk=self.taxi.pk).update(above_ceiling_allowed=True)
+        self.taxi.refresh_from_db()
+        claim = submit_claim(self.sara, "Mission", [self.line(amount="200"), self.line(amount="200", date=day_before, justification="Grève, taxi long")])
+        second = claim.lines.order_by("id").last()
+        self.assertEqual((second.ceiling, second.above_ceiling), (Decimal("150"), Decimal("50")))
 
     def test_no_grade_no_ceiling_category(self):
         Employee.objects.filter(pk=self.sara.pk).update(grade=None)  # une ancienne fiche
@@ -206,7 +226,7 @@ class CurrencyTests(ClaimTestCase):
     def test_the_ceiling_is_compared_in_mad(self):
         # Grade E, taxi : 350 MAD. 40 EUR = 438,21 MAD -> au-dessus (refusé : la catégorie ne le permet pas).
         eur = Currency.objects.get(name="EUR")
-        self.assertIn("Plafond transport", self.errors_of([self.line(amount="40", currency=eur)])["line_0"][0])
+        self.assertIn("(par trajet) pour votre grade", self.errors_of([self.line(amount="40", currency=eur)])["line_0"][0])
         # MAD (ou rien) : le montant tel quel.
         mad = Currency.objects.get(name="MAD")
         line = submit_claim(self.sara, "Rabat", [self.line(amount="100", currency=mad)]).lines.get()
@@ -345,12 +365,16 @@ class ApiTests(ClaimTestCase):
         self.assertIn("(N+1)", data["waiting_for"])
         self.assertEqual(len(self.client.get(reverse("expenses:mine-list")).json()), 1)
         # Mon barème, pour les aides du formulaire.
-        self.assertEqual(self.client.get(reverse("expenses:mine-scale")).json()["scale"]["hotel"], 400)
+        mine = self.client.get(reverse("expenses:mine-ceilings")).json()["ceilings"]
+        self.assertIn({"category": self.hotel.name, "per": "par nuit", "amount": 400}, mine)
+        # Le formulaire : chaque catégorie avec le plafond de MON grade.
+        hotel = next(c for c in self.client.get(reverse("expenses:category-list")).json() if c["id"] == self.hotel.pk)
+        self.assertEqual((hotel["my_ceiling"], hotel["per"]), (400, "NIGHT"))
 
     def test_my_scale_without_grade_is_still_json(self):
         # Une ancienne fiche sans grade : un objet JSON (pas une réponse vide qui bloque la page).
         Employee.objects.filter(pk=self.sara.pk).update(grade=None)
-        self.assertEqual(self.client.get(reverse("expenses:mine-scale")).json(), {"grade": None, "scale": None})
+        self.assertEqual(self.client.get(reverse("expenses:mine-ceilings")).json(), {"grade": None, "ceilings": []})
 
     def test_errors_are_given_line_by_line(self):
         response = self.send([self.raw(), self.raw(self.hotel, "900")])
@@ -408,15 +432,27 @@ class ApiTests(ClaimTestCase):
 
     def test_admin_rh_manages_the_categories_on_the_lists_page(self):
         url = reverse("expenses:list-categories-list")
-        self.assertEqual(self.client.post(url, {"name": "Visa", "ceiling": "NONE"}, format="json").status_code, 403)
+        self.assertEqual(self.client.post(url, {"name": "Visa", "per": "EXPENSE"}, format="json").status_code, 403)
         self.login(self.nadia, User.Role.HR_ADMIN)
-        response = self.client.post(url, {"name": "Visa", "ceiling": "TRANSPORT", "receipt_required": False}, format="json")
-        self.assertEqual((response.status_code, response.json()["ceiling"]), (201, "TRANSPORT"))
+        response = self.client.post(url, {"name": "Visa", "per": "TRIP", "receipt_required": False}, format="json")
+        self.assertEqual((response.status_code, response.json()["per"]), (201, "TRIP"))
         self.assertIn("Visa", [c["name"] for c in self.client.get(reverse("expenses:category-list")).json()])
 
-    def test_only_admin_rh_changes_the_scale(self):
-        scale = self.client.get(reverse("expenses:scale-list")).json()[0]
-        url = reverse("expenses:scale-detail", args=[scale["id"]])
-        self.assertEqual(self.client.patch(url, {"hotel": "999"}, format="json").status_code, 403)
+    def test_only_admin_rh_changes_the_ceilings(self):
+        # 2026-11-18 : un plafond par catégorie et par grade (le tableau de Réglages des notes de frais).
+        url = reverse("expenses:ceilings")
+        grade = Grade.objects.get(name="Grade E — Employé")
+        cell = {"category": self.fuel.pk, "grade": grade.pk, "amount": "300"}
+        # Sara (collaboratrice) LIT tous les plafonds ("See all grades"), mais ne les change pas.
+        self.assertEqual(self.client.get(url).status_code, 200)
+        self.assertIn("categories", self.client.get(url).json())
+        self.assertEqual(self.client.post(url, cell, format="json").status_code, 403)
         self.login(self.nadia, User.Role.HR_ADMIN)
-        self.assertEqual(self.client.patch(url, {"hotel": "999"}, format="json").json()["hotel"], 999)
+        self.assertEqual(self.client.post(url, cell, format="json").json()["amount"], 300)
+        self.assertIn({"category": self.fuel.pk, "grade": grade.pk, "amount": 300}, self.client.get(url).json()["ceilings"])
+        # Le carburant a maintenant un plafond pour le Grade E : 500 est refusé (Sara est Grade E).
+        self.assertIn("pour votre grade : 300.00 MAD", self.errors_of([self.line(self.fuel, "500")])["line_0"][0])
+        # Vide : plus de plafond pour ce grade.
+        self.client.post(url, {**cell, "amount": ""}, format="json")
+        self.assertFalse(CategoryCeiling.objects.filter(category=self.fuel, grade=grade).exists())
+        self.assertEqual(self.client.post(url, {**cell, "amount": "0"}, format="json").status_code, 400)

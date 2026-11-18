@@ -1,11 +1,11 @@
 """L'API des notes de frais (/api/expenses/).
 
-GET  categories/                      -> les catégories actives (le formulaire)
-GET  scales/                          -> le barème de chaque grade ; PATCH scales/<id>/ : Admin RH
+GET  categories/                      -> les catégories actives (le formulaire), avec le plafond de MON grade
+GET / POST ceilings/                  -> le tableau des plafonds (catégorie x grade) : Admin RH (2026-11-18)
 GET  mine/                            -> mes notes de frais
 POST mine/                            -> envoyer une note (multipart : title, lines = JSON, et les fichiers de la
                                          dépense n° i sous le nom receipt_<i>, une ou plusieurs fois)
-GET  mine/scale/                      -> MON barème (selon mon grade), pour les aides du formulaire
+GET  mine/ceilings/                   -> mon grade et mes plafonds (la carte "My ceilings")
 GET  claims/<request>/                -> une note (pour ceux que la demande concerne : moi, mon N+1, les RH...)
 GET  claims/<request>/pdf/            -> son PDF, une fois validée (à imprimer pour les RH)
 GET  receipts/<id>/                   -> un justificatif d'une dépense (mêmes droits que la note)
@@ -16,6 +16,7 @@ GET / PATCH settings/                 -> {who_can_correct} : Admin RH (et l'IT)
 Annuler : /api/workflows/requests/<request>/cancel/ (le moteur, comme pour toutes les demandes).
 """
 import json
+from decimal import Decimal, InvalidOperation
 
 from django.core.exceptions import PermissionDenied as DjangoPermissionDenied
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -24,20 +25,21 @@ from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
-from rest_framework.permissions import SAFE_METHODS
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.permissions import IsHR, IsHRAdmin
-from employees.models import Employee
+from employees.models import Employee, Grade
 from employees.services import limited_to_own_pole, user_pole
 from workflows import engine
 from workflows.models import Request
 
-from .models import Currency, ExpenseCategory, ExpenseClaim, ExpenseLine, ExpenseReceipt, ExpenseScale, ExpenseSettings
+from .models import (MAX_LINE_AMOUNT, CategoryCeiling, Currency, ExpenseCategory, ExpenseClaim, ExpenseLine, ExpenseReceipt,
+                     ExpenseSettings)
 from .pdf import claim_pdf
 from .serializers import (CategorySerializer, ClaimSerializer, CorrectInputSerializer, CurrencySerializer,
-                          ExpenseSettingsSerializer, LineInputSerializer, ScaleSerializer)
+                          ExpenseSettingsSerializer, LineInputSerializer)
 from .services import correct_line, mark_reimbursed, submit_claim
 
 
@@ -60,25 +62,56 @@ def claims():
 
 
 class CategoryViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = ExpenseCategory.objects.filter(is_active=True)
+    """Les catégories actives du formulaire, chacune avec le plafond de MON grade ("my_ceiling", 2026-11-18)."""
+    queryset = ExpenseCategory.objects.filter(is_active=True).prefetch_related("ceilings")
     serializer_class = CategorySerializer
+
+    def get_serializer_context(self):
+        employee = Employee.objects.filter(user=self.request.user).only("grade_id").first()
+        return {**super().get_serializer_context(), "grade": employee.grade_id if employee else None}
+
+
+class CeilingsView(APIView):
+    """Le tableau des plafonds d'Admin RH (2026-11-18) : une ligne par catégorie, une colonne par grade.
+    GET  ceilings/ -> {"grades": [{id, name}], "ceilings": [{category, grade, amount}]}
+    POST ceilings/ {"category", "grade", "amount"} -> met ce plafond (amount vide ou null : l'enlève = pas de plafond)."""
+
+    def get_permissions(self):
+        # LIRE : tout le monde ("See all grades" sous "My ceilings", 2026-11-18) ; CHANGER : Admin RH seulement.
+        return [IsAuthenticated()] if self.request.method == "GET" else [IsHRAdmin()]
+
+    def get(self, request):
+        grades = Grade.objects.filter(is_active=True).order_by("name")
+        rows = CategoryCeiling.objects.all()
+        categories = ExpenseCategory.objects.filter(is_active=True).order_by("name")
+        return Response({"grades": [{"id": grade.pk, "name": grade.name} for grade in grades],
+                         "categories": [{"id": category.pk, "name": category.name, "per": category.get_per_display()}
+                                        for category in categories],
+                         "ceilings": [{"category": row.category_id, "grade": row.grade_id, "amount": float(row.amount)} for row in rows]})
+
+    def post(self, request):
+        category = ExpenseCategory.objects.filter(pk=request.data.get("category")).first()
+        grade = Grade.objects.filter(pk=request.data.get("grade")).first()
+        if category is None or grade is None:
+            raise serializers.ValidationError({"detail": "Catégorie ou grade introuvable."})
+        raw = request.data.get("amount")
+        if raw in (None, ""):
+            CategoryCeiling.objects.filter(category=category, grade=grade).delete()  # pas de plafond pour ce grade
+            return Response({"category": category.pk, "grade": grade.pk, "amount": None})
+        try:
+            amount = Decimal(str(raw)).quantize(Decimal("0.01"))
+        except InvalidOperation:
+            raise serializers.ValidationError({"detail": "Montant illisible."})
+        if amount <= 0 or amount > MAX_LINE_AMOUNT:
+            raise serializers.ValidationError({"detail": "Le plafond doit être entre 0,01 et 100 000 MAD."})
+        CategoryCeiling.objects.update_or_create(category=category, grade=grade, defaults={"amount": amount})
+        return Response({"category": category.pk, "grade": grade.pk, "amount": float(amount)})
 
 
 class CurrencyViewSet(viewsets.ReadOnlyModelViewSet):
     """Les devises actives et leur taux du jour (le formulaire : la liste à côté du montant, MAD par défaut)."""
     queryset = Currency.objects.filter(is_active=True).order_by("name")
     serializer_class = CurrencySerializer
-
-
-class ScaleViewSet(mixins.ListModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet):
-    """Le barème : tout le monde le lit (page Notes de frais) ; seule Admin RH (et l'IT) change les montants."""
-
-    queryset = ExpenseScale.objects.select_related("grade")
-    serializer_class = ScaleSerializer
-    http_method_names = ["get", "patch", "head", "options"]
-
-    def get_permissions(self):
-        return super().get_permissions() if self.request.method in SAFE_METHODS else [IsHRAdmin()]
 
 
 def my_employee(user):
@@ -121,14 +154,16 @@ class MyClaimViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         return Response(ClaimSerializer(claims().get(pk=claim.pk)).data, status=status.HTTP_201_CREATED)
 
     @action(detail=False, methods=["get"])
-    def scale(self, request):
-        """Mon grade et ses plafonds : {"grade": "Grade E — Employé" ou null, "scale": {...} ou null}.
-        Toujours un objet JSON : Response(None) enverrait une réponse VIDE, que le navigateur ne sait pas lire
-        (bug du 2026-11-03 : la page restait sur "Could not load" pour un compte sans grade)."""
+    def ceilings(self, request):
+        """Mon grade et MES plafonds (la carte "My ceilings") : {"grade": "Grade E — Employé" ou null,
+        "ceilings": [{"category": "Hébergement (hôtel)", "per": "par nuit", "amount": 400}, ...]}.
+        Toujours un objet JSON (bug du 2026-11-03 : une réponse vide bloquait la page d'un compte sans grade)."""
         employee = my_employee(request.user)
-        scale = ExpenseScale.objects.filter(grade=employee.grade).select_related("grade").first() if employee.grade_id else None
+        rows = (CategoryCeiling.objects.filter(grade=employee.grade_id, category__is_active=True).select_related("category")
+                .order_by("category__name")) if employee.grade_id else []
         return Response({"grade": str(employee.grade) if employee.grade_id else None,
-                         "scale": ScaleSerializer(scale).data if scale else None})
+                         "ceilings": [{"category": row.category.name, "per": row.category.get_per_display(), "amount": float(row.amount)}
+                                      for row in rows]})
 
 
 class ClaimViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet):

@@ -12,7 +12,7 @@
  */
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import Link from 'next/link'
-import { Check, CheckCheck, ChevronRight, FileText, Loader2, Plane, X } from 'lucide-react'
+import { Check, CheckCheck, ChevronRight, FileText, Plane } from 'lucide-react'
 import { useSearchParams } from 'next/navigation'
 import { apiFetch, type Me } from '@/lib/api'
 import { stateOf, type DocumentRequest } from '@/lib/documents'
@@ -21,8 +21,9 @@ import { formatDate } from '@/lib/leaves'
 import type { Approval, DecidedStep, WorkflowRequest } from '@/lib/requests'
 import { PrepareSteps } from '@/components/documents/prepare-steps'
 import { cn } from '@/lib/utils'
-import { sendChange } from '@/lib/workflows'
 import { DecidedList } from './decided-list'
+import { Decision } from './decision'
+import { ExpenseApprovalCard } from './expense-approval-card'
 import { OutOfOffice } from './out-of-office'
 import { RequestCard } from './request-card'
 import { TeamCalendar } from './team-calendar'
@@ -165,6 +166,10 @@ export function TeamApprovals({ me }: { me: Me }) {
           // Validé : la même place, devenue "Approved · Next step".
           ? <NextStepCard key={approval.id} approval={approval} documents={nextSteps[approval.id]}
               onDone={(message) => refreshNext(approval, message)} onLater={(message) => finished(approval, message)} />
+          // Une note de frais (2026-11-18, standard SAP Concur) : un résumé, Approve / Reject, et "View the claim"
+          // qui ouvre la note dans un panneau (voir, baisser un montant, répondre).
+          : approval.request.workflow_code === 'EXPENSE'
+          ? <ExpenseApprovalCard key={approval.id} approval={approval} onAnswered={(verb) => answered(approval, verb)} />
           : (
             <RequestCard key={approval.id} request={approval.request} showRequester>
               {/* Je réponds à la place d'un valideur absent (son délégué, son responsable, ou les RH). */}
@@ -262,41 +267,5 @@ function InitiatedList({ requests, documents, onCancelled }: {
   </ul>
 }
 
-// Le commentaire et les deux boutons. Le commentaire est obligatoire pour refuser : Django le vérifie
-// et renvoie "Un commentaire est obligatoire pour refuser.", affiché sous les boutons.
-// (Aussi dans la page "Stand-in requests" d'un collaborateur qui remplace un valideur absent.)
-export function Decision({ approval, onAnswered }: { approval: Approval; onAnswered: (verb: string) => void }) {
-  const [comment, setComment] = useState('')
-  const [busy, setBusy] = useState<'approve' | 'reject' | null>(null)
-  const [error, setError] = useState('')
-
-  async function send(action: 'approve' | 'reject') {
-    setBusy(action)
-    setError('')
-    const result = await sendChange<WorkflowRequest>(
-      () => apiFetch(`/api/workflows/approvals/${approval.id}/${action}/`, { method: 'POST', body: JSON.stringify({ comment }) }),
-      'You cannot answer this request.')
-    if ('data' in result) onAnswered(action === 'approve' ? 'Approved' : 'Rejected')
-    else setError(result.error)
-    setBusy(null)
-  }
-
-  const id = `comment-${approval.id}`
-  return <div className="flex flex-col gap-2">
-    <label htmlFor={id} className="text-xs font-semibold text-slate-700">Comment <span className="font-normal text-slate-500">(required to reject)</span></label>
-    <textarea id={id} rows={2} value={comment} maxLength={1000} onChange={(e) => { setComment(e.target.value); setError('') }}
-      aria-invalid={error ? true : undefined}
-      className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:border-[#23355d] focus:bg-white focus:ring-3 focus:ring-[#23355d]/15 aria-invalid:border-red-300" />
-    <div className="flex flex-wrap items-center justify-end gap-2">
-      {error && <p role="alert" className="mr-auto text-[11px] font-medium text-red-600">{error}</p>}
-      <button type="button" disabled={busy !== null} onClick={() => send('reject')}
-        className="flex items-center gap-1.5 rounded-md border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60">
-        {busy === 'reject' ? <Loader2 className="size-3 animate-spin" /> : <X className="size-3.5" />} Reject
-      </button>
-      <button type="button" disabled={busy !== null} onClick={() => send('approve')}
-        className="flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-60">
-        {busy === 'approve' ? <Loader2 className="size-3 animate-spin" /> : <Check className="size-3.5" />} Approve
-      </button>
-    </div>
-  </div>
-}
+// Approve / Reject : dans decision.tsx (aussi utilisé par Stand-in requests et la note de frais).
+export { Decision }

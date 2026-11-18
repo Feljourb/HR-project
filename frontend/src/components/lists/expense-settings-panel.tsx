@@ -19,7 +19,8 @@ const CHOICES = [
   { id: 'NOBODY', title: 'Nobody', text: 'Validators approve or reject the whole claim; amounts never change.' },
 ]
 
-export function ExpenseSettingsPanel() {
+// embedded (2026-11-18) : dans la page unique "Réglages des notes de frais" (carte ④), sans son propre cadre ni titre.
+export function ExpenseSettingsPanel({ embedded = false }: { embedded?: boolean }) {
   const [saved, setSaved] = useState<Settings | null>(null)
   const [choice, setChoice] = useState('')
   const [failed, setFailed] = useState(false)
@@ -54,18 +55,9 @@ export function ExpenseSettingsPanel() {
     setBusy(false)
   }
 
-  return <section className="min-w-0 rounded-xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-    <header className="border-b border-slate-100 px-4 py-3">
-      <h2 className="text-sm font-semibold text-[#192646]">Expense settings</h2>
-      <p className="text-[11px] text-slate-500">
-        Who may LOWER the amount of an expense while validating (e.g. the receipt says 150, the line says 200).
-        Never higher; a reason is required; the employee is notified and the original amount stays visible.
-      </p>
-    </header>
-
-    {saved === null
+  const body = saved === null
       ? <p className="px-4 py-10 text-center text-sm text-slate-500">{failed ? 'Could not load the settings (Admin RH only).' : 'Loading...'}</p>
-      : <div className="flex flex-col gap-4 p-4">
+      : <div className={cn('flex flex-col gap-4', !embedded && 'p-4')}>
           <fieldset>
             <legend className="text-xs font-semibold text-slate-700">Who can correct an amount</legend>
             <div className="mt-1.5 grid gap-2 sm:grid-cols-3">
@@ -95,6 +87,17 @@ export function ExpenseSettingsPanel() {
               {busy && <Loader2 className="size-3.5 animate-spin" />} Save
             </button>
           </div>
-        </div>}
+        </div>
+  if (embedded) return body
+
+  return <section className="min-w-0 rounded-xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+    <header className="border-b border-slate-100 px-4 py-3">
+      <h2 className="text-sm font-semibold text-[#192646]">Expense settings</h2>
+      <p className="text-[11px] text-slate-500">
+        Who may LOWER the amount of an expense while validating (e.g. the receipt says 150, the line says 200).
+        Never higher; a reason is required; the employee is notified and the original amount stays visible.
+      </p>
+    </header>
+    {body}
   </section>
 }

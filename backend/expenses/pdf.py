@@ -66,7 +66,7 @@ def claim_pdf(claim):
             detail += f"<br/><font color='#64748B'>{money(line.original_amount)} {escape(line.currency.name)} × {line.rate}</font>"
         if line.above_ceiling:
             # Le dépassement et sa justification, sur le papier aussi (les RH le voient en contrôlant).
-            detail += (f"<br/><font color='#B45309'>Au-dessus du plafond ({money(line.ceiling)}) : "
+            detail += (f"<br/><font color='#B45309'>Au-dessus du maximum ({escape(line.category.get_per_display())}) : "
                        f"+{money(line.above_ceiling)}. {escape(line.justification)}</font>")
         corrections = list(line.corrections.all())
         if corrections:

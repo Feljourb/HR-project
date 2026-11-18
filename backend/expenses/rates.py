@@ -10,6 +10,8 @@ import urllib.request
 from decimal import ROUND_HALF_UP, Decimal
 
 from django.conf import settings
+from django.db.models.signals import post_save
+from django.dispatch import receiver
 from django.utils import timezone
 
 from employees.notifications import on_morning_round
@@ -29,6 +31,17 @@ def fetch_rates():
     if data.get("result") != "success":
         raise ValueError(f"Réponse inattendue : {data.get('result')}")
     return {code: Decimal(str(value)) for code, value in data["rates"].items()}
+
+
+@receiver(post_save, sender=Currency)
+def new_currency_rate(sender, instance, created, **kwargs):
+    """Une devise AJOUTÉE par Admin RH (2026-11-18, ex. GBP) : son taux est cherché tout de suite (sinon elle vaudrait
+    1 MAD jusqu'au lendemain matin). Sans internet : rien ne casse, le tour du matin réessaiera."""
+    if created and instance.automatic and instance.name.upper() != "MAD" and not getattr(settings, "TESTING", False):
+        try:
+            update_rates()
+        except Exception as error:  # noqa: BLE001 (pas d'internet, site en panne)
+            logger.warning("Taux de %s pas trouvé tout de suite : %s", instance.name, error)
 
 
 @on_morning_round

@@ -137,7 +137,7 @@ const REFUSED: Record<string, { title: string; next: string }> = {
 
 // Les rôles des étapes en anglais (la page est en anglais ; Django envoie "RH du pôle", "DG du pôle").
 const ROLE: Record<string, string> = { 'RH du pôle': 'HR', 'DG du pôle': 'General Manager' }
-const roleOf = (step: RequestStep) => ROLE[step.approver_label] ?? step.approver_label
+export const roleOf = (step: Pick<RequestStep, 'approver_label'>) => ROLE[step.approver_label] ?? step.approver_label
 // "Manager Test (N+1)", ou "HR" quand l'étape n'a pas une personne précise (n'importe quel RH du pôle).
 const whoOf = (step: RequestStep) => (step.validator === step.approver_label ? roleOf(step) : `${step.validator} (${roleOf(step)})`)
 const MODE: Record<string, string> = { VALIDATE: 'approval', INFORM: 'for information' }

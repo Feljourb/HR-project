@@ -5,8 +5,8 @@ from rest_framework.routers import SimpleRouter
 from employees.views import make_viewset
 
 from .models import Currency, ExpenseCategory
-from .views import (CategoryViewSet, ClaimViewSet, CurrencyViewSet, ExpenseSettingsView, HrClaimViewSet, LineViewSet, MyClaimViewSet,
-                    ReceiptViewSet, ScaleViewSet)
+from .views import (CategoryViewSet, CeilingsView, ClaimViewSet, CurrencyViewSet, ExpenseSettingsView, HrClaimViewSet,
+                    LineViewSet, MyClaimViewSet, ReceiptViewSet)
 
 app_name = "expenses"
 
@@ -16,7 +16,6 @@ router.register("lists/categories", make_viewset(ExpenseCategory), basename="lis
 router.register("lists/currencies", make_viewset(Currency), basename="list-currencies")  # Admin RH : taux, automatique
 router.register("categories", CategoryViewSet, basename="category")
 router.register("currencies", CurrencyViewSet, basename="currency")
-router.register("scales", ScaleViewSet, basename="scale")
 router.register("mine", MyClaimViewSet, basename="mine")
 router.register("claims", ClaimViewSet, basename="claim")
 router.register("receipts", ReceiptViewSet, basename="receipt")
@@ -25,4 +24,5 @@ router.register("lines", LineViewSet, basename="line")  # lines/<id>/correct/ : 
 
 urlpatterns = [
     path("settings/", ExpenseSettingsView.as_view(), name="settings"),  # Admin RH : qui peut corriger un montant
+    path("ceilings/", CeilingsView.as_view(), name="ceilings"),  # Admin RH : les plafonds (catégorie x grade)
 ] + router.urls

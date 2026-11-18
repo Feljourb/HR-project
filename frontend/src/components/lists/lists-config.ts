@@ -72,26 +72,9 @@ export const LEAVE_LISTS: ListConfig[] = [
   { name: 'leave-settings', title: 'Réglages des congés', singular: 'Réglage', panel: 'settings' },
 ]
 
-// La liste du module Notes de frais (adresse /api/expenses/lists/...). Le barème par grade : page Expense claims.
+// Le module Notes de frais : TOUS ses réglages dans UNE page (2026-11-18, expense-settings-all.tsx) : le barème par
+// grade, les catégories, les devises, qui peut corriger un montant (avant : 4 endroits).
 export const EXPENSE_LISTS: ListConfig[] = [
-  { name: 'categories', api: '/api/expenses/lists', title: 'Catégories de dépense', singular: 'Catégorie de dépense', extra: [
-    { name: 'ceiling', label: 'Ceiling of the scale', type: 'select', required: true, options: [
-      { id: 'NONE', name: 'No ceiling' },
-      { id: 'DAILY_ALLOWANCE', name: 'Allowance (per day)' },
-      { id: 'TRANSPORT', name: 'Transport (per trip)' },
-      { id: 'HOTEL', name: 'Hotel (per night)' },
-    ] },
-    { name: 'receipt_required', label: 'Receipt required', type: 'checkbox' },
-    // Dépasser le plafond du grade est permis, avec une justification que le N+1 et les RH lisent (sinon refusé).
-    { name: 'above_ceiling_allowed', label: 'Above ceiling allowed', type: 'checkbox' },
-  ] },
-  // Les devises (2026-11-16) : le taux "1 EUR = ... MAD", mis à jour tout seul chaque matin si "Automatic" est coché ;
-  // décocher = Admin RH garde son propre taux. Le MAD vaut toujours 1.
-  { name: 'currencies', api: '/api/expenses/lists', title: 'Devises', singular: 'Devise', extra: [
-    { name: 'rate_to_mad', label: '1 unit = ... MAD', type: 'number', required: true, min: 0.0001, step: 0.0001, placeholder: '10.95' },
-    { name: 'automatic', label: 'Updated automatically (every morning)', type: 'checkbox' },
-  ] },
-  // Qui peut diminuer un montant pendant la validation (le N+1 et les RH / les RH / personne) : Admin RH.
   { name: 'expense-settings', title: 'Réglages des notes de frais', singular: 'Réglage', panel: 'expense-settings' },
 ]
 

@@ -6,7 +6,7 @@ from rest_framework import serializers
 from workflows.serializers import name_of, person
 
 from .models import (TOO_HIGH, Currency, ExpenseCategory, ExpenseClaim, ExpenseCorrection, ExpenseLine, ExpenseReceipt,
-                     ExpenseScale, ExpenseSettings)
+                     ExpenseSettings)
 from .services import correction_role
 
 
@@ -16,28 +16,20 @@ def amount_field(**kwargs):
 
 
 class CategorySerializer(serializers.ModelSerializer):
-    """{"id", "name", "ceiling": "HOTEL", "ceiling_label": "Hôtel (par nuit)", "receipt_required": true,
-    "above_ceiling_allowed": false}."""
+    """Une catégorie pour le formulaire : {"id", "name", "per": "NIGHT", "per_label": "par nuit", "receipt_required",
+    "above_ceiling_allowed", "my_ceiling": 400 ou null} (my_ceiling : le plafond pour MON grade, context "grade")."""
 
-    ceiling_label = serializers.CharField(source="get_ceiling_display", read_only=True)
+    per_label = serializers.CharField(source="get_per_display", read_only=True)
+    my_ceiling = serializers.SerializerMethodField()
 
     class Meta:
         model = ExpenseCategory
-        fields = ["id", "name", "ceiling", "ceiling_label", "receipt_required", "above_ceiling_allowed"]
+        fields = ["id", "name", "per", "per_label", "receipt_required", "above_ceiling_allowed", "my_ceiling"]
 
-
-class ScaleSerializer(serializers.ModelSerializer):
-    """Le barème d'un grade. Admin RH change seulement les montants (pas le grade)."""
-
-    grade_label = serializers.StringRelatedField(source="grade")
-    daily_allowance = amount_field(min_value=Decimal("0.01"))
-    transport = amount_field(min_value=Decimal("0.01"))
-    hotel = amount_field(min_value=Decimal("0.01"))
-
-    class Meta:
-        model = ExpenseScale
-        fields = ["id", "grade", "grade_label", "daily_allowance", "transport", "hotel"]
-        read_only_fields = ["grade"]
+    def get_my_ceiling(self, category):
+        grade = self.context.get("grade")
+        row = next((item for item in category.ceilings.all() if item.grade_id == grade), None) if grade else None
+        return float(row.amount) if row else None
 
 
 class LineInputSerializer(serializers.Serializer):
