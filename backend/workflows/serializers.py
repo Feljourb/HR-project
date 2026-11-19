@@ -7,7 +7,7 @@ from employees.models import Employee, Pole
 from employees.serializers import ReferenceSerializer, check_model_rules, preview
 
 from .engine import stand_in
-from .models import Delegation, Request, RequestStep, Workflow, WorkflowStep
+from .models import Delegation, Request, RequestStep, Workflow, WorkflowSettings, WorkflowStep
 
 
 class StepSerializer(serializers.ModelSerializer):
@@ -228,7 +228,7 @@ class DelegationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Delegation
         fields = ["id", "delegator", "delegator_label", "delegate", "delegate_label", "start_date", "end_date",
-                  "created_by", "created_at", "ended_at", "state", "direction"]
+                  "created_by", "created_at", "ended_at", "state", "direction", "answer", "answered_at", "decline_reason"]
 
     def get_direction(self, delegation):
         """Pour la personne connectée : GIVEN (je suis l'absent), RECEIVED (je remplace), OTHER (un RH la regarde)."""
@@ -245,11 +245,28 @@ class DelegationSerializer(serializers.ModelSerializer):
         return person(delegation.delegate)
 
     def get_state(self, delegation):
-        """ACTIVE (en cours aujourd'hui), PLANNED (à venir) ou ENDED (finie, ou arrêtée avec "End now")."""
+        """ACTIVE (en cours aujourd'hui), PLANNED (à venir), ENDED (finie, ou arrêtée avec "End now"),
+        et depuis le 2026-11-19 : WAITING (le délégué n'a pas encore accepté) ou DECLINED (il a refusé)."""
         today = timezone.localdate()
         if delegation.ended_at or delegation.end_date < today:
             return "ENDED"
+        if delegation.answer != Delegation.Answer.ACCEPTED:
+            return delegation.answer  # WAITING / DECLINED
         return "ACTIVE" if delegation.start_date <= today else "PLANNED"
+
+
+class WorkflowSettingsSerializer(serializers.ModelSerializer):
+    """Les réglages des validations (page Workflows, Admin RH) : "le délégué doit accepter", + qui l'a changé."""
+
+    updated_by = serializers.SerializerMethodField()
+
+    class Meta:
+        model = WorkflowSettings
+        fields = ["delegate_must_accept", "updated_at", "updated_by"]
+        read_only_fields = ["updated_at"]
+
+    def get_updated_by(self, current):
+        return name_of(current.updated_by) if current.updated_by_id else None
 
 
 class DelegationInputSerializer(serializers.Serializer):

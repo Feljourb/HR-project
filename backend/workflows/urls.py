@@ -1,8 +1,10 @@
 """Adresses de l'app workflows (incluses sous /api/workflows/ dans core/urls.py)."""
+from django.urls import path
 from rest_framework.routers import SimpleRouter
 
 from .views import (
-    ApprovalViewSet, DelegationViewSet, MyRequestViewSet, PoleDirectorViewSet, RequestHistoryViewSet, WorkflowViewSet,
+    ApprovalViewSet, DelegationViewSet, MyRequestViewSet, PoleDirectorViewSet, RequestHistoryViewSet, WorkflowSettingsView,
+    WorkflowViewSet,
 )
 
 app_name = "workflows"
@@ -25,4 +27,6 @@ router.register("delegations", DelegationViewSet, basename="delegation")
 # Enregistré EN DERNIER : sinon "poles/" serait pris pour le circuit n° "poles".
 router.register("", WorkflowViewSet, basename="workflow")
 
-urlpatterns = router.urls
+# Les réglages des validations ("le délégué doit accepter", 2026-11-19) : AVANT le routeur (sinon "settings/" serait
+# pris pour le circuit n° "settings").
+urlpatterns = [path("settings/", WorkflowSettingsView.as_view(), name="settings")] + router.urls

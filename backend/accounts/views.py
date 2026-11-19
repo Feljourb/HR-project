@@ -193,8 +193,11 @@ class MeView(APIView):
         # stands_in : le menu montre "Stand-in requests" SEULEMENT pendant une délégation reçue (en cours ou prévue).
         # Finie (date passée ou "End now") : le lien disparaît tout de suite (standard : la mission est finie, moindre
         # privilège). La trace reste : l'historique de chaque demande, et Team approvals -> History de l'absent.
-        stands_in = Delegation.objects.filter(delegate__user=request.user, ended_at__isnull=True,
-                                              end_date__gte=timezone.localdate()).exists()
+        # (Aussi une délégation EN ATTENTE de ma réponse, 2026-11-19 : la page est là où j'accepte ou je refuse ;
+        #  une délégation refusée : plus de lien.)
+        stands_in = (Delegation.objects.filter(delegate__user=request.user, ended_at__isnull=True,
+                                               end_date__gte=timezone.localdate())
+                     .exclude(answer=Delegation.Answer.DECLINED).exists())
         # stood_in : j'ai déjà répondu à la place de quelqu'un -> "My requests" garde un lien vers ce que j'ai fait
         # (standard : on perd l'accès pour agir, jamais la trace de ses propres décisions).
         stood_in = RequestStep.objects.filter(decided_by=request.user, on_behalf_of__isnull=False).exists()

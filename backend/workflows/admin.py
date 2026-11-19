@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Delegation, Request, RequestStep, Workflow, WorkflowStep
+from .models import Delegation, Request, RequestStep, Workflow, WorkflowSettings, WorkflowStep
 
 
 class WorkflowStepInline(admin.TabularInline):
@@ -49,12 +49,27 @@ class RequestStepInline(admin.TabularInline):
 @admin.register(Delegation)
 class DelegationAdmin(admin.ModelAdmin):
     """P2 step 1 : les délégations, en lecture seule (elles se font depuis Team approvals)."""
-    list_display = ("delegator", "delegate", "start_date", "end_date", "ended_at", "created_by")
-    readonly_fields = ("delegator", "delegate", "start_date", "end_date", "ended_at", "created_by", "created_at")
+    list_display = ("delegator", "delegate", "start_date", "end_date", "answer", "ended_at", "created_by")
+    readonly_fields = ("delegator", "delegate", "start_date", "end_date", "answer", "answered_at", "decline_reason",
+                       "ended_at", "created_by", "created_at")
     list_select_related = ("delegator", "delegate", "created_by")
+    list_filter = ("answer",)
 
     def has_add_permission(self, request):
         return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(WorkflowSettings)
+class WorkflowSettingsAdmin(admin.ModelAdmin):
+    """Les réglages des validations (une ligne ; Admin RH les change dans la page Workflows)."""
+    list_display = ("__str__", "delegate_must_accept", "updated_at", "updated_by")
+    readonly_fields = ("updated_at", "updated_by")
+
+    def has_add_permission(self, request):
+        return not WorkflowSettings.objects.exists()
 
     def has_delete_permission(self, request, obj=None):
         return False

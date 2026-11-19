@@ -4,6 +4,7 @@ from rest_framework import mixins, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from django.db.models import Q
 from django.db.models.functions import Coalesce
@@ -13,10 +14,10 @@ from employees.models import Employee, Pole
 
 from . import delegations as delegations_service
 from . import engine
-from .models import Delegation, Request, RequestStep, Workflow, can_be_delegate
+from .models import Delegation, Request, RequestStep, Workflow, WorkflowSettings, can_be_delegate
 from .serializers import (
     ApprovalSerializer, DecidedStepSerializer, DecisionSerializer, DelegationInputSerializer, DelegationSerializer, PoleDirectorSerializer,
-    RequestSerializer, WorkflowSerializer,
+    RequestSerializer, WorkflowSerializer, WorkflowSettingsSerializer,
 )
 
 
@@ -238,3 +239,31 @@ class DelegationViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     def end(self, request, pk=None):
         delegation = run(lambda: delegations_service.end_delegation(self.get_object(), request.user))
         return Response(DelegationSerializer(delegation, context={"request": request}).data)
+
+    # 2026-11-19 : le délégué accepte ou refuse (motif obligatoire pour refuser). Seul lui (le service le vérifie).
+    @action(detail=True, methods=["post"])
+    def accept(self, request, pk=None):
+        delegation = run(lambda: delegations_service.accept_delegation(self.get_object(), request.user))
+        return Response(DelegationSerializer(delegation, context={"request": request}).data)
+
+    @action(detail=True, methods=["post"])
+    def decline(self, request, pk=None):
+        reason = request.data.get("reason", "")
+        delegation = run(lambda: delegations_service.decline_delegation(self.get_object(), request.user, reason))
+        return Response(DelegationSerializer(delegation, context={"request": request}).data)
+
+
+class WorkflowSettingsView(APIView):
+    """Les réglages des validations (page Workflows : "le délégué doit accepter"), Admin RH et l'IT seulement.
+    GET / PATCH /api/workflows/settings/"""
+
+    permission_classes = [IsHRAdmin]
+
+    def get(self, request):
+        return Response(WorkflowSettingsSerializer(WorkflowSettings.load()).data)
+
+    def patch(self, request):
+        data = WorkflowSettingsSerializer(WorkflowSettings.load(), data=request.data, partial=True)
+        data.is_valid(raise_exception=True)
+        data.save(updated_by=request.user)
+        return Response(data.data)

@@ -13,7 +13,8 @@ from rest_framework.test import APIClient
 from employees.models import Department, Notification, Pole
 
 from . import engine
-from .delegations import create_delegation, end_delegation
+from .delegations import accept_delegation, create_delegation, decline_delegation, end_delegation
+from .models import Delegation, WorkflowSettings
 from .test_engine import EngineTestCase
 
 User = get_user_model()
@@ -28,6 +29,9 @@ class DelegationTests(EngineTestCase):
 
     def setUp(self):
         super().setUp()
+        # Ces tests : la délégation vaut tout de suite (réglage "le délégué doit accepter" DÉCOCHÉ ; le mode avec
+        # acceptation est testé dans DelegateAcceptsTests, plus bas).
+        WorkflowSettings.objects.update_or_create(pk=1, defaults={"delegate_must_accept": False})
         self.omar = self.make_employee("omar.peer", "AA100030")  # un autre manager du pôle (le délégué)
         self.omar.user.role = User.Role.MANAGER
         self.omar.user.save()
@@ -224,3 +228,72 @@ class DelegationTests(EngineTestCase):
         self.assertFalse(me["stands_in"])  # plus d'accès pour agir...
         self.assertTrue(me["stood_in"])    # ...mais la trace de ce qu'il a décidé reste (lien dans My requests)
         self.assertTrue(client.get(reverse("workflows:approval-history")).json()[0]["by_me"])
+
+
+class DelegateAcceptsTests(EngineTestCase):
+    """2026-11-19 (remarque de la réunion) : le délégué ACCEPTE ou REFUSE (réglage d'Admin RH, coché par défaut).
+    Tant qu'il n'a pas accepté, rien ne lui arrive : la demande attend l'absent."""
+
+    def setUp(self):
+        super().setUp()
+        WorkflowSettings.objects.update_or_create(pk=1, defaults={"delegate_must_accept": True})
+        self.omar = self.make_employee("omar.peer", "AA100030")
+        self.omar.user.role = User.Role.MANAGER
+        self.omar.user.save()
+        self.request = engine.submit("LEAVE", self.sara, "Congé de Sara")
+        self.step = self.request.steps.get(status="PENDING")  # étape N+1 : Youssef
+
+    def test_nothing_reaches_the_delegate_before_he_accepts(self):
+        from employees.notifications import link, message
+        delegation = create_delegation(self.youssef, self.omar, days(0), days(5), self.youssef.user)
+        self.assertEqual(delegation.answer, Delegation.Answer.WAITING)
+        # 🔔 "Délégation à accepter", mais AUCUNE demande à valider tant qu'il n'a pas accepté.
+        asked = Notification.objects.get(recipient=self.omar.user, kind="DELEGATION_ASKED")
+        self.assertIn("vous demande de le remplacer", message(asked))
+        self.assertEqual(link(asked), "/approvals")  # un manager : la carte "Out of office"
+        self.assertFalse(Notification.objects.filter(recipient=self.omar.user, kind="TO_VALIDATE").exists())
+        self.assertFalse(engine.can_decide(self.omar.user, self.step))
+        # Il accepte : Youssef est prévenu, et la demande qui attendait déjà arrive chez Omar.
+        accept_delegation(delegation, self.omar.user)
+        self.assertTrue(engine.can_decide(self.omar.user, self.step))
+        self.assertTrue(Notification.objects.filter(recipient=self.omar.user, kind="TO_VALIDATE", request=self.request).exists())
+        accepted = Notification.objects.get(recipient=self.youssef.user, kind="DELEGATION_ACCEPTED")
+        self.assertIn("a accepté de vous remplacer", message(accepted))
+        # Une seule réponse.
+        with self.assertRaisesMessage(ValidationError, "déjà répondu"):
+            decline_delegation(delegation, self.omar.user, "Finalement non")
+
+    def test_he_declines_with_a_reason_and_the_absent_chooses_someone_else(self):
+        from employees.notifications import message
+        delegation = create_delegation(self.youssef, self.omar, days(0), days(5), self.nadia.user)  # saisie par la RH
+        with self.assertRaises(PermissionDenied):
+            accept_delegation(delegation, self.youssef.user)  # seul le délégué répond
+        with self.assertRaises(ValidationError):
+            decline_delegation(delegation, self.omar.user, "  ")  # motif obligatoire
+        decline_delegation(delegation, self.omar.user, "Je suis en congé à ces dates")
+        self.assertFalse(engine.can_decide(self.omar.user, self.step))
+        # Youssef ET la RH qui l'avait saisie sont prévenus, avec le motif.
+        for user in (self.youssef.user, self.nadia.user):
+            bell = Notification.objects.get(recipient=user, kind="DELEGATION_DECLINED")
+            self.assertIn("Motif : Je suis en congé à ces dates", message(bell))
+        # Une délégation refusée ne bloque pas : il en choisit une autre sur les mêmes dates.
+        create_delegation(self.youssef, self.nadia, days(0), days(5), self.youssef.user)
+
+    def test_the_api_and_the_setting(self):
+        client = APIClient()
+        for employee in (self.youssef, self.omar, self.nadia):
+            employee.user.must_change_password = False
+            employee.user.save()
+        client.force_authenticate(self.youssef.user)
+        created = client.post(reverse("workflows:delegation-list"),
+                              {"delegate": self.omar.pk, "start_date": days(0), "end_date": days(2)}).json()
+        self.assertEqual((created["state"], created["answer"]), ("WAITING", "WAITING"))
+        client.force_authenticate(self.omar.user)
+        self.assertTrue(client.get(reverse("accounts:me")).json()["stands_in"])  # sa page, pour répondre
+        decline = reverse("workflows:delegation-decline", args=[created["id"]])
+        self.assertEqual(client.post(decline, {"reason": ""}).status_code, 400)
+        accepted = client.post(reverse("workflows:delegation-accept", args=[created["id"]])).json()
+        self.assertEqual(accepted["state"], "ACTIVE")
+        # Le réglage : Admin RH seulement (la RH du pôle : refusé).
+        client.force_authenticate(self.nadia.user)
+        self.assertEqual(client.patch(reverse("workflows:settings"), {"delegate_must_accept": False}, format="json").status_code, 403)

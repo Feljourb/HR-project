@@ -18,6 +18,7 @@ import type { Approval, DecidedStep, Delegation } from '@/lib/requests'
 import { cn } from '@/lib/utils'
 import { ApprovalItem } from './approval-item'
 import { DecidedList } from './decided-list'
+import { DelegationAnswer, DelegationBadge } from './delegation-answer'
 
 export function StandIn() {
   const [delegations, setDelegations] = useState<Delegation[] | null>(null)
@@ -34,15 +35,19 @@ export function StandIn() {
   }, [])
   useEffect(loadHistory, [loadHistory])
 
-  useEffect(() => {
+  // Relu au départ, et après ma réponse à une délégation (acceptée : ses demandes arrivent).
+  const load = useCallback(() => {
     Promise.all([apiFetch('/api/workflows/delegations/'), apiFetch('/api/workflows/approvals/')])
       .then(async ([given, waiting]) => {
         if (!given.ok || !waiting.ok) throw new Error()
-        setDelegations((await given.json() as Delegation[]).filter((item) => item.direction === 'RECEIVED' && item.state !== 'ENDED'))
+        // Reçues, pas finies, pas refusées par moi (2026-11-19 : une délégation se refuse).
+        setDelegations((await given.json() as Delegation[]).filter((item) =>
+          item.direction === 'RECEIVED' && item.state !== 'ENDED' && item.state !== 'DECLINED'))
         setApprovals(await waiting.json())
       })
       .catch(() => setFailed(true))
   }, [])
+  useEffect(load, [load])
 
   function answered(approval: Approval, verb: string, label?: string) {
     setApprovals((list) => list && list.filter((item) => item.id !== approval.id))
@@ -66,18 +71,25 @@ export function StandIn() {
           {delegations.length === 0
             ? <Message><UserRoundCheck className="mx-auto mb-2 size-6 text-slate-300" />You are not standing in for anyone right now.</Message>
             : <ul className="grid gap-3 sm:grid-cols-2">
-                {delegations.map((item) => <li key={item.id} className="flex items-start gap-3 rounded-xl border border-slate-200/80 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-                  <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[#E4E9F2] text-[#23355d]" aria-hidden><Plane className="size-4" /></span>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">You answer for</p>
-                    <p className="truncate text-sm font-semibold text-[#192646]">{item.delegator_label}</p>
-                    <p className="flex items-center gap-1 text-xs text-slate-500"><CalendarClock className="size-3.5" aria-hidden />
-                      {formatDate(item.start_date)} → {formatDate(item.end_date)}</p>
+                {delegations.map((item) => <li key={item.id} className={cn('flex flex-col gap-3 rounded-xl border bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]',
+                  item.state === 'WAITING' ? 'border-amber-200 sm:col-span-2' : 'border-slate-200/80')}>
+                  <div className="flex items-start gap-3">
+                    <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[#E4E9F2] text-[#23355d]" aria-hidden><Plane className="size-4" /></span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                        {item.state === 'WAITING' ? 'Asks you to answer for them' : 'You answer for'}
+                      </p>
+                      <p className="truncate text-sm font-semibold text-[#192646]">{item.delegator_label}</p>
+                      <p className="flex items-center gap-1 text-xs text-slate-500"><CalendarClock className="size-3.5" aria-hidden />
+                        {formatDate(item.start_date)} → {formatDate(item.end_date)}</p>
+                    </div>
+                    <DelegationBadge state={item.state} />
                   </div>
-                  <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset',
-                    item.state === 'ACTIVE' ? 'bg-emerald-50 text-emerald-700 ring-emerald-200' : 'bg-sky-50 text-sky-700 ring-sky-200')}>
-                    {item.state === 'ACTIVE' ? 'Active' : 'Planned'}
-                  </span>
+                  {/* 2026-11-19 : j'accepte (ses demandes arriveront ici) ou je refuse avec un motif. */}
+                  {item.state === 'WAITING' && <>
+                    <p className="text-xs text-slate-600">While {item.delegator_label} is away, you approve or reject their team&apos;s requests (leaves, expense claims, documents). Do you accept?</p>
+                    <DelegationAnswer delegation={item} onAnswered={(message) => { setDone(message); load() }} />
+                  </>}
                 </li>)}
               </ul>}
 
@@ -90,7 +102,7 @@ export function StandIn() {
             // La même carte que Team approvals (approval-item.tsx : un seul composant pour les deux pages).
             ? approvals.map((approval) => <ApprovalItem key={approval.id} approval={approval}
                 onAnswered={(verb, label) => answered(approval, verb, label)} />)
-            : delegations.length > 0 && <Message>
+            : (active.length > 0 || planned.length > 0) && <Message>
                 <CheckCheck className="mx-auto mb-2 size-6 text-emerald-600" />
                 {active.length > 0 ? 'Nothing is waiting for you.'
                   : `Requests will appear here from ${formatDate(planned[0]?.start_date ?? '')}.`}

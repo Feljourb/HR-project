@@ -676,6 +676,11 @@ class Notification(models.Model):
         # 2026-11-12 (standard) : la délégation que j'avais reçue est arrêtée avant sa fin ("End now")
         # (`employee` = l'absent) : je ne réponds plus à sa place.
         DELEGATION_ENDED = "DELEGATION_ENDED", "Délégation terminée"
+        # 2026-11-19 (remarque de la réunion) : on me demande de remplacer un absent -> j'accepte ou je refuse
+        # (`employee` = l'absent). Puis l'absent (et le RH qui l'a saisie) apprend ma réponse (`employee` = le délégué).
+        DELEGATION_ASKED = "DELEGATION_ASKED", "Délégation à accepter"
+        DELEGATION_ACCEPTED = "DELEGATION_ACCEPTED", "Délégation acceptée"
+        DELEGATION_DECLINED = "DELEGATION_DECLINED", "Délégation refusée"
         # Documents administratifs (2026-11-12) : mon document est prêt à télécharger (généré, ou déposé par les RH).
         DOCUMENT_READY = "DOCUMENT_READY", "Document prêt"
         # L'original papier signé m'attend au bureau RH (format "original", 2026-11-13).

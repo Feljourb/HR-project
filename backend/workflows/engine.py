@@ -101,7 +101,9 @@ def is_absent(employee, day=None):
 def delegate_of(employee, day=None):
     """Le délégué choisi pour cette personne ce jour-là (Délégation en cours), ou None."""
     day = day or timezone.localdate()
-    delegation = (Delegation.objects.filter(delegator=employee, ended_at__isnull=True, start_date__lte=day, end_date__gte=day)
+    # Seulement une délégation ACCEPTÉE par le délégué (2026-11-19) : en attente ou refusée, elle ne compte pas.
+    delegation = (Delegation.objects.filter(delegator=employee, ended_at__isnull=True, start_date__lte=day, end_date__gte=day,
+                                            answer=Delegation.Answer.ACCEPTED)
                   .select_related("delegate__user").first())
     return still_here(delegation.delegate) if delegation else None
 

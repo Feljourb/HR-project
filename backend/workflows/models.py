@@ -183,6 +183,18 @@ class Delegation(models.Model):
     created_at = models.DateTimeField("Créée le", auto_now_add=True)
     ended_at = models.DateTimeField("Terminée le", null=True, blank=True)  # "End now" : plus valable
 
+    class Answer(models.TextChoices):
+        # 2026-11-19 (remarque de la réunion) : le délégué ACCEPTE ou REFUSE (il peut être en congé, ou ne pas vouloir).
+        # Tant qu'il n'a pas accepté, rien ne lui arrive (la demande attend l'absent). Réglage d'Admin RH
+        # (WorkflowSettings.delegate_must_accept) ; sans lui, la délégation est acceptée tout de suite (comme avant).
+        WAITING = "WAITING", "En attente de sa réponse"
+        ACCEPTED = "ACCEPTED", "Acceptée"
+        DECLINED = "DECLINED", "Refusée"
+
+    answer = models.CharField("Réponse du délégué", max_length=10, choices=Answer.choices, default=Answer.ACCEPTED)
+    answered_at = models.DateTimeField("Répondu le", null=True, blank=True)
+    decline_reason = models.CharField("Motif du refus", max_length=300, blank=True)
+
     class Meta:
         ordering = ["-start_date", "-id"]
         verbose_name = "Délégation"
@@ -210,9 +222,35 @@ class Delegation(models.Model):
         if (self.end_date - self.start_date).days > 366:
             raise ValidationError({"end_date": "Au plus un an."})
         # Une seule délégation à la fois pour un même absent (sinon : à qui vont ses demandes ?).
+        # (Une délégation REFUSÉE ne compte pas : l'absent en choisit une autre.)
         overlap = (Delegation.objects.filter(delegator=self.delegator_id, ended_at__isnull=True,
                                              start_date__lte=self.end_date, end_date__gte=self.start_date)
-                   .exclude(pk=self.pk).first())
+                   .exclude(answer=Delegation.Answer.DECLINED).exclude(pk=self.pk).first())
         if overlap:
             raise ValidationError(f"Une délégation existe déjà sur ces dates ({overlap.start_date:%d/%m/%Y} - "
                                   f"{overlap.end_date:%d/%m/%Y}, vers {overlap.delegate}).")
+
+
+class WorkflowSettings(models.Model):
+    """Les réglages des validations (2026-11-19) : UNE ligne, changée par Admin RH dans la page Workflows (là où se
+    règle déjà "qui valide" : les circuits, le DG). La délégation sert à TOUTES les demandes (congés, notes de frais,
+    documents) : son réglage est ici, pas dans un module."""
+
+    # Remarque de la réunion (2026-11-19) : le délégué choisi accepte ou refuse. Coché par défaut ; décoché = la
+    # délégation vaut tout de suite (standard SAP / Workday / Outlook).
+    delegate_must_accept = models.BooleanField("Le délégué doit accepter", default=True)
+    updated_at = models.DateTimeField("Modifié le", auto_now=True)
+    updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name="+", verbose_name="Modifié par")
+
+    class Meta:
+        verbose_name = "Réglages des validations"
+        verbose_name_plural = "Réglages des validations"
+
+    def __str__(self):
+        return "Réglages des validations"
+
+    @classmethod
+    def load(cls):
+        current, _ = cls.objects.get_or_create(pk=1)
+        return current

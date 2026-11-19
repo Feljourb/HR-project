@@ -9,6 +9,7 @@ import { useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/api'
 import type { PoleDirector, Workflow } from '@/lib/workflows'
 import { CircuitCard } from './circuit-card'
+import { DelegationSettings } from './delegation-settings'
 import { DirectorsSection } from './directors-section'
 
 type Data = { workflows: Workflow[]; poles: PoleDirector[] }
@@ -58,6 +59,12 @@ export function WorkflowsManager() {
             <h2 className="text-[11px] font-bold uppercase tracking-[0.1em] text-slate-400">DG</h2>
             <DirectorsSection poles={data.poles}
               onPole={(pole) => setData((value) => value && { ...value, poles: put(value.poles, pole) })} />
+          </section>
+
+          {/* 2026-11-19 : la délégation (qui valide à la place d'un absent) : son réglage est ici, avec "qui valide". */}
+          <section className="flex flex-col gap-3">
+            <h2 className="text-[11px] font-bold uppercase tracking-[0.1em] text-slate-400">Delegation</h2>
+            <DelegationSettings />
           </section>
         </>}
   </div>

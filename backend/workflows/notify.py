@@ -52,7 +52,7 @@ def sync_stand_in(user):
                                 request__isnull=False).exclude(request__in=waiting_requests).delete()
 
     today = timezone.localdate()
-    if not Delegation.objects.filter(delegate__user=user, ended_at__isnull=True,
+    if not Delegation.objects.filter(delegate__user=user, ended_at__isnull=True, answer=Delegation.Answer.ACCEPTED,
                                      start_date__lte=today, end_date__gte=today).exists():
         return
     told = set(Notification.objects.filter(recipient=user, kind=Kind.TO_VALIDATE, request__in=waiting_requests)

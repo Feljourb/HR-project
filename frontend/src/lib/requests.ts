@@ -32,8 +32,11 @@ export type Delegation = {
   end_date: string
   created_by: string | null
   ended_at: string | null
-  state: 'ACTIVE' | 'PLANNED' | 'ENDED'
+  // WAITING = le délégué n'a pas encore accepté ; DECLINED = il a refusé (2026-11-19, remarque de la réunion).
+  state: 'ACTIVE' | 'PLANNED' | 'ENDED' | 'WAITING' | 'DECLINED'
   direction: 'GIVEN' | 'RECEIVED' | 'OTHER'
+  answer: 'WAITING' | 'ACCEPTED' | 'DECLINED'
+  decline_reason: string
 }
 
 export type WorkflowRequest = {

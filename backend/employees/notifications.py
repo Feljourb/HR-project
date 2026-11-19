@@ -136,6 +136,11 @@ def link(notification):
     Kind = Notification.Kind
     if notification.kind == Kind.TRIAL_END:
         return f"/employees/{notification.employee_id}"
+    # Délégations à accepter / acceptées / refusées (2026-11-19) : là où on les voit. Un collaborateur délégué : sa page
+    # "Stand-in requests" (il n'a pas Team approvals) ; les autres : la carte "Out of office" de Team approvals.
+    if notification.kind in (Kind.DELEGATION_ASKED, Kind.DELEGATION_ACCEPTED, Kind.DELEGATION_DECLINED):
+        collaborator = notification.recipient.role == get_user_model().Role.COLLABORATOR
+        return "/stand-in" if notification.kind == Kind.DELEGATION_ASKED and collaborator else "/approvals"
     if notification.kind in (Kind.TO_VALIDATE, Kind.DELEGATED, Kind.REMINDER):
         # Un collaborateur qui répond À LA PLACE d'un absent (délégué, 2026-11-12) n'a pas "Team approvals" :
         # sa page "Stand-in requests". Mais un collaborateur peut aussi être lui-même le N+1 (responsable d'une
@@ -230,6 +235,28 @@ def message(notification):
                                                 created_at__lte=notification.created_at).order_by("-created_at").first())
         period = f" du {delegation.start_date:%d/%m/%Y} au {delegation.end_date:%d/%m/%Y}" if delegation else ""
         return f"Vous remplacez {name}{period} : ses demandes à valider arrivent aussi chez vous."
+    if notification.kind == Kind.DELEGATION_ASKED:
+        from workflows.models import Delegation
+        delegation = (Delegation.objects.filter(delegator=employee, delegate__user=notification.recipient_id,
+                                                created_at__lte=notification.created_at).order_by("-created_at").first())
+        period = f" du {delegation.start_date:%d/%m/%Y} au {delegation.end_date:%d/%m/%Y}" if delegation else ""
+        return (f"{name} vous demande de le remplacer{period} : répondre à ses demandes à valider pendant son absence. "
+                "Acceptez ou refusez.")
+    if notification.kind in (Kind.DELEGATION_ACCEPTED, Kind.DELEGATION_DECLINED):
+        # `employee` = le délégué qui a répondu. Pour l'absent : "vous" ; pour le RH qui l'avait saisie : son nom.
+        from workflows.models import Delegation
+        from workflows.serializers import person
+        delegation = (Delegation.objects.filter(delegate=employee, answered_at__lte=notification.created_at)
+                      .select_related("delegator").order_by("-answered_at").first())
+        if delegation is None:
+            return f"{name} a répondu à la délégation."
+        mine = delegation.delegator.user_id == notification.recipient_id
+        replace = "vous remplacer" if mine else f"remplacer {person(delegation.delegator)}"
+        period = f"du {delegation.start_date:%d/%m/%Y} au {delegation.end_date:%d/%m/%Y}"
+        if notification.kind == Kind.DELEGATION_ACCEPTED:
+            return f"{name} a accepté de {replace} {period}."
+        return (f"{name} a refusé de {replace} {period}. Motif : {delegation.decline_reason} "
+                "Choisissez une autre personne (« Out of office »).")
     # Pour le collaborateur lui-même, ou pour celui qui a saisi sa demande (son manager, 2026-11-16) : pas "Votre ...".
     for_me = employee.user_id == notification.recipient_id
     if notification.kind == Kind.DOCUMENT_READY:

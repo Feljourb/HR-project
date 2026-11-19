@@ -26,9 +26,10 @@ from .models import Employee, Notification, NotificationSettings
 
 # Les 3 familles d'emails (page Settings). Kind = Notification.Kind.
 Kind = Notification.Kind
-ALWAYS = {Kind.TO_VALIDATE, Kind.DELEGATED, Kind.TRIAL_END}           # il faut agir : toujours envoyé
+ALWAYS = {Kind.TO_VALIDATE, Kind.DELEGATED, Kind.TRIAL_END, Kind.DELEGATION_ASKED}  # il faut agir : toujours envoyé
 RESULTS = {Kind.APPROVED, Kind.REJECTED, Kind.CANCELLED, Kind.RECOUNTED, Kind.EXPIRED,  # mes demandes : "email_results"
-           Kind.DOCUMENT_READY, Kind.ORIGINAL_READY, Kind.ORIGINAL_HANDED, Kind.EXPENSE_CORRECTED}
+           Kind.DOCUMENT_READY, Kind.ORIGINAL_READY, Kind.ORIGINAL_HANDED, Kind.EXPENSE_CORRECTED,
+           Kind.DELEGATION_ACCEPTED, Kind.DELEGATION_DECLINED}
 # Le reste (pour information, solde corrigé, droit changé, jours perdus le 31/12, rappels, "pas encore validée",
 # "réponse en votre nom" par mon délégué) :
 # "email_info".

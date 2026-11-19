@@ -16,6 +16,7 @@ import type { Delegation } from '@/lib/requests'
 import { cn } from '@/lib/utils'
 import { controlClass } from '@/components/employees/form-fields'
 import { DatePicker } from '@/components/ui/date-picker'
+import { DelegationAnswer, DelegationBadge } from './delegation-answer'
 
 const firstError = (data: Record<string, unknown>) => {
   const first = data.detail ?? Object.values(data)[0]
@@ -34,9 +35,11 @@ export function OutOfOffice({ me }: { me: Me }) {
       .catch(() => setDelegations([]))
   }, [version])
 
+  const [answered, setAnswered] = useState('')  // "You accepted..." après ma réponse à une délégation
   const current = (delegations ?? []).filter((item) => item.state !== 'ENDED')
   const given = current.filter((item) => item.direction === 'GIVEN')
-  const received = current.filter((item) => item.direction === 'RECEIVED')
+  // Une délégation que j'ai refusée ne me concerne plus (l'absent, lui, la voit "Declined").
+  const received = current.filter((item) => item.direction === 'RECEIVED' && item.state !== 'DECLINED')
   const reload = () => setVersion((old) => old + 1)
 
   return <section className="rounded-xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
@@ -53,18 +56,28 @@ export function OutOfOffice({ me }: { me: Me }) {
     </header>
 
     {/* Mes délégations (en cours ou prévues), et celles où je remplace quelqu'un. */}
+    {answered && <p role="status" className="border-t border-emerald-100 bg-emerald-50 px-4 py-2 text-xs font-medium text-emerald-800">{answered}</p>}
     {(given.length > 0 || received.length > 0) && <ul className="divide-y divide-slate-100 border-t border-slate-100 text-xs">
-      {given.map((item) => <DelegationLine key={item.id} item={item} onEnded={reload}
-        text={<>Your requests also go to <b className="font-semibold text-[#192646]">{item.delegate_label}</b></>} />)}
+      {/* Mes délégations : en attente de la réponse du délégué, refusée (motif : choisir quelqu'un d'autre), ou valable. */}
+      {given.map((item) => <DelegationLine key={item.id} item={item} onEnded={item.state === 'DECLINED' ? undefined : reload}
+        text={item.state === 'WAITING'
+          ? <>Waiting for <b className="font-semibold text-[#192646]">{item.delegate_label}</b> to accept. Until then, your requests wait for you</>
+          : item.state === 'DECLINED'
+            ? <><b className="font-semibold text-[#192646]">{item.delegate_label}</b> declined: “{item.decline_reason}”. Click “Set a delegate” to choose someone else</>
+            : <>Your requests also go to <b className="font-semibold text-[#192646]">{item.delegate_label}</b></>} />)}
+      {/* On me demande de remplacer quelqu'un : j'accepte ou je refuse ; accepté : ses demandes sont dans ma liste. */}
       {received.map((item) => <DelegationLine key={item.id} item={item}
-        text={<>You answer for <b className="font-semibold text-[#192646]">{item.delegator_label}</b>: their requests are in your list below</>} />)}
+        text={item.state === 'WAITING'
+          ? <><b className="font-semibold text-[#192646]">{item.delegator_label}</b> asks you to answer their team&apos;s requests while they are away</>
+          : <>You answer for <b className="font-semibold text-[#192646]">{item.delegator_label}</b>: their requests are in your list below</>}
+        answer={item.state === 'WAITING' ? <DelegationAnswer delegation={item} onAnswered={(message) => { setAnswered(message); reload() }} /> : undefined} />)}
     </ul>}
 
     {open && <DelegationForm me={me} onClose={() => setOpen(false)} onSaved={() => { setOpen(false); reload() }} />}
   </section>
 }
 
-function DelegationLine({ item, text, onEnded }: { item: Delegation; text: ReactNode; onEnded?: () => void }) {
+function DelegationLine({ item, text, onEnded, answer }: { item: Delegation; text: ReactNode; onEnded?: () => void; answer?: ReactNode }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
@@ -76,15 +89,14 @@ function DelegationLine({ item, text, onEnded }: { item: Delegation; text: React
     setBusy(false)
   }
 
-  return <li className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5">
-    <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-semibold', item.state === 'ACTIVE' ? 'bg-emerald-50 text-emerald-700' : 'bg-blue-50 text-blue-700')}>
-      {item.state === 'ACTIVE' ? 'Active' : 'Planned'}
-    </span>
+  return <li className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-2.5">
+    <DelegationBadge state={item.state} />
     <span className="min-w-0 flex-1 text-slate-600">{text} · {formatDate(item.start_date)} → {formatDate(item.end_date)}</span>
     {error && <span role="alert" className="text-[11px] text-red-600">{error}</span>}
+    {answer}
     {onEnded && <button type="button" disabled={busy} onClick={end}
       className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-red-50 hover:text-red-600 disabled:opacity-60">
-      {busy && <Loader2 className="size-3 animate-spin" />} End now
+      {busy && <Loader2 className="size-3 animate-spin" />} {item.state === 'WAITING' ? 'Cancel' : 'End now'}
     </button>}
   </li>
 }
