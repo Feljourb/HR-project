@@ -77,6 +77,9 @@ class LineSerializer(serializers.ModelSerializer):
     # Le plafond appliqué à l'envoi, et le dépassement (ex. 200) ou null : la puce orange "Above ceiling".
     ceiling = amount_field(allow_null=True)
     above_ceiling = amount_field(allow_null=True, read_only=True)
+    # Le maximum complet du grade (ex. 350) et son unité (DAY / NIGHT / TRIP / EXPENSE) : "Maximum 350 per trip".
+    maximum = amount_field(allow_null=True)
+    per = serializers.CharField(source="category.per", read_only=True)
     # Les corrections des valideurs (la plus ancienne d'abord) ; la première dit le montant DEMANDÉ.
     corrections = CorrectionSerializer(many=True, read_only=True)
     # Une autre devise : "20,00 EUR × 10,9553" (null = payée en MAD).
@@ -87,7 +90,8 @@ class LineSerializer(serializers.ModelSerializer):
     class Meta:
         model = ExpenseLine
         fields = ["id", "date", "category", "category_label", "amount", "description", "receipts",
-                  "ceiling", "above_ceiling", "justification", "corrections", "currency_code", "original_amount", "rate"]
+                  "ceiling", "maximum", "per", "above_ceiling", "justification", "corrections", "currency_code",
+                  "original_amount", "rate"]
 
 
 class CurrencySerializer(serializers.ModelSerializer):

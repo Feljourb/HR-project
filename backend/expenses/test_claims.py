@@ -158,6 +158,8 @@ class RulesTests(ClaimTestCase):
         claim = submit_claim(self.sara, "Mission", [self.line(amount="200"), self.line(amount="200", date=day_before, justification="Grève, taxi long")])
         second = claim.lines.order_by("id").last()
         self.assertEqual((second.ceiling, second.above_ceiling), (Decimal("150"), Decimal("50")))
+        # 2026-11-19 : le maximum complet est gardé aussi (350) : "Maximum 350 per trip · already used 200 · +50".
+        self.assertEqual(second.maximum, Decimal("350"))
 
     def test_no_grade_no_ceiling_category(self):
         Employee.objects.filter(pk=self.sara.pk).update(grade=None)  # une ancienne fiche

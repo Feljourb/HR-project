@@ -18,7 +18,8 @@ import { apiFetch, type Me } from '@/lib/api'
 import { stateOf, type DocumentRequest } from '@/lib/documents'
 import { CancelClaim } from '@/components/expenses/claim-actions'
 import { formatDate } from '@/lib/leaves'
-import type { Approval, DecidedStep, WorkflowRequest } from '@/lib/requests'
+import { closesExpenseClaim, type Approval, type DecidedStep, type WorkflowRequest } from '@/lib/requests'
+import { ToReimburseHint } from '@/components/expenses/to-reimburse-hint'
 import { PrepareSteps } from '@/components/documents/prepare-steps'
 import { cn } from '@/lib/utils'
 import { ApprovalItem } from './approval-item'
@@ -30,7 +31,7 @@ export function TeamApprovals({ me }: { me: Me }) {
   const [approvals, setApprovals] = useState<Approval[] | null>(null)
   const [failed, setFailed] = useState(false)
   // La dernière réponse donnée, affichée en haut : "Approved: Congé du 10 au 14 novembre".
-  const [done, setDone] = useState('')
+  const [done, setDone] = useState<ReactNode>('')
   // ?tab=team : arrivé par le lien "Requested for my team" de la page Documents.
   const [tab, setTab] = useState<'waiting' | 'history' | 'team'>(useSearchParams().get('tab') === 'team' ? 'team' : 'waiting')
   const [history, setHistory] = useState<DecidedStep[] | null>(null)
@@ -81,7 +82,9 @@ export function TeamApprovals({ me }: { me: Me }) {
   // Après une réponse : l'étape n'attend plus personne. Un document à préparer par les RH : la carte RESTE et devient
   // "Approved · Next step" (Print draft, Upload PDF, Original ready). Sinon elle quitte la liste.
   function answered(approval: Approval, verb: string, label?: string) {
-    setDone(`${verb}: ${label ?? approval.request.title}`)
+    // La dernière validation d'une note de frais : dire où elle attend maintenant (le paiement).
+    const paid = verb === 'Approved' && closesExpenseClaim(approval.request)
+    setDone(<>{verb}: {label ?? approval.request.title}.{paid && <ToReimburseHint />}</>)
     loadHistory()
     if (verb !== 'Approved' || approval.request.workflow_code !== 'ADMIN_REQUEST') return remove(approval)
     refreshNext(approval, '')

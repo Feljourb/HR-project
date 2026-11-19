@@ -62,6 +62,14 @@ export type Approval = {
   on_behalf_of: string | null  // P2 : je réponds à la place de cette personne (absente), ou null
 }
 
+/** Une note de frais dont MA réponse est la DERNIÈRE validation (aucune étape "Valider" après la mienne) : après
+ *  "Approve", elle est acceptée et attend le paiement (2026-11-19 : le message dit alors d'aller à Reimbursements). */
+export function closesExpenseClaim(request: WorkflowRequest) {
+  const mine = request.steps.find((step) => step.status === 'PENDING')
+  return request.workflow_code === 'EXPENSE' && mine !== undefined
+    && !request.steps.some((step) => step.order > mine.order && step.mode === 'VALIDATE')
+}
+
 /** Une étape terminée (onglets "History" de Team approvals, Stand-in requests, My requests -> Received).
  *  status PENDING : la demande a été annulée pendant qu'elle m'attendait (pas de réponse à donner). */
 export type DecidedStep = {

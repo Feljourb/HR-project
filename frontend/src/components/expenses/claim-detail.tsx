@@ -15,7 +15,8 @@ import { apiFetch } from '@/lib/api'
 import { backLink } from '@/lib/back-links'
 import { STATUS_BADGE, claimStatus, formatMad, getFile, type ExpenseClaim, type ExpenseLine } from '@/lib/expenses'
 import { formatDate } from '@/lib/leaves'
-import type { Approval } from '@/lib/requests'
+import { closesExpenseClaim, type Approval } from '@/lib/requests'
+import { ToReimburseHint } from './to-reimburse-hint'
 import { cn } from '@/lib/utils'
 import { sendChange } from '@/lib/workflows'
 import { controlClass } from '@/components/employees/form-fields'
@@ -28,6 +29,9 @@ import { PdfButton, ReimburseButton, actionClass } from './claim-actions'
 // 2026-11-11 : depuis My requests, le retour menait toujours à Expense claims).
 const DEFAULT_BACK = { href: '/expenses', label: 'Expense claims' }
 
+// L'unité d'un maximum, en mots simples ("per trip" = toute la note, la mission).
+const PER: Record<string, string> = { DAY: 'per day', NIGHT: 'per night', TRIP: 'per trip (the whole claim)', EXPENSE: 'per expense' }
+
 // Les statuts en anglais, comme le reste de la page (Django envoie "En cours"...).
 const STATUS_LABEL: Record<string, string> = {
   IN_PROGRESS: 'In progress', APPROVED: 'Approved', REIMBURSED: 'Reimbursed', REJECTED: 'Refused', CANCELLED: 'Cancelled',
@@ -37,7 +41,7 @@ export function ClaimDetail({ requestId, from = null }: { requestId: number; fro
   const [claim, setClaim] = useState<ExpenseClaim | null>(null)
   const [problem, setProblem] = useState('')
   const [approval, setApproval] = useState<Approval | null>(null)  // l'étape qui attend MA réponse, ou null
-  const [answered, setAnswered] = useState('')
+  const [answered, setAnswered] = useState<ReactNode>('')
 
   const load = useCallback(() => {
     apiFetch(`/api/expenses/claims/${requestId}/`)
@@ -74,7 +78,9 @@ export function ClaimDetail({ requestId, from = null }: { requestId: number; fro
       <h2 className="text-sm font-semibold text-[#192646]">Your answer</h2>
       <p className="mb-3 text-xs text-slate-500">Approve = the claim goes to the next step. Reject = the claim is closed (say why in the comment).</p>
       <Decision approval={approval} onAnswered={(verb) => {
-        setAnswered(verb === 'Approved' ? 'You approved this claim.' : 'You rejected this claim. The employee is told.')
+        setAnswered(verb === 'Approved'
+          ? <>You approved this claim.{closesExpenseClaim(approval.request) && <ToReimburseHint />}</>
+          : 'You rejected this claim. The employee is told.')
         setApproval(null)
         load()
       }} />
@@ -159,9 +165,13 @@ export function ClaimView({ claim, actions, onChanged, waitingForMe = null }: {
                   {line.above_ceiling !== null && <div className="mt-1.5 rounded-md border border-amber-200 bg-white px-2.5 py-1.5 text-[11px] text-amber-900">
                     <p className="flex items-center gap-1 font-semibold">
                       <TriangleAlert className="size-3 shrink-0" aria-hidden />
-                      {line.ceiling !== null
-                        ? <>Maximum {formatMad(line.ceiling)} · asked {formatMad(asked)} (+{formatMad(line.above_ceiling)})</>
-                        : <>Above the maximum by {formatMad(line.above_ceiling)}</>}
+                      {/* Le VRAI maximum du grade (ex. 350 per trip), + ce que les autres dépenses en avaient déjà pris
+                          (2026-11-19 : "Maximum 0,12" seul ne se comprenait pas). */}
+                      {line.maximum !== null && line.ceiling !== null && line.maximum !== line.ceiling
+                        ? <>Maximum {formatMad(line.maximum)} {PER[line.per]} · already used {formatMad(line.maximum - line.ceiling)} by the other expenses · this one +{formatMad(line.above_ceiling)}</>
+                        : line.maximum !== null
+                          ? <>Maximum {formatMad(line.maximum)} {PER[line.per]} · asked {formatMad(asked)} (+{formatMad(line.above_ceiling)})</>
+                          : <>Above the maximum by {formatMad(line.above_ceiling)}</>}
                     </p>
                     <p className="mt-0.5">Employee&apos;s reason: “{line.justification}”</p>
                   </div>}

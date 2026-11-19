@@ -177,6 +177,10 @@ class ExpenseLine(models.Model):
     # Le plafond du grade AU MOMENT de l'envoi (une photo, comme le total) : si Admin RH change le barème plus
     # tard, la note garde le plafond qui lui a été appliqué. Vide = pas de plafond.
     ceiling = models.DecimalField("Plafond appliqué (MAD)", max_digits=10, decimal_places=2, null=True, blank=True)
+    # Le maximum COMPLET du grade (ex. 350 par trajet), aussi une photo : `ceiling` = ce qui RESTAIT pour cette ligne
+    # (ex. 0,12 si les autres taxis de la mission ont pris 349,88). Les deux ensemble disent "Maximum 350 · déjà 349,88"
+    # (2026-11-19 : "Maximum 0,12" seul ne se comprenait pas). Vide = pas de plafond, ou une ligne d'avant ce jour.
+    maximum = models.DecimalField("Maximum du grade (MAD)", max_digits=10, decimal_places=2, null=True, blank=True)
     # Pourquoi cette dépense dépasse le plafond (obligatoire dans ce cas, sinon vide).
     justification = models.CharField("Justification du dépassement", max_length=300, blank=True)
 
@@ -210,7 +214,7 @@ class ExpenseLine(models.Model):
         # Règle 4 : le plafond de la catégorie pour le grade du collaborateur (2026-11-18 : un plafond par catégorie et
         # par grade, ex. Hébergement + Grade E = 400 MAD par nuit). Une catégorie plafonnée et pas de grade : refusé.
         self.ceiling = None
-        self.maximum = None  # (pas enregistré) le plafond du grade, pour la vérification par jour / nuit / mission
+        self.maximum = None  # le plafond du grade (enregistré : la photo), pour la vérification par jour / nuit / mission
         limits = CategoryCeiling.objects.filter(category=self.category)
         if limits.exists():
             grade = self.claim.employee.grade

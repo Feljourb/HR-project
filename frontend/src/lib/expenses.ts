@@ -19,7 +19,9 @@ export type Receipt = { id: number; name: string }
 export type ExpenseLine = {
   id: number; date: string; category: number; category_label: string; amount: number
   description: string; receipts: Receipt[]  // 0 à 5 (ex. la facture + le ticket de carte)
-  ceiling: number | null        // le plafond appliqué à l'envoi
+  ceiling: number | null        // ce qui RESTAIT du maximum pour cette ligne, à l'envoi (ex. 0,12)
+  maximum: number | null        // le maximum complet du grade, à l'envoi (ex. 350) ; null = ancienne ligne / pas de plafond
+  per: Per                      // l'unité du maximum (par jour / nuit / trajet = la note / dépense)
   above_ceiling: number | null  // de combien la dépense le dépasse (ex. 200), ou null
   justification: string         // pourquoi (seulement quand elle le dépasse)
   corrections: Correction[]     // un valideur a diminué le montant (la première dit le montant demandé)
