@@ -67,7 +67,15 @@ class CorrectionSerializer(serializers.ModelSerializer):
         fields = ["id", "old_amount", "new_amount", "reason", "corrected_by", "as_role", "corrected_at"]
 
     def get_corrected_by(self, correction):
-        return name_of(correction.corrected_by) if correction.corrected_by_id else None
+        """Le nom ("Manager Test") ; un compte sans dossier RH (ex. "admin.rh") : son rôle ("Admin RH", "IT"),
+        jamais le nom du compte (remarque de l'utilisatrice, 2026-11-19)."""
+        user = correction.corrected_by
+        if user is None:
+            return None
+        name = name_of(user)
+        if name != user.username:
+            return name
+        return "IT" if user.is_superuser else user.get_role_display()
 
 
 class LineSerializer(serializers.ModelSerializer):

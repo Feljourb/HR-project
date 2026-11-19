@@ -9,7 +9,7 @@
 import { useState } from 'react'
 import { BedDouble, Car, ChevronDown, ReceiptText, Scale as ScaleIcon, UtensilsCrossed } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
-import { formatMad, type MyCeiling } from '@/lib/expenses'
+import { type MyCeiling } from '@/lib/expenses'
 import { cn } from '@/lib/utils'
 
 type All = { grades: { id: number; name: string }[]; categories: { id: number; name: string; per: string }[]; ceilings: { category: number; grade: number; amount: number }[] }
@@ -18,6 +18,8 @@ type All = { grades: { id: number; name: string }[]; categories: { id: number; n
 const ICONS: Record<string, typeof Car> = { 'par nuit': BedDouble, 'par jour': UtensilsCrossed, 'par trajet': Car }
 const PER: Record<string, string> = { 'par nuit': 'per night', 'par jour': 'per day', 'par trajet': 'per trip', 'par dépense': 'per expense' }
 const label = (category: string) => category.split('(')[0].trim()  // "Hébergement (hôtel)" -> "Hébergement"
+// Un plafond est un montant rond : "400 MAD" (pas "400,00 MAD", plus léger à lire) ; "99,99 MAD" garde ses centimes.
+const short = (amount: number) => `${amount.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} MAD`
 
 export function ScaleCard({ grade, ceilings }: { grade: string | null; ceilings: MyCeiling[] }) {
   const [open, setOpen] = useState(false)
@@ -50,7 +52,7 @@ export function ScaleCard({ grade, ceilings }: { grade: string | null; ceilings:
                 <p className="flex items-center gap-1.5 truncate text-[10px] font-semibold uppercase tracking-wide text-slate-500" title={item.category}>
                   <Icon className="size-3.5 shrink-0 text-[#8C6D52]" aria-hidden /> {label(item.category)}
                 </p>
-                <p className="mt-1 text-base font-semibold tabular-nums text-[#192646]">{formatMad(item.amount)}</p>
+                <p className="mt-1 text-base font-semibold tabular-nums text-[#192646]">{short(item.amount)}</p>
                 <p className="text-[11px] text-slate-400">{PER[item.per] ?? item.per}</p>
               </div>
             })}
@@ -83,7 +85,7 @@ export function ScaleCard({ grade, ceilings }: { grade: string | null; ceilings:
                   </td>
                   {columns.map((category) => {
                     const cell = all.ceilings.find((one) => one.category === category.id && one.grade === item.id)
-                    return <td key={category.id} className="px-2 py-2 text-right tabular-nums text-slate-600">{cell ? formatMad(cell.amount) : '—'}</td>
+                    return <td key={category.id} className="px-2 py-2 text-right tabular-nums text-slate-600">{cell ? short(cell.amount) : '—'}</td>
                   })}
                 </tr>
               })}

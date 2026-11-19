@@ -154,7 +154,10 @@ def correction_role(user, claim):
 
 @transaction.atomic
 def correct_line(line, user, new_amount, reason):
-    """Un valideur DIMINUE le montant d'une dépense (jamais plus haut ; 0 = la dépense est refusée), avec un motif.
+    """Un valideur CHANGE le montant d'une dépense, entre 0 (la dépense est refusée) et le montant DEMANDÉ par le
+    collaborateur, avec un motif. Décision de l'utilisatrice (2026-11-19, choix A) : un valideur qui a trop baissé
+    peut remonter, mais jamais au-dessus de ce que le collaborateur a demandé (standard : celui qui valide ne crée
+    pas de dépense ; un oubli du collaborateur = plus tard "Send back", choix B).
     La trace (ExpenseCorrection), le nouveau total, le titre refait, et une 🔔 + email au collaborateur."""
     claim = ExpenseClaim.objects.select_for_update().select_related("request", "employee").get(pk=line.claim_id)
     line = ExpenseLine.objects.select_related("category").get(pk=line.pk)
@@ -167,10 +170,13 @@ def correct_line(line, user, new_amount, reason):
         raise ValidationError({"reason": ["Donnez le motif de la correction (ex. « Le reçu indique 150 MAD »)."]})
     if new_amount is None or new_amount < 0:
         raise ValidationError({"amount": ["Le nouveau montant ne peut pas être négatif."]})
-    if new_amount >= line.amount:
-        # Standard : le valideur DIMINUE seulement ; un oubli du collaborateur = une nouvelle note.
-        raise ValidationError({"amount": [f"Le nouveau montant doit être plus petit que {money(line.amount)} MAD "
-                                          "(on ne peut que diminuer)."]})
+    # Le montant demandé = l'ancien montant de la PREMIÈRE correction (sinon le montant actuel).
+    first = line.corrections.order_by("pk").first()
+    asked = first.old_amount if first else line.amount
+    if new_amount > asked:
+        raise ValidationError({"amount": [f"Au plus {money(asked)} MAD : le montant demandé par le collaborateur."]})
+    if new_amount == line.amount:
+        raise ValidationError({"amount": [f"Le montant est déjà {money(line.amount)} MAD."]})
     ExpenseCorrection.objects.create(line=line, old_amount=line.amount, new_amount=new_amount, reason=reason[:300],
                                      corrected_by=user, as_role=role)
     line.amount = new_amount

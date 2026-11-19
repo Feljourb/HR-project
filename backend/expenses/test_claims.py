@@ -269,9 +269,9 @@ class CorrectionTests(ClaimTestCase):
         self.assertEqual(notifications.link(bell), f"/expenses/{self.claim.request_id}?from=expenses")
         self.assertTrue(claim_pdf(self.claim).startswith(b"%PDF"))  # le PDF montre "Demandé 200,00, corrigé par ..."
 
-    def test_only_lower_with_a_reason(self):
+    def test_between_zero_and_the_amount_asked_with_a_reason(self):
         with self.assertRaises(ValidationError):
-            correct_line(self.taxi_line, self.youssef.user, Decimal("250"), "Plus")  # jamais plus haut
+            correct_line(self.taxi_line, self.youssef.user, Decimal("250"), "Plus")  # jamais plus que demandé
         with self.assertRaises(ValidationError):
             correct_line(self.taxi_line, self.youssef.user, Decimal("200"), "Pareil")
         with self.assertRaises(ValidationError):
@@ -280,6 +280,14 @@ class CorrectionTests(ClaimTestCase):
         correct_line(self.taxi_line, self.youssef.user, Decimal("0"), "Pas de reçu valable")
         self.claim.refresh_from_db()
         self.assertEqual(self.claim.total, Decimal("300"))
+        # Une erreur du valideur (2026-11-19) : il remonte, jusqu'au montant demandé (200), jamais au-dessus.
+        self.taxi_line.refresh_from_db()
+        correct_line(self.taxi_line, self.youssef.user, Decimal("180"), "Le reçu est bon, mon erreur")
+        with self.assertRaises(ValidationError):
+            correct_line(self.taxi_line, self.youssef.user, Decimal("200.01"), "Plus que demandé")
+        correct_line(self.taxi_line, self.youssef.user, Decimal("200"), "Tout le montant")
+        self.claim.refresh_from_db()
+        self.assertEqual((self.claim.total, self.taxi_line.corrections.count()), (Decimal("500"), 3))
 
     def test_only_the_person_who_must_answer_now(self):
         with self.assertRaises(PermissionDenied):

@@ -122,7 +122,7 @@ export function ClaimView({ claim, actions, onChanged, waitingForMe = null }: {
         {waitingForMe
           ? <p className="flex items-start gap-2 rounded-lg border border-[#23355d]/15 bg-[#E4E9F2]/50 px-3 py-2 text-xs text-[#192646]">
               <Clock className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-              <span><b className="font-semibold">Waiting for your answer ({waitingForMe}).</b> Check each expense{canCorrect ? ', lower an amount if needed' : ''}, then answer at the bottom of the page.</span>
+              <span><b className="font-semibold">Waiting for your answer ({waitingForMe}).</b> Check each expense{canCorrect ? ', change an amount if needed' : ''}, then answer at the bottom of the page.</span>
             </p>
           : claim.waiting_for && <p className="flex items-center gap-2 text-xs text-slate-600">
               <Clock className="size-3.5 shrink-0 text-slate-400" aria-hidden /> Waiting for {claim.waiting_for}
@@ -165,7 +165,7 @@ export function ClaimView({ claim, actions, onChanged, waitingForMe = null }: {
                   </div>}
                   {/* Les montants baissés par un valideur : qui, à quel titre, pourquoi (la trace, pour tout le monde). */}
                   {line.corrections.map((item) => <p key={item.id} className="mt-1 text-[11px] text-slate-500">
-                    Lowered {formatMad(item.old_amount)} → {formatMad(item.new_amount)} by <b className="font-semibold text-slate-700">{item.corrected_by ?? '?'}</b> ({item.as_role}) · Why: “{item.reason}”
+                    {item.new_amount < item.old_amount ? 'Lowered' : 'Raised'} {formatMad(item.old_amount)} → {formatMad(item.new_amount)} by <b className="font-semibold text-slate-700">{item.corrected_by ?? '?'}</b> ({item.as_role}) · Why: “{item.reason}”
                   </p>)}
                 </td>
                 <td className="px-3 py-3">
@@ -185,13 +185,13 @@ export function ClaimView({ claim, actions, onChanged, waitingForMe = null }: {
                     {line.original_amount.toLocaleString('fr-FR', { minimumFractionDigits: 2 })} {line.currency_code} × {line.rate?.toLocaleString('fr-FR')}
                   </span>}
                   {/* Baissé : le montant demandé barré, puis le montant retenu. */}
-                  {line.corrections.length > 0 && <span className="block text-[11px] text-slate-400 line-through">{formatMad(asked)}</span>}
+                  {asked !== line.amount && <span className="block text-[11px] text-slate-400 line-through">{formatMad(asked)}</span>}
                   <span className={cn('text-sm font-semibold', line.amount === 0 ? 'text-red-600' : 'text-slate-800')}>{formatMad(line.amount)}</span>
                 </td>
                 {canCorrect && <td className="whitespace-nowrap px-5 py-3 text-right">
-                  {line.amount > 0 && correcting !== line.id && <button type="button" onClick={() => setCorrecting(line.id)}
+                  {correcting !== line.id && <button type="button" onClick={() => setCorrecting(line.id)}
                     className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-[#23355d] hover:border-[#23355d]/40 hover:bg-[#E4E9F2]/40">
-                    <Pencil className="size-3" aria-hidden /> Lower the amount
+                    <Pencil className="size-3" aria-hidden /> Change the amount
                   </button>}
                 </td>}
               </tr>
@@ -217,8 +217,8 @@ export function ClaimView({ claim, actions, onChanged, waitingForMe = null }: {
       {/* La légende : ce que veut dire chaque signe du tableau (seulement ceux qui sont utiles ici). */}
       {(above > 0 || canCorrect || corrected) && <ul className="flex flex-col gap-1 border-t border-slate-100 px-5 py-3 text-[11px] text-slate-500">
         {above > 0 && <li><TriangleAlert className="mr-1 inline size-3 text-amber-700" aria-hidden /><b className="font-semibold text-slate-600">Above the maximum</b> = more than the maximum of the employee&apos;s grade. Admin RH allows it for this category, with a reason.</li>}
-        {canCorrect && <li><Pencil className="mr-1 inline size-3 text-[#23355d]" aria-hidden /><b className="font-semibold text-slate-600">Lower the amount</b> = pay less than asked (0 = this expense is refused). The employee is told.</li>}
-        {corrected && <li><b className="font-semibold text-slate-600">Crossed-out amount</b> (e.g. <span className="text-slate-400 line-through">500,00 MAD</span>) = the amount the employee asked, before it was lowered.</li>}
+        {canCorrect && <li><Pencil className="mr-1 inline size-3 text-[#23355d]" aria-hidden /><b className="font-semibold text-slate-600">Change the amount</b> = pay less than asked (0 = this expense is refused), or put it back after a mistake. Never more than the employee asked. The employee is told.</li>}
+        {corrected && <li><b className="font-semibold text-slate-600">Crossed-out amount</b> = the amount the employee asked.</li>}
       </ul>}
       {fileError && <p role="alert" className="px-5 pb-3 text-xs font-medium text-red-600">{fileError}</p>}
     </section>
@@ -231,7 +231,9 @@ function CorrectForm({ line, onCancel, onDone }: { line: ExpenseLine; onCancel: 
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const lower = amount !== '' && Number(amount) >= 0 && Number(amount) < line.amount
+  // Entre 0 et le montant DEMANDÉ par l'employé (2026-11-19 : on peut remonter après une erreur), et différent d'aujourd'hui.
+  const asked = line.corrections[0]?.old_amount ?? line.amount
+  const valid = amount !== '' && Number(amount) >= 0 && Number(amount) <= asked && Number(amount) !== line.amount
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -247,11 +249,11 @@ function CorrectForm({ line, onCancel, onDone }: { line: ExpenseLine; onCancel: 
 
   const labelClass = 'text-[11px] font-semibold text-slate-700'
   return <form onSubmit={submit} className="rounded-lg border border-[#23355d]/20 bg-[#E4E9F2]/40 p-3">
-    <p className="text-xs font-semibold text-[#192646]">Lower the amount of “{line.category_label}” (now {formatMad(line.amount)})</p>
+    <p className="text-xs font-semibold text-[#192646]">Change the amount of “{line.category_label}” (now {formatMad(line.amount)})</p>
     <div className="mt-2 grid gap-2 sm:grid-cols-[170px_minmax(0,1fr)_auto] sm:items-end">
       <div>
         <label htmlFor={`correct-amount-${line.id}`} className={labelClass}>New amount (MAD)</label>
-        <input id={`correct-amount-${line.id}`} type="number" required min="0" max={line.amount} step="0.01" placeholder="e.g. 400" autoFocus
+        <input id={`correct-amount-${line.id}`} type="number" required min="0" max={asked} step="0.01" placeholder="e.g. 400" autoFocus
           value={amount} onChange={(e) => { setAmount(e.target.value); setError('') }} className={cn(controlClass, 'bg-white')} />
       </div>
       <div>
@@ -261,14 +263,14 @@ function CorrectForm({ line, onCancel, onDone }: { line: ExpenseLine; onCancel: 
       </div>
       <div className="flex items-center gap-1">
         <button type="button" onClick={onCancel} className="rounded-md px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-white">Cancel</button>
-        <button type="submit" disabled={busy || !lower || !reason.trim()}
+        <button type="submit" disabled={busy || !valid || !reason.trim()}
           className="flex items-center gap-1.5 rounded-md bg-[#23355d] px-3 py-2 text-xs font-semibold text-white hover:bg-[#192646] disabled:opacity-50">
           {busy && <Loader2 className="size-3.5 animate-spin" />} Save
         </button>
       </div>
     </div>
-    <p className={cn('mt-1.5 text-[11px]', amount !== '' && !lower ? 'font-medium text-red-600' : 'text-slate-500')}>
-      Less than {formatMad(line.amount)} · 0 = this expense is refused.
+    <p className={cn('mt-1.5 text-[11px]', amount !== '' && !valid ? 'font-medium text-red-600' : 'text-slate-500')}>
+      From 0 to {formatMad(asked)} (what the employee asked) · 0 = this expense is refused.
     </p>
     {error && <p role="alert" className="mt-1 text-[11px] font-medium text-red-600">{error}</p>}
   </form>
