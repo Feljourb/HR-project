@@ -44,11 +44,12 @@ export type ListConfig = {
   headFilter?: 'direction' | 'department'
   extra?: ExtraField[]  // des champs en plus du nom
   byDate?: boolean      // trier par date (jours fériés), pas par nom
-  panel?: 'holidays' | 'settings' | 'signatures' | 'expense-settings' | 'document-settings'  // une page à part (jours fériés ; réglages ; signatures)
+  panel?: 'holidays' | 'leave-settings' | 'signatures' | 'expense-settings' | 'document-settings'  // une page à part
 }
 
-// Les listes du module Congés (adresse /api/leaves/lists/...).
-export const LEAVE_LISTS: ListConfig[] = [
+// Les listes du module Congés (adresse /api/leaves/lists/...). Depuis le 2026-11-19, TOUTES dans UNE page
+// "Réglages des congés" (leave-settings-all.tsx : types, jours fériés, règles du solde) : une seule place.
+export const LEAVE_TYPES_LIST: ListConfig =
   { name: 'leave-types', api: '/api/leaves/lists', title: 'Types de congé', singular: 'Type de congé', extra: [
     { name: 'deducts_balance', label: 'Taken from the balance', type: 'checkbox' },
     { name: 'max_days', label: 'Legal maximum (days)', type: 'number' },
@@ -61,15 +62,16 @@ export const LEAVE_LISTS: ListConfig[] = [
     ] },
     // P2 step 4 : un justificatif (certificat...) demandé à partir de N jours ; vide = jamais (maladie, maternité : 1).
     { name: 'document_from_days', label: 'Document from (days)', type: 'number', min: 1, step: 1, placeholder: 'Never' },
-  ] },
-  // Créés tout seuls chaque année (backend leaves/holidays.py) ; chaque année garde SES lignes (jamais remplacées).
-  // Page à part (holidays-panel.tsx) : une année à la fois, onglets "fixes" / "variables" (décision du 2026-11-03).
+  ] }
+// Créés tout seuls chaque année (backend leaves/holidays.py) ; chaque année garde SES lignes (jamais remplacées).
+// holidays-panel.tsx : une année à la fois, onglets "fixes" / "variables" (décision du 2026-11-03).
+export const HOLIDAYS_LIST: ListConfig =
   { name: 'public-holidays', api: '/api/leaves/lists', title: 'Jours fériés', singular: 'Jour férié', byDate: true, panel: 'holidays', extra: [
     { name: 'date', label: 'Date', type: 'date', required: true },
     { name: 'estimated', label: 'Estimated (to confirm)', type: 'checkbox' },
-  ] },
-  // Les règles du solde (2 ans, max 36, ancienneté, 6 mois) : Admin RH, avec avertissement et historique.
-  { name: 'leave-settings', title: 'Réglages des congés', singular: 'Réglage', panel: 'settings' },
+  ] }
+export const LEAVE_LISTS: ListConfig[] = [
+  { name: 'leave-settings', title: 'Réglages des congés', singular: 'Réglage', panel: 'leave-settings' },
 ]
 
 // Le module Notes de frais : TOUS ses réglages dans UNE page (2026-11-18, expense-settings-all.tsx) : le barème par

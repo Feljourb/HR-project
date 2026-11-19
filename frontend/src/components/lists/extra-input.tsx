@@ -43,6 +43,6 @@ export function extraText(item: ListValue, field: ExtraField) {
   if (field.type === 'checkbox') return value ? 'Yes' : 'No'
   if (value === null || value === undefined || value === '') return '—'
   if (field.type === 'select') return field.options?.find((option) => option.id === value)?.name ?? String(value)
-  if (field.type === 'number') return `${Number(value)} days`
+  if (field.type === 'number') return `${Number(value)} ${Number(value) === 1 ? 'day' : 'days'}`  // "1 day", "4 days"
   return formatDate(String(value))
 }

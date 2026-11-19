@@ -16,10 +16,8 @@ import { apiFetch } from '@/lib/api'
 import { formatDate } from '@/lib/leaves'
 import type { Approval, DecidedStep, Delegation } from '@/lib/requests'
 import { cn } from '@/lib/utils'
+import { ApprovalItem } from './approval-item'
 import { DecidedList } from './decided-list'
-import { RequestCard } from './request-card'
-import { Decision } from './team-approvals'
-import { TeamCalendar } from './team-calendar'
 
 export function StandIn() {
   const [delegations, setDelegations] = useState<Delegation[] | null>(null)
@@ -46,9 +44,9 @@ export function StandIn() {
       .catch(() => setFailed(true))
   }, [])
 
-  function answered(approval: Approval, verb: string) {
+  function answered(approval: Approval, verb: string, label?: string) {
     setApprovals((list) => list && list.filter((item) => item.id !== approval.id))
-    setDone(`${verb}: ${approval.request.title}`)
+    setDone(`${verb}: ${label ?? approval.request.title}`)
     loadHistory()
   }
 
@@ -89,13 +87,9 @@ export function StandIn() {
 
           {/* Les demandes qui attendent ma réponse. */}
           {approvals.length > 0
-            ? approvals.map((approval) => <RequestCard key={approval.id} request={approval.request} showRequester>
-                {approval.on_behalf_of && <p className="mb-2 flex items-center gap-1.5 rounded-md bg-amber-50 px-2.5 py-1.5 text-[11px] font-medium text-amber-800">
-                  <Plane className="size-3.5" aria-hidden /> On behalf of {approval.on_behalf_of} (away)
-                </p>}
-                {approval.request.workflow_code === 'LEAVE' && <TeamCalendar requestId={approval.request.id} />}
-                <Decision approval={approval} onAnswered={(verb) => answered(approval, verb)} />
-              </RequestCard>)
+            // La même carte que Team approvals (approval-item.tsx : un seul composant pour les deux pages).
+            ? approvals.map((approval) => <ApprovalItem key={approval.id} approval={approval}
+                onAnswered={(verb, label) => answered(approval, verb, label)} />)
             : delegations.length > 0 && <Message>
                 <CheckCheck className="mx-auto mb-2 size-6 text-emerald-600" />
                 {active.length > 0 ? 'Nothing is waiting for you.'

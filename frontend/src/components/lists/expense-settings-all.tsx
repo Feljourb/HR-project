@@ -31,7 +31,7 @@ export function ExpenseSettingsAll() {
     <Card number={2} title="Currencies" text="The employee types the amount of the receipt (e.g. 20 EUR); the app converts it to MAD with this rate, updated every morning.">
       <Currencies />
     </Card>
-    <Card number={3} title="Who can correct an amount?" text="While validating, lower an amount (e.g. the receipt says 150, the line says 200). Never higher; a reason is required; the employee is notified.">
+    <Card number={3} title="Who can correct an amount?" text="While validating, change an amount (e.g. the receipt says 150, the line says 200), between 0 and what the employee asked. A reason is required; the employee is notified.">
       <ExpenseSettingsPanel embedded />
     </Card>
   </div>

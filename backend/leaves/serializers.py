@@ -4,12 +4,23 @@ from decimal import Decimal
 from rest_framework import serializers
 
 from employees.serializers import ReferenceSerializer
-from workflows.serializers import person
+from workflows.serializers import name_of, person
 
 from .holidays import in_window, is_fixed
 from .models import (
     AnnualRightChange, BalanceAdjustment, LeaveRecount, LeaveRequest, LeaveSettingsChange, LeaveType, PublicHoliday,
 )
+
+
+class NameField(serializers.Field):
+    """Un compte affiché par son NOM ("Nadia Rh", ou "Admin RH" pour un compte sans dossier), jamais "admin.rh"
+    (remarque de l'utilisatrice, 2026-11-19). Lecture seule ; un compte vide reste null."""
+
+    def __init__(self, **kwargs):
+        super().__init__(read_only=True, **kwargs)
+
+    def to_representation(self, user):
+        return name_of(user)
 
 
 class LeaveTypeSerializer(serializers.ModelSerializer):
@@ -73,7 +84,7 @@ class RecountSerializer(serializers.ModelSerializer):
 
     old_days = serializers.DecimalField(max_digits=5, decimal_places=1, coerce_to_string=False)
     new_days = serializers.DecimalField(max_digits=5, decimal_places=1, coerce_to_string=False)
-    changed_by = serializers.StringRelatedField()  # le compte qui a changé le jour férié (ou null)
+    changed_by = NameField()  # le compte qui a changé le jour férié (ou null)
 
     class Meta:
         model = LeaveRecount
@@ -94,7 +105,7 @@ class LeaveSettingsSerializer(serializers.Serializer):
 
 
 class LeaveSettingsChangeSerializer(serializers.ModelSerializer):
-    changed_by = serializers.StringRelatedField()
+    changed_by = NameField()
 
     class Meta:
         model = LeaveSettingsChange
@@ -105,7 +116,7 @@ class RightChangeSerializer(serializers.ModelSerializer):
     """P1 step 2 : un changement du droit annuel, dans le panneau RH."""
 
     annual_days = serializers.DecimalField(max_digits=5, decimal_places=2, coerce_to_string=False)
-    changed_by = serializers.StringRelatedField()
+    changed_by = NameField()
 
     class Meta:
         model = AnnualRightChange
@@ -124,7 +135,7 @@ class AdjustmentSerializer(serializers.ModelSerializer):
     """P1 step 3 : une correction du solde, dans le panneau RH."""
 
     days = serializers.DecimalField(max_digits=5, decimal_places=2, coerce_to_string=False)
-    created_by = serializers.StringRelatedField()
+    created_by = NameField()
 
     class Meta:
         model = BalanceAdjustment
@@ -144,7 +155,7 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
 
     leave_type_label = serializers.StringRelatedField(source="leave_type")
     recounts = RecountSerializer(many=True, read_only=True)  # vide la plupart du temps
-    recorded_by = serializers.StringRelatedField()  # le RH qui l'a enregistré pour le collaborateur, ou null
+    recorded_by = NameField()  # le RH qui l'a enregistré pour le collaborateur, ou null
     # P2 step 4 : le justificatif : demandé ? reçu ? (le fichier lui-même : /api/leaves/documents/<id>/).
     document_required = serializers.BooleanField(read_only=True)
     has_document = serializers.SerializerMethodField()

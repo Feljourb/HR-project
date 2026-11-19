@@ -19,10 +19,9 @@ import { AddValueDialog, type AddRequest } from '@/components/employees/add-valu
 import { SelectField } from '@/components/employees/form-fields'
 import { useList } from '@/components/employees/use-list'
 import { DOCUMENT_LISTS, EXPENSE_LISTS, LEAVE_LISTS, LISTS_API, ORGANISATION, OTHER_LISTS, filtersOf, type ListConfig, type ListValue } from './lists-config'
-import { HolidaysPanel } from './holidays-panel'
 import { DocumentSettingsPanel } from './document-settings-panel'
 import { ExpenseSettingsAll } from './expense-settings-all'
-import { LeaveSettingsPanel } from './leave-settings-panel'
+import { LeaveSettingsAll } from './leave-settings-all'
 import { SignaturesPanel } from './signatures-panel'
 import { ValueRow } from './value-row'
 
@@ -133,7 +132,7 @@ export function ListsManager() {
       </nav>
 
       {/* Les jours fériés : leur propre page (année par année, onglets fixes / variables). */}
-      {current.panel === 'holidays' ? <HolidaysPanel list={current} /> : current.panel === 'settings' ? <LeaveSettingsPanel /> :
+      {current.panel === 'leave-settings' ? <LeaveSettingsAll /> :
       current.panel === 'signatures' ? <SignaturesPanel /> : current.panel === 'expense-settings' ? <ExpenseSettingsAll /> :
       current.panel === 'document-settings' ? <DocumentSettingsPanel /> :
       <section className="min-w-0 rounded-xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">

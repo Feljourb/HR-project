@@ -125,9 +125,14 @@ export function LeaveForm({ onSent }: { onSent: () => void }) {
 
       {/* P2 step 4 : un type qui demande un justificatif (maladie, maternité) : le joindre maintenant, ou plus tard. */}
       {selectedType?.document_from_days != null && <Field id="document" label="Supporting document (medical certificate, marriage / birth / death record...)" className="sm:col-span-2"
-        hint={`Required for this type${selectedType.document_from_days > 1 ? ` from ${selectedType.document_from_days} days` : ''}. PDF, JPG or PNG, 5 MB max. You can also add it later from My leaves (within 48 h). Only you and HR can open it.`}>
+        hint={`Required for this type${selectedType.document_from_days > 1 ? ` from ${selectedType.document_from_days} days` : ''}. PDF, JPG or PNG, 5 MB max. Only you and HR can open it.`}>
         <input id="document" type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => setFile(e.target.files?.[0] ?? null)}
           className={cn(controlClass, 'h-auto py-1.5 text-xs file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-2.5 file:py-1 file:text-xs file:font-semibold file:text-[#23355d]')} />
+        {/* 2026-11-19 (demande de l'utilisatrice) : dire clairement qu'on peut envoyer SANS le document, et quoi faire ensuite. */}
+        {!file && <p className="mt-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-[11px] text-sky-900">
+          <b className="font-semibold">No document now?</b> You can still send the request. Add the document later from
+          “My leaves” (within 48 h), and bring the original papers to HR.
+        </p>}
       </Field>}
 
       <Field id="reason" label="Comment" hint="Optional, for your N+1 and HR." className="sm:col-span-2">

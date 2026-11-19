@@ -290,7 +290,7 @@ class HrLeaveApiTests(EngineTestCase):
         self.assertTrue(Notification.objects.filter(recipient=self.sara.user, kind="APPROVED", request=leave.request).exists())
         self.assertFalse(Notification.objects.filter(kind="TO_VALIDATE", request=leave.request).exists())
         recorded = next(item for item in response.json()["leaves"] if item["id"] == leave.pk)
-        self.assertEqual(recorded["recorded_by"], "nadia.rh")
+        self.assertEqual(recorded["recorded_by"], "Ahmed Alami")  # son NOM (dossier RH), pas le compte (2026-11-19)
         # Les autres règles restent : pas avant l'embauche (05/01/2026), pas sur un congé déjà là.
         before_hire = self.client.post(record, {"leave_type": sick.pk, "start_date": "2025-12-30", "end_date": "2025-12-31"})
         self.assertIn("avant l'embauche", before_hire.json()["detail"])
@@ -436,7 +436,7 @@ class HrLeaveApiTests(EngineTestCase):
         data = self.client.patch(settings_url, {"max_days_per_year": 30}, format="json").json()
         self.assertEqual(data["settings"]["max_days_per_year"], 30)
         change = data["history"][0]
-        self.assertEqual((change["changed_by"], change["changes"][0]["old"], change["changes"][0]["new"]), ("nadia.rh", "36", "30"))
+        self.assertEqual((change["changed_by"], change["changes"][0]["old"], change["changes"][0]["new"]), ("Ahmed Alami", "36", "30"))
         # Rien de changé : pas de nouvelle ligne.
         self.assertEqual(len(self.client.patch(settings_url, {"max_days_per_year": 30}, format="json").json()["history"]), 1)
 

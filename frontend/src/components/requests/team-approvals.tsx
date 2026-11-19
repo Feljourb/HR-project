@@ -12,7 +12,7 @@
  */
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import Link from 'next/link'
-import { Check, CheckCheck, ChevronRight, FileText, Plane } from 'lucide-react'
+import { Check, CheckCheck, ChevronRight, FileText } from 'lucide-react'
 import { useSearchParams } from 'next/navigation'
 import { apiFetch, type Me } from '@/lib/api'
 import { stateOf, type DocumentRequest } from '@/lib/documents'
@@ -21,12 +21,10 @@ import { formatDate } from '@/lib/leaves'
 import type { Approval, DecidedStep, WorkflowRequest } from '@/lib/requests'
 import { PrepareSteps } from '@/components/documents/prepare-steps'
 import { cn } from '@/lib/utils'
+import { ApprovalItem } from './approval-item'
 import { DecidedList } from './decided-list'
 import { Decision } from './decision'
-import { ExpenseApprovalCard } from './expense-approval-card'
 import { OutOfOffice } from './out-of-office'
-import { RequestCard } from './request-card'
-import { TeamCalendar } from './team-calendar'
 
 export function TeamApprovals({ me }: { me: Me }) {
   const [approvals, setApprovals] = useState<Approval[] | null>(null)
@@ -166,21 +164,8 @@ export function TeamApprovals({ me }: { me: Me }) {
           // Validé : la même place, devenue "Approved · Next step".
           ? <NextStepCard key={approval.id} approval={approval} documents={nextSteps[approval.id]}
               onDone={(message) => refreshNext(approval, message)} onLater={(message) => finished(approval, message)} />
-          // Une note de frais (2026-11-18, standard SAP Concur) : un résumé, Approve / Reject, et "View the claim"
-          // qui ouvre la note dans un panneau (voir, baisser un montant, répondre).
-          : approval.request.workflow_code === 'EXPENSE'
-          ? <ExpenseApprovalCard key={approval.id} approval={approval} onAnswered={(verb, label) => answered(approval, verb, label)} />
-          : (
-            <RequestCard key={approval.id} request={approval.request} showRequester>
-              {/* Je réponds à la place d'un valideur absent (son délégué, son responsable, ou les RH). */}
-              {approval.on_behalf_of && <p className="mb-2 flex items-center gap-1.5 rounded-md bg-amber-50 px-2.5 py-1.5 text-[11px] font-medium text-amber-800">
-                <Plane className="size-3.5" aria-hidden /> On behalf of {approval.on_behalf_of} (away)
-              </p>}
-              {/* P2 step 2 : un congé -> qui d'autre de l'équipe est absent ces jours-là, avant de décider. */}
-              {approval.request.workflow_code === 'LEAVE' && <TeamCalendar requestId={approval.request.id} />}
-              <Decision approval={approval} onAnswered={(verb) => answered(approval, verb)} />
-            </RequestCard>
-          ))}
+          // La carte de la demande : la MÊME que Stand-in requests (approval-item.tsx ; note de frais = résumé).
+          : <ApprovalItem key={approval.id} approval={approval} onAnswered={(verb, label) => answered(approval, verb, label)} />)}
   </div>
 }
 
