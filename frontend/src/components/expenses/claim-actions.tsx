@@ -25,6 +25,37 @@ export function PdfButton({ claim }: { claim: ExpenseClaim }) {
   </>
 }
 
+/** "Mark reimbursed" en deux clics (on ne revient pas en arrière) : la page Reimbursements ET la note elle-même
+ *  (2026-11-19 : les RH le cherchaient dans la note). Django vérifie que c'est un RH du pôle. */
+export function ReimburseButton({ claim, onDone }: { claim: ExpenseClaim; onDone: (claim: ExpenseClaim) => void }) {
+  const [asking, setAsking] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  async function reimburse() {
+    setBusy(true)
+    const result = await sendChange<ExpenseClaim>(() => apiFetch(`/api/expenses/hr/${claim.request}/reimburse/`, { method: 'POST' }),
+      'Only HR of the pôle can mark a reimbursement.')
+    if ('data' in result) onDone(result.data)
+    else setError(result.error)
+    setBusy(false)
+    setAsking(false)
+  }
+
+  return <>
+    {error && <span role="alert" className="text-[11px] text-red-600">{error}</span>}
+    {asking
+      ? <>
+          <button type="button" onClick={() => setAsking(false)} className="rounded-md px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100">No</button>
+          <button type="button" disabled={busy} onClick={reimburse}
+            className="flex items-center gap-1 rounded-md bg-emerald-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-60">
+            {busy && <Loader2 className="size-3 animate-spin" />} Yes, paid
+          </button>
+        </>
+      : <button type="button" onClick={() => setAsking(true)} className="rounded-md bg-[#192646] px-2 py-1 text-[11px] font-semibold text-white hover:bg-[#23355d]">Mark reimbursed</button>}
+  </>
+}
+
 /** Annuler en deux clics, par le moteur (comme un congé). Seuls le n° de demande et son statut servent :
  *  aussi pour une demande de document (page Administrative documents).
  *  needReason (2026-11-16, standard) : annuler la demande d'un AUTRE (un manager pour son équipe) demande un motif,

@@ -96,9 +96,11 @@ def person(employee):
 
 def name_of(user):
     """Le nom d'un COMPTE : celui de son dossier RH ("Manager Test", pas "manager.test") ;
-    sinon le compte lui-même (ex. un compte IT sans dossier)."""
+    sinon son rôle ("Admin RH", "IT") : jamais le nom du compte (remarque de l'utilisatrice, 2026-11-19)."""
     employee = Employee.objects.filter(user=user).only("first_name", "last_name").first()
-    return person(employee) if employee else user.username
+    if employee:
+        return person(employee)
+    return "IT" if user.is_superuser else user.get_role_display()
 
 
 class RequestStepSerializer(serializers.ModelSerializer):

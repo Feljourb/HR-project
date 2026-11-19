@@ -55,7 +55,8 @@ export type ExpenseClaim = {
   pole: string
   grade: string | null
   lines: ExpenseLine[]
-  can_correct: boolean     // celui qui lit peut diminuer un montant maintenant (bouton "Correct")
+  can_correct: boolean     // celui qui lit peut changer un montant maintenant (bouton "Change the amount")
+  can_reimburse: boolean   // un RH du pôle, note acceptée pas encore payée : bouton "Mark reimbursed"
 }
 
 /** 1250.5 -> "1 250,50 MAD" */

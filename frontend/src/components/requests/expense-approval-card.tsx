@@ -20,7 +20,7 @@ import { SidePanel } from '@/components/ui/side-panel'
 import { Decision } from './decision'
 import { roleOf } from './request-history'
 
-export function ExpenseApprovalCard({ approval, onAnswered }: { approval: Approval; onAnswered: (verb: string) => void }) {
+export function ExpenseApprovalCard({ approval, onAnswered }: { approval: Approval; onAnswered: (verb: string, label?: string) => void }) {
   const request = approval.request
   const [claim, setClaim] = useState<ExpenseClaim | null>(null)
   const [open, setOpen] = useState(false)
@@ -35,6 +35,8 @@ export function ExpenseApprovalCard({ approval, onAnswered }: { approval: Approv
   // Ceux qui ont déjà validé avant moi (ex. le N+1, quand je suis les RH).
   const approvedBefore = request.steps.filter((step) => step.status === 'APPROVED')
   const role = roleOf(approval)
+  // Le message "Approved: ..." avec le total À JOUR (2026-11-19 : après "Change the amount", il montrait l'ancien).
+  const answer = (verb: string) => onAnswered(verb, claim ? `expense claim “${claim.title}” (${formatMad(claim.total)})` : undefined)
 
   return <article className="rounded-xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
     <div className="flex flex-wrap items-start gap-3 px-4 py-3.5">
@@ -76,7 +78,7 @@ export function ExpenseApprovalCard({ approval, onAnswered }: { approval: Approv
     </div>
 
     <footer className="border-t border-slate-100 px-4 py-3">
-      <Decision approval={approval} onAnswered={onAnswered} />
+      <Decision approval={approval} onAnswered={answer} />
     </footer>
 
     {/* La note dans un panneau à droite : la voir, baisser un montant, puis répondre, sans quitter la page. */}
@@ -87,7 +89,7 @@ export function ExpenseApprovalCard({ approval, onAnswered }: { approval: Approv
         <section className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
           <h3 className="text-sm font-semibold text-[#192646]">Your answer</h3>
           <p className="mb-3 text-xs text-slate-500">Approve = the claim goes to the next step. Reject = the claim is closed (say why in the comment).</p>
-          <Decision approval={approval} onAnswered={(verb) => { setOpen(false); onAnswered(verb) }} />
+          <Decision approval={approval} onAnswered={(verb) => { setOpen(false); answer(verb) }} />
         </section>
       </div>}
     </SidePanel>

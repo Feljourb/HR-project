@@ -154,8 +154,10 @@ def link(notification):
         if notification.employee.user_id != notification.recipient_id:
             return "/approvals?tab=team"
         return f"/documents?open={notification.request_id}"
-    if notification.kind == Kind.EXPENSE_CORRECTED:
-        return f"/expenses/{notification.request_id}?from=expenses"  # ma note : l'ancien et le nouveau montant
+    if notification.request.workflow.code == "EXPENSE" and notification.request.requester.user_id == notification.recipient_id:
+        # MA note de frais (corrigée, acceptée, refusée, annulée) : ma page Expense claims, la note OUVERTE dans le
+        # panneau (2026-11-19, demande de l'utilisatrice : voir, vérifier, télécharger le PDF, sans chercher).
+        return f"/expenses?open={notification.request_id}"
     if notification.kind == Kind.DELEGATION_ENDED:
         # Ce que j'ai répondu en remplacement : My requests -> Received (collaborateur), Team approvals -> History.
         return "/requests?tab=received" if notification.recipient.role == get_user_model().Role.COLLABORATOR else "/approvals"

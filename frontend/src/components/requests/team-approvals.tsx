@@ -82,8 +82,8 @@ export function TeamApprovals({ me }: { me: Me }) {
 
   // Après une réponse : l'étape n'attend plus personne. Un document à préparer par les RH : la carte RESTE et devient
   // "Approved · Next step" (Print draft, Upload PDF, Original ready). Sinon elle quitte la liste.
-  function answered(approval: Approval, verb: string) {
-    setDone(`${verb}: ${approval.request.title}`)
+  function answered(approval: Approval, verb: string, label?: string) {
+    setDone(`${verb}: ${label ?? approval.request.title}`)
     loadHistory()
     if (verb !== 'Approved' || approval.request.workflow_code !== 'ADMIN_REQUEST') return remove(approval)
     refreshNext(approval, '')
@@ -169,7 +169,7 @@ export function TeamApprovals({ me }: { me: Me }) {
           // Une note de frais (2026-11-18, standard SAP Concur) : un résumé, Approve / Reject, et "View the claim"
           // qui ouvre la note dans un panneau (voir, baisser un montant, répondre).
           : approval.request.workflow_code === 'EXPENSE'
-          ? <ExpenseApprovalCard key={approval.id} approval={approval} onAnswered={(verb) => answered(approval, verb)} />
+          ? <ExpenseApprovalCard key={approval.id} approval={approval} onAnswered={(verb, label) => answered(approval, verb, label)} />
           : (
             <RequestCard key={approval.id} request={approval.request} showRequester>
               {/* Je réponds à la place d'un valideur absent (son délégué, son responsable, ou les RH). */}

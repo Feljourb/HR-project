@@ -266,7 +266,7 @@ class CorrectionTests(ClaimTestCase):
         # Sara est prévenue (🔔 + email), avec l'ancien, le nouveau montant et le motif.
         bell = Notification.objects.get(recipient=self.sara.user, kind=Notification.Kind.EXPENSE_CORRECTED)
         self.assertIn("200,00 -> 150,00 MAD. Motif : Le reçu indique 150 MAD", notifications.message(bell))
-        self.assertEqual(notifications.link(bell), f"/expenses/{self.claim.request_id}?from=expenses")
+        self.assertEqual(notifications.link(bell), f"/expenses?open={self.claim.request_id}")  # la note ouverte
         self.assertTrue(claim_pdf(self.claim).startswith(b"%PDF"))  # le PDF montre "Demandé 200,00, corrigé par ..."
 
     def test_between_zero_and_the_amount_asked_with_a_reason(self):

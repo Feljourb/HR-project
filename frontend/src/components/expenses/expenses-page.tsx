@@ -8,6 +8,7 @@
  * reste pour les liens de la cloche et de Team approvals).
  */
 import { useCallback, useEffect, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { ReceiptText } from 'lucide-react'
 import { apiFetch, type Me } from '@/lib/api'
 import { claimStatus, formatMad, type Currency, type ExpenseCategory, type ExpenseClaim, type MyCeiling } from '@/lib/expenses'
@@ -35,7 +36,15 @@ export function ExpensesPage({ me }: { me: Me }) {
   const [version, setVersion] = useState(0)
   const reload = useCallback(() => setVersion((old) => old + 1), [])
   // La note ouverte dans le panneau : son n° de demande (relue après chaque rechargement : statut à jour).
-  const [openedId, setOpenedId] = useState<number | null>(null)
+  // ?open=<n°> : le lien de la cloche / de l'email (corrigée, acceptée, refusée) ouvre la note tout de suite (2026-11-19).
+  const asked = Number(useSearchParams().get('open')) || null
+  const [openedId, setOpenedId] = useState<number | null>(asked)
+  // Un autre clic sur la cloche, la page déjà ouverte : l'adresse change -> on ouvre cette note-là (comme Documents).
+  const [lastAsked, setLastAsked] = useState(asked)
+  if (asked !== lastAsked) {
+    setLastAsked(asked)
+    if (asked) setOpenedId(asked)
+  }
 
   useEffect(() => {
     const paths = ['/api/expenses/mine/', '/api/expenses/categories/', '/api/expenses/mine/ceilings/', '/api/expenses/currencies/']

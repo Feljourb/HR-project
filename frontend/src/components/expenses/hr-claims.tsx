@@ -7,13 +7,12 @@
  */
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { Loader2, ReceiptText } from 'lucide-react'
+import { ReceiptText } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 import { STATUS_BADGE, claimStatus, formatMad, type ExpenseClaim } from '@/lib/expenses'
 import { formatDate } from '@/lib/leaves'
 import { cn } from '@/lib/utils'
-import { sendChange } from '@/lib/workflows'
-import { PdfButton, actionClass } from './claim-actions'
+import { PdfButton, ReimburseButton, actionClass } from './claim-actions'
 
 const FILTERS = [
   { id: 'to_reimburse', name: 'To reimburse' },
@@ -100,34 +99,4 @@ export function HrClaims() {
             </div>}
     </section>
   </div>
-}
-
-// "Mark reimbursed" en deux clics (on ne revient pas en arrière).
-function ReimburseButton({ claim, onDone }: { claim: ExpenseClaim; onDone: () => void }) {
-  const [asking, setAsking] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-
-  async function reimburse() {
-    setBusy(true)
-    const result = await sendChange(() => apiFetch(`/api/expenses/hr/${claim.request}/reimburse/`, { method: 'POST' }),
-      'Only HR of the pôle can mark a reimbursement.')
-    if ('data' in result) onDone()
-    else setError(result.error)
-    setBusy(false)
-    setAsking(false)
-  }
-
-  return <>
-    {error && <span role="alert" className="text-[11px] text-red-600">{error}</span>}
-    {asking
-      ? <>
-          <button type="button" onClick={() => setAsking(false)} className="rounded-md px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100">No</button>
-          <button type="button" disabled={busy} onClick={reimburse}
-            className="flex items-center gap-1 rounded-md bg-emerald-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-60">
-            {busy && <Loader2 className="size-3 animate-spin" />} Yes, paid
-          </button>
-        </>
-      : <button type="button" onClick={() => setAsking(true)} className="rounded-md bg-[#192646] px-2 py-1 text-[11px] font-semibold text-white hover:bg-[#23355d]">Mark reimbursed</button>}
-  </>
 }

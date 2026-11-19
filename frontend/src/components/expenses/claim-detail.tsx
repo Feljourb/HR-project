@@ -22,7 +22,7 @@ import { controlClass } from '@/components/employees/form-fields'
 import { Message } from '@/components/leaves/leaves-page'
 import { roleOf } from '@/components/requests/request-history'
 import { Decision } from '@/components/requests/decision'
-import { PdfButton, actionClass } from './claim-actions'
+import { PdfButton, ReimburseButton, actionClass } from './claim-actions'
 
 // Le lien "retour" : la page d'où l'on vient (?from=..., lib/back-links), sinon "Expense claims" (bug du
 // 2026-11-11 : depuis My requests, le retour menait toujours à Expense claims).
@@ -111,6 +111,8 @@ export function ClaimView({ claim, actions, onChanged, waitingForMe = null }: {
           <div className="flex items-center gap-1">
             {actions}
             <PdfButton claim={claim} />
+            {/* Les RH paient : "Mark reimbursed" ici aussi (pas seulement dans la page Reimbursements). */}
+            {claim.can_reimburse && onChanged && <ReimburseButton claim={claim} onDone={onChanged} />}
             {/* L'historique du circuit : qui a validé, quand, avec quel commentaire. */}
             <Link href={`/requests/${claim.request}?from=claim-${claim.request}`} className={actionClass}>History</Link>
           </div>

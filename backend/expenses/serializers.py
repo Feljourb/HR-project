@@ -7,7 +7,7 @@ from workflows.serializers import name_of, person
 
 from .models import (TOO_HIGH, Currency, ExpenseCategory, ExpenseClaim, ExpenseCorrection, ExpenseLine, ExpenseReceipt,
                      ExpenseSettings)
-from .services import correction_role
+from .services import can_reimburse, correction_role
 
 
 def amount_field(**kwargs):
@@ -67,15 +67,7 @@ class CorrectionSerializer(serializers.ModelSerializer):
         fields = ["id", "old_amount", "new_amount", "reason", "corrected_by", "as_role", "corrected_at"]
 
     def get_corrected_by(self, correction):
-        """Le nom ("Manager Test") ; un compte sans dossier RH (ex. "admin.rh") : son rôle ("Admin RH", "IT"),
-        jamais le nom du compte (remarque de l'utilisatrice, 2026-11-19)."""
-        user = correction.corrected_by
-        if user is None:
-            return None
-        name = name_of(user)
-        if name != user.username:
-            return name
-        return "IT" if user.is_superuser else user.get_role_display()
+        return name_of(correction.corrected_by) if correction.corrected_by_id else None
 
 
 class LineSerializer(serializers.ModelSerializer):
@@ -145,16 +137,25 @@ class ClaimSerializer(serializers.ModelSerializer):
     # Celui qui lit peut diminuer un montant MAINTENANT (la note attend sa réponse, et Admin RH le permet) :
     # le bouton "Correct" sur chaque dépense.
     can_correct = serializers.SerializerMethodField()
+    can_reimburse = serializers.SerializerMethodField()
 
     class Meta:
         model = ExpenseClaim
         fields = ["id", "request", "title", "total", "status", "status_label", "created_at", "waiting_for",
-                  "reimbursed_at", "reimbursed_by", "employee", "department", "pole", "grade", "lines", "can_correct"]
+                  "reimbursed_at", "reimbursed_by", "employee", "department", "pole", "grade", "lines", "can_correct",
+                  "can_reimburse"]
         read_only_fields = fields
 
     def get_can_correct(self, claim):
         viewer = self.context.get("request")
         return bool(viewer) and correction_role(viewer.user, claim) is not None
+
+    def get_can_reimburse(self, claim):
+        """Le bouton "Mark reimbursed" DANS la note (2026-11-19 : les RH ne le trouvaient pas dans Reimbursements) :
+        une note acceptée, pas encore payée, lue par un RH de son pôle (ou Admin RH)."""
+        viewer = self.context.get("request")
+        return (bool(viewer) and claim.request.status == "APPROVED" and claim.reimbursed_at is None
+                and can_reimburse(viewer.user, claim))
 
     def get_employee(self, claim):
         return person(claim.employee)
