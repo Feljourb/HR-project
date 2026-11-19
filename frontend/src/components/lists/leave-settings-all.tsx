@@ -9,20 +9,27 @@
  * Rien n'est supprimé : on désactive.
  */
 import { useEffect, useState } from 'react'
-import { Plus } from 'lucide-react'
+import { CalendarDays, ListChecks, Plus, Scale } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 import { AddValueDialog, type AddRequest } from '@/components/employees/add-value-dialog'
 import { HolidaysPanel } from './holidays-panel'
 import { LeaveSettingsPanel } from './leave-settings-panel'
+import { SettingsTabs } from './settings-tabs'
 import { HOLIDAYS_LIST, LEAVE_TYPES_LIST, type ListValue } from './lists-config'
 import { ValueRow } from './value-row'
 
+// 2026-11-19 : la page était trop longue -> 3 onglets (settings-tabs.tsx), une section visible à la fois ; rien ne change dedans.
 export function LeaveSettingsAll() {
-  return <div className="flex min-w-0 flex-col gap-4">
-    <LeaveTypes />
-    <HolidaysPanel list={HOLIDAYS_LIST} />
-    <LeaveSettingsPanel />
-  </div>
+  return <SettingsTabs title="Réglages des congés" storageKey="leave-settings-tab"
+    text="Everything about leaves in one place. Choose a section."
+    tabs={[
+      { id: 'types', label: 'Leave types', icon: ListChecks, content: <LeaveTypes />,
+        hint: 'What employees can ask for (annual, sick, wedding…) and the rules of each type.' },
+      { id: 'holidays', label: 'Public holidays', icon: CalendarDays, content: <HolidaysPanel list={HOLIDAYS_LIST} />,
+        hint: 'The days off of each year: they count 0 in a leave. Created automatically; correct a religious date here.' },
+      { id: 'rules', label: 'Balance rules', icon: Scale, content: <LeaveSettingsPanel />,
+        hint: 'How the balance is earned and lost: 2 years to take the days, maximum per year, seniority, first leave after 6 months.' },
+    ]} />
 }
 
 const byName = (a: ListValue, b: ListValue) => a.name.localeCompare(b.name, 'fr')
