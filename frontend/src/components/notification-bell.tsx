@@ -78,7 +78,9 @@ export function NotificationBell() {
   const unread = data?.unread ?? 0
   const items = data?.results ?? []
 
-  return <Menu.Root onOpenChange={(open) => { if (open) reload() }}>
+  // modal={false} (2026-11-19) : le menu ne bloque pas le défilement de la page ; sinon la barre de défilement
+  // disparaissait et la page "sautait" de quelques pixels (standard Gmail / GitHub). Échap et clic dehors ferment toujours.
+  return <Menu.Root modal={false} onOpenChange={(open) => { if (open) reload() }}>
     <Menu.Trigger aria-label={unread ? `Notifications, ${unread} unread` : 'Notifications'}
       className="relative rounded-lg p-2 text-slate-500 hover:bg-slate-100 aria-expanded:bg-slate-100">
       <Bell className="size-[19px]" />

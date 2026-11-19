@@ -9,7 +9,7 @@
  * Lu et enregistré dans /api/documents/settings/.
  */
 import { useEffect, useState, type ReactNode } from 'react'
-import { CheckCircle2, Loader2, X } from 'lucide-react'
+import { CheckCircle2, FileText, Files, ListChecks, Loader2, PenLine, UsersRound, X } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 import type { DocumentType } from '@/lib/documents'
 import { cn } from '@/lib/utils'
@@ -17,6 +17,15 @@ import { sendChange } from '@/lib/workflows'
 import { formatDateTime } from '@/components/employees/history-changes'
 import { PersonPicker, type Person } from '@/components/requests/out-of-office'
 import { DocumentTypesSetup } from './document-types-setup'
+import { ListCard } from './list-card'
+import { DOCUMENT_TYPES_LIST } from './lists-config'
+import { SettingsTabs } from './settings-tabs'
+
+// La légende du tableau des types (règle "Don't Make Me Think").
+const TYPES_LEGEND: [string, string][] = [
+  ['Delay (working days)', 'How long HR take to prepare it, shown to the employee as “expected by …” (Saturday, Sunday and public holidays not counted). 0 = at once.'],
+  ['Status', 'Active = offered in the form. Inactive = no longer offered (old requests keep it). A document is never deleted.'],
+]
 import { SignaturesPanel } from './signatures-panel'
 
 type Settings = {
@@ -130,8 +139,8 @@ export function DocumentSettingsPanel() {
   // 4 questions, dans l'ordre (2026-11-17, l'utilisatrice : "simple, clair, professionnel") :
   // 1. ce que le collaborateur peut demander ; 2. comment le PDF est fait (seulement si le PDF est proposé) ;
   // 3. les modèles des documents ; 4. les managers.
-  return <div className="flex min-w-0 flex-col gap-4">
-    <Card number={1} title="What employees can request" text="The format, the date they need it, and when originals can be picked up.">
+  // 2026-11-19 : en ONGLETS (settings-tabs.tsx, comme Réglages des congés) : une question visible à la fois.
+  const requests = <Card number={1} title="What employees can request" text="The format, the date they need it, and when originals can be picked up.">
       <fieldset>
         <legend className="text-xs font-semibold text-slate-700">Formats</legend>
         <p className="text-[11px] text-slate-500">By default only the signed original. Add the PDF if you want it (step 2 says how it is made). One ticked: the form does not ask.</p>
@@ -175,19 +184,19 @@ export function DocumentSettingsPanel() {
       {saveBar(saved)}
     </Card>
 
-    {/* 2. Qui signe (TOUJOURS : nom, fonction, "Fait à" sont imprimés aussi sur les originaux) ; et, seulement si le PDF
-        est proposé, comment le PDF est fait : automatique (signature + cachet de l'app) ou par les RH. */}
-    <Card number={2} title="Who signs" text={pdfOffered
+  // 2. Qui signe (TOUJOURS : nom, fonction, "Fait à" sont imprimés aussi sur les originaux) ; et, seulement si le PDF
+  //    est proposé, comment le PDF est fait : automatique (signature + cachet de l'app) ou par les RH.
+  const signs = <Card number={2} title="Who signs" text={pdfOffered
       ? 'Per pôle: the signatory printed on every document. And how the PDF is made: Automatic (the app adds the signature and stamp) or By HR (they download the filled form, sign, stamp, scan and upload it). The paper original is always signed by hand.'
       : 'Per pôle: the signatory printed on every document (name, title, the city of "Fait à"). The original is printed, signed and stamped by HR.'}>
       <SignaturesPanel embedded showMode={pdfOffered} />
     </Card>
 
-    <Card number={3} title="Document models" text="The form of each document: its text, filled with the employee's data. Without a model, HR upload their own document (e.g. a payslip).">
+  const models = <Card number={3} title="Document models" text="The form of each document: its text, filled with the employee's data. Without a model, HR upload their own document (e.g. a payslip).">
       <DocumentTypesSetup codes={saved.codes} />
     </Card>
 
-    <Card number={4} title="Managers" text="Can a manager request a document for someone of his team?">
+  const managers = <Card number={4} title="Managers" text="Can a manager request a document for someone of his team?">
       <div className="grid gap-2 sm:grid-cols-3">
         {MANAGERS.map((option) => {
           const selected = draft.manager_requests === option.id
@@ -220,7 +229,23 @@ export function DocumentSettingsPanel() {
       {draft.manager_requests !== 'OFF' && <ManagerDocuments />}
       {saveBar(saved)}
     </Card>
-  </div>
+
+  return <SettingsTabs title="Réglages des documents" storageKey="document-settings-tab"
+    text="Everything about administrative documents in one place. Choose a section."
+    tabs={[
+      // (2026-11-19 : avant, une entrée "Types de document" à part dans Reference lists.)
+      { id: 'types', label: 'Document types', icon: ListChecks, hint: 'The documents employees can request, and the delay HR promise for each one.',
+        content: <ListCard list={DOCUMENT_TYPES_LIST} title="Document types" addLabel="Add a document" legend={TYPES_LEGEND}
+          text="The documents employees can request. The legend under the table explains each column." /> },
+      { id: 'requests', label: 'What employees can request', icon: FileText, content: requests,
+        hint: 'The formats offered (signed original, PDF), the earliest "needed by" date and the pickup days.' },
+      { id: 'signs', label: 'Who signs', icon: PenLine, content: signs,
+        hint: 'The signatory of each pôle, printed on every document (and how the PDF is signed, when it is offered).' },
+      { id: 'models', label: 'Document models', icon: Files, content: models,
+        hint: 'The text of each document, filled with the employee’s data.' },
+      { id: 'managers', label: 'Managers', icon: UsersRound, content: managers,
+        hint: 'Whether managers can request documents for their team, and which documents.' },
+    ]} />
 }
 
 /** Les documents qu'un manager peut demander pour son équipe (DocumentType.manager_can_request) : une case par

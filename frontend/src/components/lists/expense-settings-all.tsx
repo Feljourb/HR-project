@@ -11,7 +11,7 @@
  * Chaque changement est enregistré tout de suite (sauf ③ : son bouton Save). Rien n'est supprimé : on désactive.
  */
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
-import { Loader2, Plus } from 'lucide-react'
+import { Coins, Loader2, Pencil, Plus, ReceiptText } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { sendChange } from '@/lib/workflows'
@@ -20,21 +20,28 @@ import { formatDateTime } from '@/components/employees/history-changes'
 import { actionClass } from '@/components/expenses/claim-actions'
 import { SidePanel } from '@/components/ui/side-panel'
 import { ExpenseSettingsPanel } from './expense-settings-panel'
+import { SettingsTabs } from './settings-tabs'
 
 const API = '/api/expenses/lists'
 
+// 2026-11-19 : en ONGLETS (settings-tabs.tsx, comme Réglages des congés et des documents) : une question à la fois.
 export function ExpenseSettingsAll() {
-  return <div className="flex min-w-0 flex-col gap-4">
-    <Card number={1} title="Categories and ceilings" text="What employees can claim, and up to how much for each grade. Click Edit to change a category.">
-      <CategoriesAndCeilings />
-    </Card>
-    <Card number={2} title="Currencies" text="The employee types the amount of the receipt (e.g. 20 EUR); the app converts it to MAD with this rate, updated every morning.">
-      <Currencies />
-    </Card>
-    <Card number={3} title="Who can correct an amount?" text="While validating, change an amount (e.g. the receipt says 150, the line says 200), between 0 and what the employee asked. A reason is required; the employee is notified.">
-      <ExpenseSettingsPanel embedded />
-    </Card>
-  </div>
+  return <SettingsTabs title="Réglages des notes de frais" storageKey="expense-settings-tab"
+    text="Everything about expense claims in one place. Choose a section."
+    tabs={[
+      { id: 'categories', label: 'Categories and ceilings', icon: ReceiptText, hint: 'What employees can claim, and the maximum of each grade.',
+        content: <Card number={1} title="Categories and ceilings" text="What employees can claim, and up to how much for each grade. Click Edit to change a category.">
+          <CategoriesAndCeilings />
+        </Card> },
+      { id: 'currencies', label: 'Currencies', icon: Coins, hint: 'The currencies of the receipts and their rate to MAD, updated every morning.',
+        content: <Card number={2} title="Currencies" text="The employee types the amount of the receipt (e.g. 20 EUR); the app converts it to MAD with this rate, updated every morning.">
+          <Currencies />
+        </Card> },
+      { id: 'correct', label: 'Who can change an amount', icon: Pencil, hint: 'Who may change an amount while validating a claim.',
+        content: <Card number={3} title="Who can correct an amount?" text="While validating, change an amount (e.g. the receipt says 150, the line says 200), between 0 and what the employee asked. A reason is required; the employee is notified.">
+          <ExpenseSettingsPanel embedded />
+        </Card> },
+    ]} />
 }
 
 function Card({ number, title, text, children }: { number: number; title: string; text: string; children: ReactNode }) {

@@ -28,7 +28,8 @@ type UserMenuProps = {
 }
 
 export function UserMenu({ me, displayName, onLogout, children, triggerClassName, side = 'bottom', align = 'end' }: UserMenuProps) {
-  return <Menu.Root>
+  // modal={false} : comme la cloche, la page ne "saute" pas quand le menu s'ouvre (pas de blocage du défilement).
+  return <Menu.Root modal={false}>
     {/* Le bouton qui ouvre le menu (Base UI ajoute aria-expanded, aria-haspopup...). */}
     <Menu.Trigger aria-label="Account menu" className={triggerClassName}>{children}</Menu.Trigger>
 

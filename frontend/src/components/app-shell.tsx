@@ -196,7 +196,9 @@ function NavList({ me, active, collapsed, counts, onNavigate }: NavListProps) {
     .filter((group) => group.items.length > 0)  // une section vide (ex. Administration pour un RH) : cachée
   const [soonOpen, setSoonOpen] = useState(false)
 
-  return <nav aria-label="Main" className="flex-1 overflow-y-auto overflow-x-hidden px-3 pb-4 pt-2">
+  // sidebar-scroll (globals.css, 2026-11-19) : une barre de défilement fine et sombre, comme Slack / Linear (la barre
+  // blanche de Windows, avec ses flèches, ressemblait à une liste déroulante sur le fond foncé).
+  return <nav aria-label="Main" className="sidebar-scroll flex-1 overflow-y-auto overflow-x-hidden px-3 pb-4 pt-2">
     {visibleGroups.map((group, index) => <div key={group.label}>
       {/* Le titre de la section ; réduite : une fine ligne à la place. */}
       <p className={cn('px-2.5 pb-1.5 pt-5 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500', collapsed && 'lg:hidden')}>{group.label}</p>
