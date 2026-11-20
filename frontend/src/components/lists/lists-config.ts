@@ -44,6 +44,7 @@ export type ListConfig = {
   headFilter?: 'direction' | 'department'
   extra?: ExtraField[]  // des champs en plus du nom
   byDate?: boolean      // trier par date (jours fériés), pas par nom
+  fixed?: boolean       // pas de "Deactivate" (les pôles)
   panel?: 'holidays' | 'leave-settings' | 'signatures' | 'expense-settings' | 'document-settings'  // une page à part
 }
 
@@ -115,7 +116,8 @@ export function extraToJson(field: ExtraField, text: string): boolean | string |
 
 // L'organisation, du haut vers le bas : chaque niveau dépend de celui au-dessus.
 export const ORGANISATION: ListConfig[] = [
-  { name: 'poles', title: 'Pôles', singular: 'Pôle' },
+  // fixed : les 2 pôles (SBD, Riaya) ne se désactivent pas (2026-11-20) ; ils se renomment seulement.
+  { name: 'poles', title: 'Pôles', singular: 'Pôle', fixed: true },
   { name: 'entities', title: 'Entités', singular: 'Entité', parentField: 'pole' },
   { name: 'directions', title: 'Directions', singular: 'Direction', parentField: 'entity', headFilter: 'direction' },
   { name: 'departments', title: 'Services', singular: 'Service', parentField: 'direction', headFilter: 'department' },

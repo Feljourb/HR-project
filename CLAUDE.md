@@ -371,5 +371,17 @@ Standard (Workday / SAP / BambooHR), done in one go before a meeting (asked by t
   - History page made "pro" (2026-11-11, asked by the user): real NAMES (API `decided_by_name`, `cancelled_by_name` via `serializers.name_of`, not "manager.test"), English roles (RH du pôle -> HR, DG du pôle -> General Manager) and types ("LEAVE REQUEST · N° 12"), English status badge, each fact ONCE; the last line = "Leave approved · Request closed" / "Leave refused · Request closed" + what happens now (green / grey box). Back link WITH its name, from `?from=` (`lib/back-links.ts`, shared with `/expenses/<request>`: requests, leaves, approvals, absences, leave-balances, expenses, reimbursements, dashboard, claim-<n>; default "My requests" / "Expense claims"), so a link opened in a new tab keeps the right back link.
 - [ ] 9. Later (SMTP): DG validates by e-mail.
 - [ ] 10. Final review before the soutenance: `submit`, `advance`, `can_decide`, `approve` / `reject` line by line (the user knows the big picture; details later).
+
+## Backlog (notes of the user, 2026-11-20, after the MVP of the 4 modules) — one at a time, propose first
+- [ ] B1. Emails: Admin RH chooses whether the email "Requests to approve" is locked ON for everybody (today: always locked) or can be unticked by each user (standard: admin-enforced notification policy, e.g. Microsoft Teams / Jira admin). ~30 min.
+- [ ] B2. Dashboard "Requests & approvals": the card height follows its content (today a big empty space under 2 rows). ~10 min.
+- [ ] B3. Language EN / AR (Arabic = right-to-left). BIG (every text of the app + RTL layout): v2.
+- [ ] B4. Light / dark mode. BIG (colours are written in each component, e.g. #192646: they must become tokens first): v2.
+- [ ] B5. "Dotation" on the employee fiche (forgotten): HR give a dotation every 3 months; a field + a bell to HR every 3 months. To clarify with HR first: what it is (amount? equipment? fuel / phone?), per employee or per grade, who receives the reminder.
+- [ ] B6. City field: a dropdown that shows ALL the cities (today a type-to-search list, K3). ~20 min.
+- [ ] B7. Organisation: a manager can have people of Riaya AND SBD in his team, so a direction must be usable for both pôles. To CHECK first (today Direction -> Entity -> Pôle, and the N+1 = the head of the service / direction): analyse, then propose.
+- [x] B8. Reference lists -> Pôles: no Activate / Deactivate (the 2 pôles are fixed): `ListConfig.fixed` / `ValueRow fixed` hide the button; the API ignores `is_active` for pôles (`make_viewset(..., fixed=True)` = read-only). Rename and "Add" stay.
+- [ ] B9. A manager requests a leave FOR someone of his team (like the documents, "Manager Self-Service"), only if Admin RH allows it (setting, OFF by default). The user's idea, NOT validated by the encadrant yet: to discuss. Standard (SAP / Workday "request time off for a worker"). ~1 h.
+- [ ] B10. My requests: filters (type, date, search) and a nicer, shorter list (today a long list with status pills only). ~45 min.
  
 Start with step 1.

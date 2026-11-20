@@ -189,7 +189,7 @@ export function ListsManager() {
                       <tbody>
                         {/* key avec le nom de la liste : une ligne en cours de modification ne passe jamais à une autre liste. */}
                         {shown.map((item) => <ValueRow key={`${current.name}-${item.id}`} list={current.name} api={current.api} item={item}
-                          withCode={current.withCode} headFilter={current.headFilter} extra={current.extra}
+                          withCode={current.withCode} headFilter={current.headFilter} extra={current.extra} fixed={current.fixed}
                           onChanged={(changed) => update((list) => list.map((value) => (value.id === changed.id ? changed : value)).sort(sortItems))} />)}
                       </tbody>
                     </table>

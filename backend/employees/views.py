@@ -125,13 +125,16 @@ class ReferenceViewSet(viewsets.ModelViewSet):
         return queryset
 
 
-def make_viewset(model, parent_field=None, pole_path=None, exclude=()):
+def make_viewset(model, parent_field=None, pole_path=None, exclude=(), fixed=False):
     """Fabrique la vue d'une liste à partir de son modèle, pour ne pas écrire
     14 fois les mêmes classes. type(nom, (classe_mère,), attributs) crée une classe,
-    exactement comme si on l'écrivait avec "class ...:"."""
+    exactement comme si on l'écrivait avec "class ...:".
+    fixed (2026-11-20, les pôles) : les valeurs ne se désactivent pas (is_active en lecture seule)."""
     # Le serializer de cette liste : tous les champs du modèle (id, name, is_active,
     # + le parent ex. "department", + "code" pour les centres de coût), sauf `exclude`.
     meta = type("Meta", (), {"model": model, "exclude": exclude} if exclude else {"model": model, "fields": "__all__"})
+    if fixed:
+        meta.read_only_fields = ["is_active"]
     attributes = {"Meta": meta}
     # Directions et services : le responsable ("head" = un id) + son nom, pour l'afficher dans la page Listes.
     if any(field.name == "head" for field in model._meta.fields):
@@ -149,7 +152,8 @@ def make_viewset(model, parent_field=None, pole_path=None, exclude=()):
 LIST_VIEWSETS = {
     # Organisation : chaque niveau se filtre par son parent, et dépend du pôle.
     # Sans le DG : il se choisit dans l'écran "Workflows" (app workflows), pas dans les listes.
-    "poles": make_viewset(Pole, pole_path="pk", exclude=["director"]),
+    # Les 2 pôles (SBD, Riaya) sont fixes : jamais désactivés (2026-11-20).
+    "poles": make_viewset(Pole, pole_path="pk", exclude=["director"], fixed=True),
     "entities": make_viewset(Entity, parent_field="pole", pole_path="pole"),
     "directions": make_viewset(Direction, parent_field="entity", pole_path="entity__pole"),
     "departments": make_viewset(Department, parent_field="direction", pole_path="direction__entity__pole"),

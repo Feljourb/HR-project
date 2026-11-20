@@ -24,6 +24,7 @@ type ValueRowProps = {
   headFilter?: ListConfig['headFilter']  // directions et services : la colonne "responsable"
   extra?: ExtraField[]                   // listes du module Congés : des colonnes en plus (modifiables avec le nom)
   readOnly?: boolean                     // pas d'actions (ex. les jours fériés d'une année passée : l'historique)
+  fixed?: boolean                        // pas de "Deactivate" (les pôles, 2026-11-20)
   onChanged: (item: ListValue) => void   // renommée, désactivée ou réactivée : la nouvelle version
 }
 
@@ -39,7 +40,7 @@ function firstMessage(data: Record<string, unknown>) {
   return Array.isArray(messages) ? String(messages[0]) : 'Something went wrong. Please try again.'
 }
 
-export function ValueRow({ list, api = LISTS_API, item, withCode, headFilter, extra = [], readOnly, onChanged }: ValueRowProps) {
+export function ValueRow({ list, api = LISTS_API, item, withCode, headFilter, extra = [], readOnly, fixed = false, onChanged }: ValueRowProps) {
   const [editing, setEditing] = useState(false)
   const [choosingHead, setChoosingHead] = useState(false)  // la recherche du responsable est ouverte
   const [name, setName] = useState(item.name)
@@ -144,10 +145,11 @@ export function ValueRow({ list, api = LISTS_API, item, withCode, headFilter, ex
     <td className="px-4 py-2.5 text-right">
       {!editing && !readOnly && <div className="flex justify-end gap-1">
         <button type="button" disabled={busy} onClick={() => setEditing(true)} className={actionClass}>{extra.length ? 'Edit' : 'Rename'}</button>
-        {/* Désactiver : la valeur reste sur les anciens dossiers, mais n'est plus proposée dans les formulaires. */}
-        <button type="button" disabled={busy} onClick={() => send({ is_active: !item.is_active })} className={actionClass}>
+        {/* Désactiver : la valeur reste sur les anciens dossiers, mais n'est plus proposée dans les formulaires.
+            Pas pour une liste fixe (les pôles). */}
+        {!fixed && <button type="button" disabled={busy} onClick={() => send({ is_active: !item.is_active })} className={actionClass}>
           {item.is_active ? 'Deactivate' : 'Reactivate'}
-        </button>
+        </button>}
       </div>}
     </td>
   </tr>
