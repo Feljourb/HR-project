@@ -2,6 +2,14 @@
 @import 'tw-animate-css';
 @import 'shadcn/tailwind.css';
 
+/* Filet de sécurité (2026-11-20, test sur iPhone) : une page n'est jamais plus large que l'écran. Sinon le téléphone
+   élargit la page, et un panneau collé à droite (carte de visite...) sort de l'écran avec son bouton Fermer.
+   Un tableau large garde SA barre de défilement (overflow-x-auto), seulement lui. */
+html,
+body {
+  overflow-x: clip;
+}
+
 /* La barre de défilement du menu de gauche (fond bleu foncé) : fine, discrète, sans flèches (2026-11-19). */
 .sidebar-scroll {
   scrollbar-width: thin;

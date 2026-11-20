@@ -180,9 +180,11 @@ export function DirectoryList({ initialSearch = '' }: { initialSearch?: string }
         {filtered && <button type="button" onClick={clearAll} className="mt-1 text-xs font-semibold text-[#23355d] hover:underline">Clear the search and filters</button>}
       </div>
     ) : (
-      <div aria-busy={loading} className={cn('flex flex-col gap-3 transition-opacity', loading && 'opacity-60')}>
+      <div aria-busy={loading} className={cn('flex min-w-0 flex-col gap-3 transition-opacity', loading && 'opacity-60')}>
+        {/* grid-cols-1 (2026-11-20) : sur téléphone, une colonne qui ne dépasse JAMAIS l'écran ; sans elle, un long
+            "service · direction" (sur une ligne) élargissait la page, et la carte de visite était coupée à droite. */}
         {view === 'cards'
-          ? <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+          ? <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
               {data.results.map((person) => <PersonCard key={person.id} person={person} onOpen={() => setOpened(person)} />)}
             </ul>
           : <PeopleTable people={data.results} onOpen={setOpened} />}
@@ -228,12 +230,15 @@ function PersonCard({ person, onOpen }: { person: DirectoryPerson; onOpen: () =>
 
 /** La vue Liste : plus dense, pour parcourir beaucoup de monde. */
 function PeopleTable({ people, onOpen }: { people: DirectoryPerson[]; onOpen: (person: DirectoryPerson) => void }) {
+  // Téléphone (2026-11-20, standard Gmail / Outlook) : seulement le nom et les boutons ; Department, Email, Phone
+  // à partir d'une tablette (le reste est dans la carte de visite). Avant : 760 px minimum, la page était dézoomée.
   return <div className="overflow-x-auto rounded-xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-    <table className="w-full min-w-[760px] text-xs">
+    <table className="w-full text-xs sm:min-w-[760px]">
       <thead>
         <tr className="border-b border-slate-100 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-          <th className="px-4 py-2.5">Name</th><th className="px-3 py-2.5">Department</th><th className="px-3 py-2.5">Email</th>
-          <th className="px-3 py-2.5">Phone</th><th className="px-3 py-2.5"><span className="sr-only">Actions</span></th>
+          <th className="px-4 py-2.5">Name</th><th className="hidden px-3 py-2.5 sm:table-cell">Department</th>
+          <th className="hidden px-3 py-2.5 sm:table-cell">Email</th>
+          <th className="hidden px-3 py-2.5 sm:table-cell">Phone</th><th className="px-3 py-2.5"><span className="sr-only">Actions</span></th>
         </tr>
       </thead>
       <tbody>
@@ -247,9 +252,9 @@ function PeopleTable({ people, onOpen }: { people: DirectoryPerson[]; onOpen: (p
               </span>
             </button>
           </td>
-          <td className="px-3 py-2 text-slate-600">{person.department}<span className="block text-[11px] text-slate-400">{person.direction}</span></td>
-          <td className="px-3 py-2"><a href={`mailto:${person.professional_email}`} className="text-[#23355d] hover:underline">{person.professional_email}</a></td>
-          <td className="whitespace-nowrap px-3 py-2 tabular-nums text-slate-600">{person.phone ? <a href={`tel:${person.phone}`} className="hover:underline">{formatPhone(person.phone)}</a> : '—'}</td>
+          <td className="hidden px-3 py-2 text-slate-600 sm:table-cell">{person.department}<span className="block text-[11px] text-slate-400">{person.direction}</span></td>
+          <td className="hidden px-3 py-2 sm:table-cell"><a href={`mailto:${person.professional_email}`} className="text-[#23355d] hover:underline">{person.professional_email}</a></td>
+          <td className="hidden whitespace-nowrap px-3 py-2 tabular-nums text-slate-600 sm:table-cell">{person.phone ? <a href={`tel:${person.phone}`} className="hover:underline">{formatPhone(person.phone)}</a> : '—'}</td>
           <td className="px-3 py-2"><QuickActions person={person} className="justify-end" withoutMail /></td>
         </tr>)}
       </tbody>
