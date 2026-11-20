@@ -35,6 +35,22 @@ RESULTS = {Kind.APPROVED, Kind.REJECTED, Kind.CANCELLED, Kind.RECOUNTED, Kind.EX
 # "email_info".
 
 
+def hidden_in_bell(user):
+    """Les sortes de notifications que CET utilisateur a désactivées dans la cloche (page Settings, 2026-11-20).
+    Seulement l'affichage : elles restent enregistrées (et les emails suivent leurs propres réglages)."""
+    choices = NotificationSettings.objects.filter(user=user).first()
+    if choices is None:
+        return set()
+    hidden = set()
+    if not choices.app_to_approve:
+        hidden |= ALWAYS
+    if not choices.app_results:
+        hidden |= RESULTS
+    if not choices.app_info:
+        hidden |= set(Kind.values) - ALWAYS - RESULTS
+    return hidden
+
+
 def wanted(notification):
     """Cet utilisateur veut-il CETTE famille d'emails ? (Pas de réglage enregistré = oui.)"""
     if notification.kind in ALWAYS:

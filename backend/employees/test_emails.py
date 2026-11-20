@@ -67,6 +67,13 @@ class EmailTests(EngineTestCase):
         self.assertEqual((data["email_results"], data["email_info"], data["email_address"]), (True, True, self.sara.professional_email))
         self.assertFalse(client.patch(url, {"email_info": False}, format="json").json()["email_info"])
         self.assertFalse(NotificationSettings.objects.get(user=self.sara.user).email_info)  # seulement les siens
+        # 2026-11-20 : la cloche, famille par famille (seulement l'affichage : la notification reste enregistrée).
+        Notification.objects.create(recipient=self.sara.user, employee=self.sara, kind=Notification.Kind.RIGHT_CHANGED)
+        bell = reverse("employees:notification-list")
+        self.assertEqual(client.get(bell).json()["unread"], 1)
+        self.assertFalse(client.patch(url, {"app_info": False}, format="json").json()["app_info"])
+        self.assertEqual(client.get(bell).json(), {"unread": 0, "results": []})
+        self.assertTrue(Notification.objects.filter(recipient=self.sara.user, kind="RIGHT_CHANGED").exists())
 
     def test_the_morning_round_makes_reminders_without_opening_the_bell(self):
         # Sara est en période d'essai, fin dans 5 jours : Nadia (RH du pôle) doit être prévenue,

@@ -732,15 +732,19 @@ class Notification(models.Model):
 
 
 class NotificationSettings(models.Model):
-    """Les choix d'UN utilisateur pour ses emails (page Settings, 2026-11-11). Seulement les emails :
-    la cloche n'a pas de réglage (toujours là : un compte de la société). "Demandes à valider" n'est pas
-    ici non plus : toujours envoyé (sinon les demandes de l'équipe resteraient bloquées).
+    """Les choix d'UN utilisateur pour ses notifications (page Settings, 2026-11-11).
+    Emails : "Demandes à valider" n'est pas ici : toujours envoyé (sinon les demandes de l'équipe resteraient bloquées).
+    Cloche (2026-11-20, demande de l'encadrant) : chaque famille s'active / se désactive, "à valider" aussi. Ce n'est
+    qu'un affichage : la notification reste enregistrée, la demande reste dans Team approvals et son compteur du menu.
     Pas de ligne pour un utilisateur = tout est activé (le défaut)."""
 
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notification_settings",
                                 verbose_name="Compte")
     email_results = models.BooleanField("Email : résultat de mes demandes", default=True)  # acceptée, refusée, annulée...
     email_info = models.BooleanField("Email : informations et rappels", default=True)      # pour info, solde, 31/12, rappels
+    app_to_approve = models.BooleanField("Cloche : demandes à valider", default=True)
+    app_results = models.BooleanField("Cloche : résultat de mes demandes", default=True)
+    app_info = models.BooleanField("Cloche : informations et rappels", default=True)
     updated_at = models.DateTimeField("Modifié le", auto_now=True)
 
     class Meta:

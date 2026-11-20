@@ -3,7 +3,8 @@
 /*
  * Settings -> Notifications (2e version, 2026-11-12 : le standard de GitHub / Jira / Slack, un TABLEAU) :
  * une ligne par famille de notifications, une colonne par canal ("In app" = la cloche, "Email").
- * - In app : toujours coché (cadenas) : un compte de la société, la cloche est la trace du travail ;
+ * - In app (la cloche) : au choix pour CHAQUE famille (2026-11-20, demande de l'encadrant ; avant : toujours coché).
+ *   Seulement l'affichage : une demande à valider reste dans Team approvals et son compteur du menu ;
  * - Email "Requests to approve" : toujours coché (cadenas) : sinon les demandes de l'équipe resteraient bloquées ;
  * - Email "Results of my requests" et "Information & reminders" : au choix (cochés par défaut).
  * Chaque case s'enregistre tout de suite (PATCH /api/employees/notifications/settings/).
@@ -13,14 +14,14 @@ import { Check, CheckCircle2, Lock } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
-type Choices = { email_results: boolean; email_info: boolean; email_address: string }
-type Field = 'email_results' | 'email_info'
+type Field = 'email_results' | 'email_info' | 'app_to_approve' | 'app_results' | 'app_info'
+type Choices = Record<Field, boolean> & { email_address: string }
 
-// Les familles : le titre, ce qu'elles contiennent, et le choix de l'email (null = toujours envoyé).
-const ROWS: { title: string; text: string; email: Field | null }[] = [
-  { title: 'Requests to approve', text: 'A request waits for your answer (as a manager, HR, or a stand-in).', email: null },
-  { title: 'Results of my requests', text: 'Your leave or expense claim is approved, refused, cancelled or recounted.', email: 'email_results' },
-  { title: 'Information & reminders', text: 'For information, leave balance changes, days lost on 31/12, reminders.', email: 'email_info' },
+// Les familles : le titre, ce qu'elles contiennent, la case de la cloche, et celle de l'email (null = toujours envoyé).
+const ROWS: { title: string; text: string; app: Field; email: Field | null }[] = [
+  { title: 'Requests to approve', text: 'A request waits for your answer (as a manager, HR, or a stand-in).', app: 'app_to_approve', email: null },
+  { title: 'Results of my requests', text: 'Your leave or expense claim is approved, refused, cancelled or recounted.', app: 'app_results', email: 'email_results' },
+  { title: 'Information & reminders', text: 'For information, leave balance changes, days lost on 31/12, reminders.', app: 'app_info', email: 'email_info' },
 ]
 
 export function NotificationSettings() {
@@ -85,7 +86,9 @@ export function NotificationSettings() {
                   <p className="font-semibold text-slate-800">{row.title}</p>
                   <p className="text-xs text-slate-500">{row.text}</p>
                 </td>
-                <td className="px-2 py-3.5 text-center"><Box checked locked label={`${row.title}, in app`} /></td>
+                <td className="px-2 py-3.5 text-center">
+                  <Box checked={choices[row.app]} busy={saving === row.app} label={`${row.title}, in app`} onToggle={() => toggle(row.app)} />
+                </td>
                 <td className="px-5 py-3.5 text-center">
                   {row.email === null
                     ? <Box checked locked label={`${row.title}, email`} />
@@ -97,8 +100,9 @@ export function NotificationSettings() {
           <p className="flex items-start gap-1.5 border-t border-slate-100 bg-slate-50/60 px-5 py-3 text-xs text-slate-500">
             <Lock className="mt-0.5 size-3 shrink-0" aria-hidden />
             <span>
-              Locked boxes are always on: the bell keeps every notification of your work account, and requests to approve
-              are always emailed so that nothing gets stuck. Emails go to <b className="font-semibold text-slate-700">{choices.email_address || 'your professional email'}</b>.
+              In app = the bell. Unticked, those notifications are not shown in the bell (requests to approve stay in
+              Team approvals, with their counter in the menu). Requests to approve are always emailed (locked) so that
+              nothing gets stuck. Emails go to <b className="font-semibold text-slate-700">{choices.email_address || 'your professional email'}</b>.
             </span>
           </p>
         </>}

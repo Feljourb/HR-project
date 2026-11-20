@@ -320,11 +320,12 @@ class NotificationSerializer(serializers.ModelSerializer):
 
 
 class NotificationSettingsSerializer(serializers.ModelSerializer):
-    """MES choix d'emails (page Settings) : deux interrupteurs. "À valider" n'y est pas : toujours envoyé."""
+    """MES choix (page Settings) : 2 interrupteurs d'emails ("à valider" : toujours envoyé) et, depuis le
+    2026-11-20, 3 pour la cloche (chaque famille, "à valider" compris : seulement l'affichage)."""
 
     class Meta:
         model = NotificationSettings
-        fields = ["email_results", "email_info"]
+        fields = ["email_results", "email_info", "app_to_approve", "app_results", "app_info"]
 
 
 class DirectorySerializer(serializers.ModelSerializer):

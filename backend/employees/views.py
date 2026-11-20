@@ -37,7 +37,7 @@ from accounts.permissions import AccountReady, IsHR, IsHRAdmin
 from accounts.services import can_reset_password, reset_password as reset_account_password
 
 from . import history, notifications
-from .emails import address_of
+from .emails import address_of, hidden_in_bell
 from .models import (
     Assignment, Bank, Category, City, ContractType, CostCenter, Department, Direction, Division,
     Employee, EmployeeHistory, Entity, Grade, Notification, NotificationSettings, Pole, Position, Region, TempAgency,
@@ -355,7 +355,8 @@ class NotificationViewSet(viewsets.GenericViewSet):
 
     def list(self, request):
         notifications.refresh_for(request.user)  # crée les nouvelles, enlève celles qui ne servent plus
-        queryset = self.get_queryset()
+        # Les familles que j'ai désactivées dans Settings (2026-11-20) ne s'affichent pas (elles restent enregistrées).
+        queryset = self.get_queryset().exclude(kind__in=hidden_in_bell(request.user))
         return Response({
             "unread": queryset.filter(read_at__isnull=True).count(),
             "results": self.get_serializer(queryset[:20], many=True).data,
