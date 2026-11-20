@@ -129,7 +129,8 @@ def make_viewset(model, parent_field=None, pole_path=None, exclude=(), fixed=Fal
     """Fabrique la vue d'une liste à partir de son modèle, pour ne pas écrire
     14 fois les mêmes classes. type(nom, (classe_mère,), attributs) crée une classe,
     exactement comme si on l'écrivait avec "class ...:".
-    fixed (2026-11-20, les pôles) : les valeurs ne se désactivent pas (is_active en lecture seule)."""
+    fixed (2026-11-20, les pôles) : ni ajout ni désactivation (is_active en lecture seule, pas de POST) ;
+    seulement renommer. Un nouveau pôle (rare) : l'IT l'ajoute dans /admin."""
     # Le serializer de cette liste : tous les champs du modèle (id, name, is_active,
     # + le parent ex. "department", + "code" pour les centres de coût), sauf `exclude`.
     meta = type("Meta", (), {"model": model, "exclude": exclude} if exclude else {"model": model, "fields": "__all__"})
@@ -140,12 +141,15 @@ def make_viewset(model, parent_field=None, pole_path=None, exclude=(), fixed=Fal
     if any(field.name == "head" for field in model._meta.fields):
         attributes["head_label"] = serializers.StringRelatedField(source="head", read_only=True)
     serializer = type(f"{model.__name__}Serializer", (ReferenceSerializer,), attributes)
-    return type(f"{model.__name__}ViewSet", (ReferenceViewSet,), {
+    view = {
         "queryset": model.objects.all(),
         "serializer_class": serializer,
         "parent_field": parent_field,
         "pole_path": pole_path,
-    })
+    }
+    if fixed:
+        view["http_method_names"] = ["get", "patch", "head", "options"]  # pas d'ajout (POST -> 405)
+    return type(f"{model.__name__}ViewSet", (ReferenceViewSet,), view)
 
 
 # Toutes les listes : morceau d'adresse -> vue. Utilisé par urls.py.

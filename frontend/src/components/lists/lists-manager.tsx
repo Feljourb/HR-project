@@ -143,10 +143,11 @@ export function ListsManager() {
               {items ? `${items.length} values${inactiveCount ? ` · ${inactiveCount} inactive` : ''}` :' '}
             </p>
           </div>
-          <button type="button" onClick={openAdd} disabled={!ready}
+          {/* Une liste fixe (les 2 pôles) : pas d'ajout ici (2026-11-20 ; un nouveau pôle, rare : l'IT dans /admin). */}
+          {!current.fixed && <button type="button" onClick={openAdd} disabled={!ready}
             className="flex items-center gap-1.5 rounded-lg bg-[#23355d] px-3 py-2 text-xs font-semibold text-white hover:bg-[#192646] disabled:cursor-not-allowed disabled:opacity-50">
             <Plus className="size-3.5" /> Add a value
-          </button>
+          </button>}
         </header>
 
         {/* Organisation : les niveaux au-dessus, à choisir d'abord. */}

@@ -44,7 +44,7 @@ export type ListConfig = {
   headFilter?: 'direction' | 'department'
   extra?: ExtraField[]  // des champs en plus du nom
   byDate?: boolean      // trier par date (jours fériés), pas par nom
-  fixed?: boolean       // pas de "Deactivate" (les pôles)
+  fixed?: boolean       // pas de "Add a value" ni de "Deactivate" (les pôles) : seulement renommer
   panel?: 'holidays' | 'leave-settings' | 'signatures' | 'expense-settings' | 'document-settings'  // une page à part
 }
 

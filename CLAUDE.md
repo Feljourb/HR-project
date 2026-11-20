@@ -374,13 +374,13 @@ Standard (Workday / SAP / BambooHR), done in one go before a meeting (asked by t
 
 ## Backlog (notes of the user, 2026-11-20, after the MVP of the 4 modules) — one at a time, propose first
 - [ ] B1. Emails: Admin RH chooses whether the email "Requests to approve" is locked ON for everybody (today: always locked) or can be unticked by each user (standard: admin-enforced notification policy, e.g. Microsoft Teams / Jira admin). ~30 min.
-- [ ] B2. Dashboard "Requests & approvals": the card height follows its content (today a big empty space under 2 rows). ~10 min.
+- [x] B2. Dashboard "Requests & approvals": the card height follows its content (`self-start` in `sbd-dashboard.tsx`; before, the grid stretched it to the height of "Time off" next to it).
 - [ ] B3. Language EN / AR (Arabic = right-to-left). BIG (every text of the app + RTL layout): v2.
 - [ ] B4. Light / dark mode. BIG (colours are written in each component, e.g. #192646: they must become tokens first): v2.
 - [ ] B5. "Dotation" on the employee fiche (forgotten): HR give a dotation every 3 months; a field + a bell to HR every 3 months. To clarify with HR first: what it is (amount? equipment? fuel / phone?), per employee or per grade, who receives the reminder.
 - [ ] B6. City field: a dropdown that shows ALL the cities (today a type-to-search list, K3). ~20 min.
 - [ ] B7. Organisation: a manager can have people of Riaya AND SBD in his team, so a direction must be usable for both pôles. To CHECK first (today Direction -> Entity -> Pôle, and the N+1 = the head of the service / direction): analyse, then propose.
-- [x] B8. Reference lists -> Pôles: no Activate / Deactivate (the 2 pôles are fixed): `ListConfig.fixed` / `ValueRow fixed` hide the button; the API ignores `is_active` for pôles (`make_viewset(..., fixed=True)` = read-only). Rename and "Add" stay.
+- [x] B8. Reference lists -> Pôles: no Activate / Deactivate (the 2 pôles are fixed): `ListConfig.fixed` / `ValueRow fixed` hide the button; the API ignores `is_active` for pôles (`make_viewset(..., fixed=True)` = read-only). Rename stays; "Add a value" removed too (the user: only 2 pôles; a new one = IT in /admin; the API refuses POST, `http_method_names` without post).
 - [ ] B9. A manager requests a leave FOR someone of his team (like the documents, "Manager Self-Service"), only if Admin RH allows it (setting, OFF by default). The user's idea, NOT validated by the encadrant yet: to discuss. Standard (SAP / Workday "request time off for a worker"). ~1 h.
 - [ ] B10. My requests: filters (type, date, search) and a nicer, shorter list (today a long list with status pills only). ~45 min.
  

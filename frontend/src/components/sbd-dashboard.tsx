@@ -33,7 +33,9 @@ export function SbdDashboard({ me }: { me: Me }) {
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-12">
       <FeaturedVideo className="md:col-span-2 xl:col-span-7" index={2} />
       <NewsPanel className="md:col-span-2 xl:col-span-5" index={3} />
-      <RequestsPanel leaveData={leaveData} claims={claims} className="md:col-span-2 xl:col-span-8" index={4} />
+      {/* self-start (2026-11-20) : la carte a la hauteur de SES lignes (avant, elle s'étirait à la hauteur de
+          "Time off" à côté : un grand vide sous 2 demandes). */}
+      <RequestsPanel leaveData={leaveData} claims={claims} className="self-start md:col-span-2 xl:col-span-8" index={4} />
       <TimeOffPanel now={now} leaveData={leaveData} className="xl:col-span-4" index={5} />
     </div>
 
