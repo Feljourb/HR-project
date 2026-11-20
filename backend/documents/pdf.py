@@ -27,7 +27,7 @@ GREY = colors.HexColor("#64748B")
 
 def signatory_of(employee):
     """Le signataire du pôle du collaborateur (les valeurs par défaut s'il n'est pas encore réglé par Admin RH)."""
-    pole = employee.department.direction.entity.pole
+    pole = employee.pole
     return DocumentSignatory.objects.filter(pole=pole).first() or DocumentSignatory(pole=pole)
 
 
@@ -65,7 +65,7 @@ def work_certificate_text(document):
     fiche. Du texte simple : une ligne vide = un nouveau paragraphe, **mot** = en gras. C'est ce que les RH peuvent
     relire et modifier avant l'envoi (step 3, 2026-11-16) ; le cadre du document, lui, ne change jamais."""
     employee = document.employee
-    company = employee.department.direction.entity.name
+    company = employee.entity.name
     e = "e" if employee.title == Employee.Title.MRS else ""  # les accords : "employée", "l'intéressée"
     civility = "Madame" if e else "Monsieur"
     hired = f"{employee.hire_date:%d/%m/%Y}"
@@ -105,7 +105,7 @@ def work_certificate(document, signed=True, text=None):
     signed=False : le brouillon des RH (sans les images de signature et de cachet), à signer à la main.
     text : le corps à utiliser (un aperçu) ; sinon celui relu par les RH (document.body), sinon le modèle rempli."""
     employee = document.employee
-    company = escape(employee.department.direction.entity.name)
+    company = escape(employee.entity.name)
     signatory = signatory_of(employee)
     body_text = text if text is not None else (document.body or model_text(document))
     name = document.doc_type.name if document.doc_type_id else "Attestation de travail"  # l'exemple n'a pas de type

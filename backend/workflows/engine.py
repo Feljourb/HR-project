@@ -43,7 +43,7 @@ def hr_validators(requester):
     Role = get_user_model().Role
     return (
         get_user_model().objects.filter(is_active=True)
-        .filter(Q(role=Role.HR, employee__department__direction__entity__pole=requester.pole) | Q(role=Role.HR_ADMIN))
+        .filter(Q(role=Role.HR, employee__employer__pole=requester.pole) | Q(role=Role.HR_ADMIN))
         .exclude(pk=requester.user_id)
     )
 
@@ -264,7 +264,7 @@ def steps_waiting_for(user):
     pole = user_pole(user)
     if user.role == Role.HR and pole is not None:
         # RH : les étapes "RH du pôle" des demandes de MON pôle.
-        mine |= Q(approver=Approver.HR, request__requester__department__direction__entity__pole=pole)
+        mine |= Q(approver=Approver.HR, request__requester__employer__pole=pole)
     if user.role == Role.HR_ADMIN:
         # Admin RH : une RH des deux pôles -> toutes les étapes "RH du pôle".
         mine |= Q(approver=Approver.HR)
@@ -274,7 +274,7 @@ def steps_waiting_for(user):
     # + les étapes d'un valideur absent dont JE suis le délégué.
     # Vérifiées une par une (la règle dépend des congés du jour) : il y a peu d'étapes en attente à la fois.
     others = waiting.filter(assignee__isnull=False).exclude(assignee__user=user).exclude(pk__in=ids)
-    for step in others.select_related("assignee", "request__requester__department__direction__entity__pole"):
+    for step in others.select_related("assignee", "request__requester__employer__pole"):
         if answers_for_absent(user, step):
             ids.add(step.pk)
     return RequestStep.objects.filter(pk__in=ids)
@@ -292,7 +292,7 @@ def requests_visible_to(user):
     mine = Q(requester__user=user) | Q(steps__assignee__user=user) | Q(steps__decided_by=user) | Q(initiated_by=user)
     pole = user_pole(user)
     if user.role == Role.HR and pole is not None:
-        mine |= Q(requester__department__direction__entity__pole=pole)
+        mine |= Q(requester__employer__pole=pole)
     # P2 step 1 : celui qui remplace un absent ouvre aussi l'historique des demandes qu'il doit traiter.
     mine |= Q(pk__in=steps_waiting_for(user).values("request"))
     return Request.objects.filter(mine).distinct()

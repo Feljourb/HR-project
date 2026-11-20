@@ -116,7 +116,7 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
   const [touched, setTouched] = useState(false)
   const dirty = isEdit
     ? Boolean(fiche) && (JSON.stringify(values) !== JSON.stringify(valuesOf(fiche!)) || role !== fiche!.account_role
-      || JSON.stringify(children) !== JSON.stringify(fiche!.children))
+      || JSON.stringify(children) !== JSON.stringify(fiche!.children) || entity !== String(fiche!.entity))
     : touched
   useUnsavedWarning(dirty && !created)
 
@@ -125,8 +125,12 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
   // désactivée depuis (affichée "(inactive)"). Sinon le RH devrait en choisir une autre pour enregistrer.
   const kept = (name: 'entity' | 'direction' | FormField) => (fiche?.[name] == null ? undefined : String(fiche[name]))
   const poles = useList('poles')                                    // pour "+ Ajouter" une entité
-  const entities = useList('entities', { include: kept('entity') }) // un RH : seulement son pôle
-  const directions = useList('directions', { parent: { field: 'entity', value: entity }, include: kept('direction') })
+  // L'entité = celle de son CONTRAT (B7, 2026-11-20 : l'employeur, qui donne son pôle). "Les deux pôles" (sans pôle)
+  // n'emploie personne : on ne la propose pas ici.
+  const allEntities = useList('entities', { include: kept('entity') }) // un RH : seulement son pôle (+ "Les deux pôles")
+  const entities = { ...allEntities, items: allEntities.items.filter((item) => (item as ReferenceItem & { pole?: number | null }).pole != null) }
+  // Les directions de cette entité + celles des deux pôles (ex. l'Informatique), automatiquement.
+  const directions = useList('directions', { parent: { field: 'entity', value: entity }, include: kept('direction'), extra: { with_common: '1' } })
   const departments = useList('departments', { parent: { field: 'direction', value: direction }, include: kept('department') })
   const positions = useList('positions', { parent: { field: 'department', value: values.department }, include: kept('position') })
   const contractTypes = useList('contract-types', { include: kept('contract_type') })
@@ -143,6 +147,7 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
   // La "clé" de la requête, ex. "department=4&employee=12" ; null tant qu'il n'y a pas de service.
   const previewParams: Record<string, string> = { department: values.department }
   if (employeeId !== undefined) previewParams.employee = String(employeeId)  // "suis-je responsable / DG ?"
+  if (entity) previewParams.entity = entity  // B7 : l'employeur donne le pôle, donc le DG en haut de la chaîne
   const previewKey = values.department ? new URLSearchParams(previewParams).toString() : null
   const [chain, setChain] = useState<{ key: string; levels: HierarchyLevel[] } | null>(null)
 
@@ -303,6 +308,8 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
     body.children = hasFamily ? children.map(({ first_name, birth_date }) => ({ first_name, birth_date })) : []
     // Email automatique : on ne l'envoie pas, Django le crée (et ajoute un numéro s'il est déjà pris).
     if (autoEmail) delete body.professional_email
+    // B7 : l'entité choisie = l'employeur (l'entité de son contrat).
+    body.employer = entity || null
 
     try {
       const response = await apiFetch(isEdit ? `/api/employees/${employeeId}/` : '/api/employees/', {
@@ -474,9 +481,13 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
 
     <FormSection title="Organisation" description="Choose the entity, then the direction, the department and the position.">
       {/* Cascade : la valeur ajoutée va dans le parent déjà choisi (ex. une direction dans l'entité choisie). */}
-      <SelectField id="entity" label="Entity" required value={entity} onChange={changeEntity} options={entities.items} placeholder="Choose an entity"
+      {/* B7 : l'entité de son CONTRAT (elle décide de ses RH, de son solde, de son email). */}
+      <SelectField id="entity" label="Entity (contract)" required value={entity} onChange={changeEntity} options={entities.items} placeholder="Choose an entity"
+        hint="The company of his contract: it decides his HR, leave balance and email." error={error('employer')}
         onAdd={adder(entities, changeEntity, { list: 'entities', title: 'Entité', parentChoice: { field: 'pole', label: 'Pôle', options: poles.items } })} />
-      <SelectField id="direction" label="Direction" required value={direction} onChange={changeDirection} options={directions.items} placeholder={entity ? 'Choose a direction' : 'Choose an entity first'} disabled={!entity}
+      {/* Les directions de cette entité, + celles des deux pôles (ex. l'Informatique), marquées "both pôles". */}
+      <SelectField id="direction" label="Direction" required value={direction} onChange={changeDirection} placeholder={entity ? 'Choose a direction' : 'Choose an entity first'} disabled={!entity}
+        options={directions.items.map((item) => ({ ...item, name: String((item as ReferenceItem & { entity?: number }).entity) !== entity ? `${item.name} · both pôles` : item.name }))}
         onAdd={adder(directions, changeDirection, { list: 'directions', title: 'Direction', parent: { field: 'entity', value: entity, label: nameOf(entities, entity) } })} />
       <SelectField id="department" label="Department" required value={values.department} onChange={changeDepartment} options={departments.items} placeholder={direction ? 'Choose a department' : 'Choose a direction first'} disabled={!direction} error={error('department')}
         onAdd={adder(departments, changeDepartment, { list: 'departments', title: 'Service', parent: { field: 'direction', value: direction, label: nameOf(directions, direction) } })} />

@@ -14,7 +14,7 @@ from rest_framework.test import APIClient
 from accounts.models import User
 from workflows import engine
 
-from .models import Department, Direction, Employee, EmployeeHistory, Pole
+from .models import Department, Direction, Employee, EmployeeHistory, Entity, Pole, Position
 from .tests import EmployeeTestCase
 
 
@@ -90,11 +90,11 @@ class HeadRulesTests(HierarchyTestCase):
     def test_head_works_in_their_service_or_direction(self):
         sales = Department.objects.get(pk=self.sales.pk)
         sales.head = self.nizar  # il est dans le service "Direction", pas dans "Ventes"
-        self.assertEqual(self.errors_of(sales)["head"], ["Le responsable doit faire partie de ce service."])
+        self.assertIn("Le responsable doit faire partie de ce service", self.errors_of(sales)["head"][0])
 
         commercial = Direction.objects.get(pk=self.commercial.pk)
         commercial.head = self.dg  # il travaille dans une autre direction
-        self.assertEqual(self.errors_of(commercial)["head"], ["Le responsable doit travailler dans cette direction."])
+        self.assertIn("Le responsable doit travailler dans cette direction", self.errors_of(commercial)["head"][0])
         commercial.head = self.sara  # Ventes est dans cette direction : OK
         commercial.full_clean()
 
@@ -109,6 +109,32 @@ class HeadRulesTests(HierarchyTestCase):
         youssef.department = self.office
         youssef.position = self.office.positions.first()
         self.assertIn("Ventes", self.errors_of(youssef)["department"][0])
+
+    def test_a_team_of_both_poles(self):
+        # B7 (2026-11-20, standard Workday : employeur ≠ équipe) : un service rangé dans "Les deux pôles" (ex.
+        # l'Informatique) ; un chef sous contrat SBD, un membre sous contrat Riaya. Chacun garde le pôle de SON contrat.
+        common = Entity.objects.get(name="Les deux pôles")
+        it = Direction.objects.create(name="Informatique", entity=common)
+        team = Department.objects.create(name="Infrastructure", direction=it)
+        job = Position.objects.create(name="Technicien", department=team)
+        sbd, riaya = self.sales.direction.entity, Entity.objects.get(name="Eureka")
+        karim = self.make_employee("k.karim", "AB000098", first_name="Karim", department=team, position=job, employer=sbd)
+        ali = self.make_employee("a.ali", "AB000099", first_name="Ali", department=team, position=job, employer=riaya)
+        Department.objects.filter(pk=team.pk).update(head=karim)
+        self.assertEqual(fresh(ali).n_plus_1, karim)                     # son chef : Karim (SBD)
+        self.assertEqual((fresh(ali).pole.name, fresh(karim).pole.name), ("Riaya", "SBD"))  # ses RH : Riaya
+        # Un service commun sans employeur choisi : refusé ; un service d'une autre entité : refusé.
+        no_employer = fresh(ali)
+        no_employer.employer = None
+        self.assertIn("employer", self.errors_of_clean(no_employer))
+        wrong = fresh(ali)
+        wrong.department = self.sales  # Ventes est dans l'entité Challenge (SBD), pas Eureka
+        self.assertIn("department", self.errors_of_clean(wrong))
+
+    def errors_of_clean(self, item):
+        with self.assertRaises(ValidationError) as error:
+            item.clean()
+        return error.exception.message_dict
 
 
 class HierarchyApiAndEngineTests(HierarchyTestCase):

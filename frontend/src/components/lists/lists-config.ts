@@ -119,6 +119,7 @@ export const ORGANISATION: ListConfig[] = [
   // fixed : les 2 pôles (SBD, Riaya) ne se désactivent pas (2026-11-20) ; ils se renomment seulement.
   { name: 'poles', title: 'Pôles', singular: 'Pôle', fixed: true },
   { name: 'entities', title: 'Entités', singular: 'Entité', parentField: 'pole' },
+  // B7 (2026-11-20) : une direction des DEUX pôles (ex. l'Informatique) = choisir l'entité "Les deux pôles" au-dessus.
   { name: 'directions', title: 'Directions', singular: 'Direction', parentField: 'entity', headFilter: 'direction' },
   { name: 'departments', title: 'Services', singular: 'Service', parentField: 'direction', headFilter: 'department' },
   { name: 'positions', title: 'Postes', singular: 'Poste', parentField: 'department' },

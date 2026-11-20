@@ -13,7 +13,7 @@ from rest_framework import serializers
 from accounts.services import can_change_role, can_give_role_to_new_account, can_reset_password
 
 from . import history, notifications, services
-from .models import Child, City, Employee, EmployeeHistory, Notification, NotificationPolicy, NotificationSettings
+from .models import Child, City, Employee, EmployeeHistory, Entity, Notification, NotificationPolicy, NotificationSettings
 
 User = get_user_model()
 
@@ -113,6 +113,9 @@ class EmployeeSerializer(serializers.ModelSerializer):
     direction = serializers.PrimaryKeyRelatedField(read_only=True)
     entity = serializers.PrimaryKeyRelatedField(read_only=True)
     pole = serializers.PrimaryKeyRelatedField(read_only=True)
+    # B7 : l'entité de son contrat. Facultatif ici : pour un service d'une seule entité, c'est elle (le modèle la
+    # remplit) ; obligatoire seulement pour un service des deux pôles (règle 11 du modèle).
+    employer = serializers.PrimaryKeyRelatedField(queryset=Entity.objects.all(), required=False, allow_null=True)
     # La chaîne calculée N+1, N+2... jusqu'au DG (voir Employee.hierarchy), avec les noms :
     # affichée même si le RH ne peut pas ouvrir ces dossiers (ex. un DG d'un autre pôle).
     hierarchy = serializers.SerializerMethodField()
@@ -192,7 +195,7 @@ class EmployeeSerializer(serializers.ModelSerializer):
         #    dans ce cas il arrive rempli et on le garde (vérifié en 1 et 2, comme en modification).
         if self.instance is None and not attrs.get("professional_email"):
             attrs["professional_email"] = services.make_email(
-                attrs.get("first_name", ""), attrs.get("last_name", ""), attrs.get("department"))
+                attrs.get("first_name", ""), attrs.get("last_name", ""), attrs.get("department"), attrs.get("employer"))
 
         # 1. Les règles du modèle (poste du bon service, CIN unique, agence d'intérim, RIB...).
         #    "role" et "children" ne sont pas des champs du modèle : on les saute.

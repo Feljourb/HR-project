@@ -111,7 +111,7 @@ class EmployeeAdmin(admin.ModelAdmin):
     list_select_related = ("position", "department")
     # Barre de recherche et filtres à droite.
     search_fields = ("last_name", "first_name", "cin", "u_number")
-    list_filter = ("status", "department__direction__entity", "contract_type")
+    list_filter = ("status", "employer", "contract_type")  # l'entité de son contrat (B7)
     autocomplete_fields = ("city",)  # une case de recherche au lieu d'une longue liste
     # Affichés mais pas modifiables : le matricule et les valeurs calculées (propriétés du modèle).
     readonly_fields = ("u_number", "account_role", "direction", "entity", "pole", "n_plus_1", "n_plus_2", "n_plus_3")

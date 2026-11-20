@@ -110,17 +110,26 @@ class ReferenceViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(Q(is_active=True) | Q(pk=include)) if include else queryset.filter(is_active=True)
 
         # 2. Filtre en cascade : ?entity=3 -> seulement les directions de l'entité 3.
+        #    + ?with_common=1 (B7, la fiche employé) : aussi les directions de "Les deux pôles" (ex. l'Informatique).
         value = id_param(params, self.parent_field) if self.parent_field else None
         if value:
-            queryset = queryset.filter(**{self.parent_field: value})
+            only_parent = Q(**{self.parent_field: value})
+            if self.parent_field == "entity" and params.get("with_common") == "1":
+                only_parent |= Q(entity__pole__isnull=True)
+            queryset = queryset.filter(only_parent)
 
-        # 3. Un RH ne voit que l'organisation de son pôle (RH SBD -> entités de SBD).
-        #    Admin RH, IT, managers et collaborateurs voient les deux pôles.
+        # 3. Un RH ne voit que l'organisation de son pôle (RH SBD -> entités de SBD), + ce qui est commun aux deux
+        #    pôles (B7 : "Les deux pôles", sans pôle). Admin RH, IT, managers et collaborateurs voient les deux pôles.
         if self.pole_path and limited_to_own_pole(user):
             pole = user_pole(user)
             # Un RH sans dossier n'a pas de pôle : il ne voit rien (plus sûr que tout montrer).
             # pole.pk (le numéro) marche pour tous les chemins, même "pk" de la liste des pôles.
-            queryset = queryset.filter(**{self.pole_path: pole.pk}) if pole else queryset.none()
+            if pole is None:
+                queryset = queryset.none()
+            elif self.pole_path == "pk":
+                queryset = queryset.filter(pk=pole.pk)
+            else:
+                queryset = queryset.filter(Q(**{self.pole_path: pole.pk}) | Q(**{f"{self.pole_path}__isnull": True}))
 
         return queryset
 
@@ -207,16 +216,16 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         # select_related : charge service, direction, entité... dans la même requête SQL
         # (sinon le tableau ferait plusieurs requêtes par ligne).
         queryset = Employee.objects.select_related(
-            "user", "position", "contract_type", "department__direction__entity__pole",
+            "user", "position", "contract_type", "department__direction__entity__pole", "employer__pole",
         )
 
-        # Un RH ne voit que les collaborateurs de son pôle. Sans dossier (donc sans pôle) : rien.
+        # Un RH ne voit que les collaborateurs de son pôle (le pôle de leur EMPLOYEUR, B7). Sans dossier : rien.
         # Les autres (Admin RH, IT) voient tout. Pour un autre dossier, la réponse est 404 :
         # on ne dit même pas qu'il existe.
         user = self.request.user
         if limited_to_own_pole(user):
             pole = user_pole(user)
-            queryset = queryset.filter(department__direction__entity__pole=pole.pk) if pole else queryset.none()
+            queryset = queryset.filter(employer__pole=pole.pk) if pole else queryset.none()
 
         # Recherche et filtres du tableau (seulement pour la liste).
         if self.action == "list":
@@ -230,8 +239,9 @@ class EmployeeViewSet(viewsets.ModelViewSet):
             if status := params.get("status"):
                 queryset = queryset.filter(status=status)
             if entity := id_param(params, "entity"):
-                queryset = queryset.filter(department__direction__entity=entity)
-            # Choisir le responsable d'un service / d'une direction : seulement les gens qui y travaillent.
+                queryset = queryset.filter(employer=entity)  # l'entité de leur contrat (B7)
+            # Choisir le responsable d'un service / d'une direction : seulement les gens qui y travaillent
+            # (un service des deux pôles : des gens de SBD et de Riaya).
             if department := id_param(params, "department"):
                 queryset = queryset.filter(department=department)
             if direction := id_param(params, "direction"):
@@ -250,7 +260,9 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         department = Department.objects.filter(pk=id_param(params, "department")).first()
         if department is None:
             return Response([])  # pas encore de service : rien à calculer
-        draft = Employee(department=department)
+        # ?entity= : l'employeur choisi dans le formulaire (B7 : il donne le pôle, donc le DG en haut de la chaîne).
+        employer = Entity.objects.filter(pk=id_param(params, "entity"), pole__isnull=False).first()
+        draft = Employee(department=department, employer=employer)
         # Seulement un dossier que ce RH a le droit de voir (sinon : un nouveau dossier, sans id).
         draft.pk = self.get_queryset().filter(pk=id_param(params, "employee")).values_list("pk", flat=True).first()
         return Response(hierarchy_data(draft))

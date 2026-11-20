@@ -284,7 +284,7 @@ def word_bytes(document):
         paragraph.paragraph_format.space_after = Pt(space_after)
         return paragraph
 
-    line(employee.department.direction.entity.name, bold=True, size=13, space_after=0)
+    line(employee.entity.name, bold=True, size=13, space_after=0)
     line("Direction des Ressources Humaines", size=9, space_after=18)
     line(document.doc_type.name.upper(), bold=True, size=16, align=WD_ALIGN_PARAGRAPH.CENTER, space_after=2)
     line(f"Réf. : {document.reference}", size=9, align=WD_ALIGN_PARAGRAPH.CENTER, space_after=24)

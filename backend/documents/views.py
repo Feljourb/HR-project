@@ -67,7 +67,7 @@ def run(action):
 def documents():
     """Les demandes avec tout ce que le JSON lit, en peu de requêtes SQL."""
     return (DocumentRequest.objects
-            .select_related("request", "doc_type", "employee__department__direction__entity__pole", "delivered_by")
+            .select_related("request", "doc_type", "employee__employer__pole", "delivered_by")
             .prefetch_related("request__steps"))
 
 
@@ -144,7 +144,7 @@ class TypeViewSet(viewsets.ReadOnlyModelViewSet):
             raise PermissionDenied("Seule Admin RH change les modèles.")
         doc_type = get_object_or_404(DocumentType, pk=pk)
         employee =(Employee.objects.filter(user=request.user).first()
-                    or Employee.objects.select_related("department__direction__entity__pole", "position").order_by("id").first())
+                    or Employee.objects.select_related("employer__pole", "position").order_by("id").first())
         if employee is None:
             raise NotFound("Aucun collaborateur pour l'exemple.")
         example = DocumentRequest(employee=employee, doc_type=doc_type, reference="EXEMPLE", purpose="Banque")
@@ -168,7 +168,7 @@ class MyDocumentViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         # Admin RH ne le permet pas (ou pas à moi) : liste vide, donc pas de champ "For" dans le formulaire.
         if not DocumentSettings.load().manager_allowed(request.user):
             return Response([])
-        me = Employee.objects.filter(user=request.user).select_related("department__direction__entity__pole").first()
+        me = Employee.objects.filter(user=request.user).select_related("employer__pole").first()
         return Response([{"id": member.pk, "first_name": member.first_name, "last_name": member.last_name,
                           "position": member.position.name} for member in my_team(me)])
 
@@ -283,8 +283,8 @@ class SignatoryViewSet(mixins.ListModelMixin, mixins.UpdateModelMixin, viewsets.
     def preview(self, request, pk=None):
         """Une attestation de travail d'exemple, avec le premier collaborateur du pôle (Admin RH voit les deux pôles)."""
         signatory = self.get_object()
-        employee = (Employee.objects.filter(department__direction__entity__pole=signatory.pole)
-                    .select_related("department__direction__entity__pole", "position").order_by("id").first())
+        employee = (Employee.objects.filter(employer__pole=signatory.pole)
+                    .select_related("employer__pole", "position").order_by("id").first())
         if employee is None:
             raise NotFound("Aucun collaborateur dans ce pôle pour l'exemple.")
         example = DocumentRequest(employee=employee, reference="EXEMPLE")
@@ -354,7 +354,7 @@ class HrDocumentViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         user = self.request.user
         if limited_to_own_pole(user):
             pole = user_pole(user)
-            queryset = queryset.filter(employee__department__direction__entity__pole=pole) if pole else queryset.none()
+            queryset = queryset.filter(employee__employer__pole=pole) if pole else queryset.none()
         if self.action == "list":
             params = self.request.query_params
             wanted = params.get("status")

@@ -53,7 +53,7 @@ def employees_to_watch(user):
         pole = user_pole(user)
         if pole is None:
             return []
-        queryset = queryset.filter(department__direction__entity__pole=pole.pk)
+        queryset = queryset.filter(employer__pole=pole.pk)
     return [employee for employee in queryset if notify_from(employee) <= today]
 
 

@@ -60,7 +60,7 @@ class DocumentTestCase(EngineTestCase):
         self.work = DocumentType.objects.get(name="Attestation de travail")   # générée par l'application
         self.salary = DocumentType.objects.get(name="Attestation de salaire")  # préparée par les RH
         if self.auto_sign:
-            DocumentSignatory.objects.update_or_create(pole=self.sara.department.direction.entity.pole,
+            DocumentSignatory.objects.update_or_create(pole=self.sara.pole,
                                                        defaults={"mode": "IMAGE", "signature": png()})
         # Les tests "manager" d'avant le réglage (2026-11-17) : Admin RH a ouvert la demande à tous les managers
         # (le défaut est "Non" ; SettingsTests vérifie Non / managers choisis / formats).

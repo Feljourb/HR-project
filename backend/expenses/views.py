@@ -57,7 +57,7 @@ def run(action):
 def claims():
     """Les notes avec tout ce que le JSON lit, en peu de requêtes SQL."""
     return (ExpenseClaim.objects
-            .select_related("request", "employee__department__direction__entity__pole", "employee__grade", "reimbursed_by")
+            .select_related("request", "employee__employer__pole", "employee__grade", "reimbursed_by")
             .prefetch_related("lines__category", "lines__currency", "lines__receipts", "lines__corrections__corrected_by", "request__steps__assignee"))
 
 
@@ -249,7 +249,7 @@ class HrClaimViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         user = self.request.user
         if limited_to_own_pole(user):
             pole = user_pole(user)
-            queryset = queryset.filter(employee__department__direction__entity__pole=pole) if pole else queryset.none()
+            queryset = queryset.filter(employee__employer__pole=pole) if pole else queryset.none()
         if self.action == "list":
             queryset = queryset.filter(**self.FILTERS.get(self.request.query_params.get("status"), {}))
         return queryset

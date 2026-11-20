@@ -38,13 +38,13 @@ def warn_not_validated(user):
     today = timezone.localdate()
     waiting = (LeaveRequest.objects.filter(request__status=Request.Status.IN_PROGRESS,
                                            start_date__gte=today, start_date__lte=today + timedelta(days=WARN_DAYS_BEFORE))
-               .select_related("request", "employee__department__direction__entity__pole"))
+               .select_related("request", "employee__employer__pole"))
     Role = get_user_model().Role
     if user.role == Role.HR_ADMIN:
         mine = waiting  # Admin RH : les deux pôles
     elif user.role == Role.HR:
         pole = user_pole(user)
-        mine = waiting.filter(employee__department__direction__entity__pole=pole) if pole else waiting.filter(employee__user=user)
+        mine = waiting.filter(employee__employer__pole=pole) if pole else waiting.filter(employee__user=user)
     else:
         mine = waiting.filter(employee__user=user)  # le demandeur : ses propres demandes
     Notification.objects.bulk_create(

@@ -9,6 +9,8 @@ type ListOptions = {
   parent?: { field: string; value?: string }
   // La valeur actuelle du dossier qu'on modifie : gardée dans la liste même si elle a été désactivée.
   include?: string
+  // D'autres paramètres, ex. { with_common: '1' } : aussi les directions de "Les deux pôles" (B7, 2026-11-20).
+  extra?: Record<string, string>
 }
 
 /**
@@ -23,11 +25,12 @@ type ListOptions = {
  *
  * Renvoie { items, add } : `add` ajoute une valeur créée avec "+ Ajouter" (sans recharger).
  */
-export function useList(name: string, { parent, include }: ListOptions = {}) {
+export function useList(name: string, { parent, include, extra }: ListOptions = {}) {
   // La "clé" de la requête, ex. 'entity=3&include=12', '' (pas de filtre), ou null (parent pas choisi).
   const query = new URLSearchParams()
   if (parent?.value) query.set(parent.field, parent.value)
   if (include) query.set('include', include)
+  for (const [field, value] of Object.entries(extra ?? {})) query.set(field, value)
   const key = parent && !parent.value ? null : query.toString()
   const [loaded, setLoaded] = useState<{ key: string; items: ReferenceItem[] } | null>(null)
 

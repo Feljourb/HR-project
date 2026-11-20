@@ -73,7 +73,8 @@ class ListsApiTests(EmployeeTestCase):
 
     def test_hr_only_sees_the_entities_of_their_pole(self):
         self.login_as(User.Role.HR, fiche=self.fiche("AB111111"))  # dossier dans Challenge (SBD)
-        self.assertEqual(self.names(self.client.get(url("entities"))), ["Challenge", "Silent Believers Distribution"])
+        # + "Les deux pôles" (B7, 2026-11-20) : les directions communes, que chaque RH voit aussi.
+        self.assertEqual(self.names(self.client.get(url("entities"))), ["Challenge", "Les deux pôles", "Silent Believers Distribution"])
         self.assertEqual(self.names(self.client.get(url("poles"))), ["SBD"])
 
     def test_hr_cannot_read_the_organisation_of_the_other_pole(self):
@@ -87,7 +88,7 @@ class ListsApiTests(EmployeeTestCase):
 
     def test_hr_admin_sees_both_poles(self):
         self.login_as(User.Role.HR_ADMIN)
-        self.assertEqual(len(self.client.get(url("entities")).json()), 5)
+        self.assertEqual(len(self.client.get(url("entities")).json()), 6)  # 5 + "Les deux pôles" (B7)
 
     # --- Écriture : Admin RH seulement --------------------------------------------
 
