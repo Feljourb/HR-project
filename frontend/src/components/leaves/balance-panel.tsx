@@ -269,7 +269,7 @@ function RightCard({ detail, onSaved }: { detail: BalanceDetail; onSaved: (detai
       </li>)}
     </ol>
 
-    {open && <form onSubmit={save} className="grid gap-3 border-t border-slate-100 bg-slate-50/60 px-4 py-3 sm:grid-cols-2">
+    {open && <form onSubmit={save} className="grid grid-cols-1 gap-3 border-t border-slate-100 bg-slate-50/60 px-4 py-3 sm:grid-cols-2">
       <div>
         <label htmlFor="right-days" className="block text-xs font-semibold text-slate-700">New right (days / year) <span className="text-red-500" aria-hidden>*</span></label>
         <input id="right-days" type="number" required min="0" step="0.5" value={annualDays} onChange={(e) => setAnnualDays(e.target.value)} placeholder="e.g. 30" className={controlClass} />
@@ -349,7 +349,7 @@ function CorrectionsCard({ detail, onSaved }: { detail: BalanceDetail; onSaved: 
           </li>)}
         </ul>}
 
-    {open && <form onSubmit={save} className="grid gap-3 border-t border-slate-100 bg-slate-50/60 px-4 py-3 sm:grid-cols-2">
+    {open && <form onSubmit={save} className="grid grid-cols-1 gap-3 border-t border-slate-100 bg-slate-50/60 px-4 py-3 sm:grid-cols-2">
       <div>
         <label htmlFor="adjust-days" className="block text-xs font-semibold text-slate-700">Days (+ to add, - to remove) <span className="text-red-500" aria-hidden>*</span></label>
         <input id="adjust-days" type="number" required step="0.5" min="-100" max="100" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="e.g. -10" className={controlClass} />
@@ -410,7 +410,7 @@ function RecordLeaveForm({ detail, onClose, onSaved }: {
     setBusy(false)
   }
 
-  return <form onSubmit={save} className="grid gap-3 border-b border-slate-100 bg-slate-50/60 px-4 py-3 sm:grid-cols-2">
+  return <form onSubmit={save} className="grid grid-cols-1 gap-3 border-b border-slate-100 bg-slate-50/60 px-4 py-3 sm:grid-cols-2">
     <p className="text-[11px] text-slate-500 sm:col-span-2">The leave is <b className="font-semibold text-slate-700">approved at once</b> and the employee is notified. Past dates are allowed for HR.</p>
     <div className="sm:col-span-2">
       <label htmlFor="record-type" className="block text-xs font-semibold text-slate-700">Type <span className="text-red-500" aria-hidden>*</span></label>

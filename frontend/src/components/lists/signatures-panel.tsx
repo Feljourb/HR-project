@@ -107,14 +107,14 @@ function SignatoryCard({ initial, showMode }: { initial: Signatory; showMode: bo
       </button>
     </header>
 
-    <div className="grid gap-3 px-4 py-4 sm:grid-cols-3">
+    <div className="grid grid-cols-1 gap-3 px-4 py-4 sm:grid-cols-3">
       <TextInput id={`name-${saved.id}`} label="Signatory name" value={draft.name} onChange={set('name')} placeholder="e.g. Karima Idrissi (optional)" />
       <TextInput id={`title-${saved.id}`} label="Title" value={draft.title} onChange={set('title')} placeholder="Le Directeur des Ressources Humaines" />
       <TextInput id={`city-${saved.id}`} label="City (« Fait à »)" value={draft.city} onChange={set('city')} placeholder="Casablanca" />
     </div>
 
     {/* Comment le PDF est fait : deux cartes à choisir (comme des boutons radio) ; seulement si le PDF est proposé. */}
-    {showMode && <fieldset className="grid gap-2 px-4 pb-4 sm:grid-cols-2">
+    {showMode && <fieldset className="grid grid-cols-1 gap-2 px-4 pb-4 sm:grid-cols-2">
       <legend className="mb-1.5 text-xs font-semibold text-slate-700">How the PDF is made</legend>
       {MODES.map(({ id, icon: Icon, title, text }) => {
         const selected = draft.mode === id
@@ -129,7 +129,7 @@ function SignatoryCard({ initial, showMode }: { initial: Signatory; showMode: bo
       })}
     </fieldset>}
 
-    {showMode && draft.mode === 'IMAGE' && <div className="grid gap-3 border-t border-slate-100 px-4 py-4 sm:grid-cols-2">
+    {showMode && draft.mode === 'IMAGE' && <div className="grid grid-cols-1 gap-3 border-t border-slate-100 px-4 py-4 sm:grid-cols-2">
       <ImageSlot label="Signature (required)" kind="signature" signatory={saved} version={version} file={files.signature}
         onChange={(file) => { setFiles((old) => ({ ...old, signature: file })); setDone(false) }} />
       <ImageSlot label="Company stamp" kind="stamp" signatory={saved} version={version} file={files.stamp}

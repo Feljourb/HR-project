@@ -130,7 +130,7 @@ function DelegationForm({ me, onClose, onSaved }: { me: Me; onClose: () => void;
     setBusy(false)
   }
 
-  return <form onSubmit={save} className="grid gap-3 border-t border-slate-100 bg-slate-50/60 px-4 py-3 sm:grid-cols-2">
+  return <form onSubmit={save} className="grid grid-cols-1 gap-3 border-t border-slate-100 bg-slate-50/60 px-4 py-3 sm:grid-cols-2">
     {isHr(me) && <label className="flex items-center gap-2 text-xs text-slate-700 sm:col-span-2">
       <input type="checkbox" checked={forOther} onChange={(e) => setForOther(e.target.checked)} className="size-3.5 accent-[#192646]" />
       For another employee (HR: someone away who cannot do it)

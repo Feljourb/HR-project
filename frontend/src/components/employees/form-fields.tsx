@@ -169,6 +169,6 @@ export function FormSection({ title, description, children }: { title: string; d
       <h2 className="text-sm font-semibold text-[#192646]">{title}</h2>
       {description && <p className="text-[11px] text-slate-500">{description}</p>}
     </header>
-    <div className="grid gap-4 p-4 sm:grid-cols-2 xl:grid-cols-3">{children}</div>
+    <div className="grid grid-cols-1 gap-4 p-4 sm:grid-cols-2 xl:grid-cols-3">{children}</div>
   </section>
 }

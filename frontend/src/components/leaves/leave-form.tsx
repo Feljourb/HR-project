@@ -107,7 +107,7 @@ export function LeaveForm({ onSent }: { onSent: () => void }) {
       <p className="text-[11px] text-slate-500">Saturday counts half a day (its morning), Sunday and public holidays count nothing.</p>
     </header>
 
-    <div className="grid gap-4 p-4 sm:grid-cols-2">
+    <div className="grid grid-cols-1 gap-4 p-4 sm:grid-cols-2">
       <SelectField id="leave_type" label="Type of leave" required className="sm:col-span-2" placeholder="Choose a type"
         value={draft.leave_type} onChange={(value) => set('leave_type', value)}
         options={types.map((type) => ({ id: String(type.id), name: type.name }))}

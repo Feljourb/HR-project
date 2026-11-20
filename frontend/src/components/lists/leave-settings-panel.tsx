@@ -97,7 +97,7 @@ export function LeaveSettingsPanel() {
     {saved === null
       ? <p className="px-4 py-10 text-center text-sm text-slate-500">{failed ? 'Could not load the settings (Admin RH only).' : 'Loading...'}</p>
       : <form onSubmit={ask} className="flex flex-col gap-4 p-4">
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             {FIELDS.map((field) => <div key={field.name}>
               <label htmlFor={`setting-${field.name}`} className="block text-xs font-semibold text-slate-700">{field.label}</label>
               <div className="mt-1.5 flex items-center gap-2">

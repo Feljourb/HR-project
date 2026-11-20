@@ -30,7 +30,7 @@ export function ChildrenEditor({ items, onChange, errorOf }: ChildrenEditorProps
       {items.map((child, index) => {
         const nameError = errorOf(index, 'first_name')
         const dateError = errorOf(index, 'birth_date')
-        return <li key={index} className="grid items-start gap-2 sm:grid-cols-[1fr_200px_auto]">
+        return <li key={index} className="grid grid-cols-1 items-start gap-2 sm:grid-cols-[1fr_200px_auto]">
           <div>
             <label htmlFor={`child-${index}-name`} className="sr-only">First name of child {index + 1}</label>
             <input id={`child-${index}-name`} required placeholder="First name" value={child.first_name}

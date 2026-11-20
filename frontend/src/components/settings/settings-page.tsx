@@ -22,7 +22,8 @@ const SECTIONS: Section[] = [
 export function SettingsPage() {
   const [current, setCurrent] = useState('notifications')
 
-  return <div className="mx-auto flex max-w-5xl flex-col gap-5">
+  // w-full : toujours la largeur de l'écran (sinon, sur téléphone, la largeur du plus long texte).
+  return <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
     <div>
       <h1 className="text-lg font-semibold text-[#192646]">Settings</h1>
       <p className="text-xs text-slate-500">Your personal settings. They only change what you receive and see.</p>

@@ -197,7 +197,7 @@ export function DocumentSettingsPanel() {
     </Card>
 
   const managers = <Card number={4} title="Managers" text="Can a manager request a document for someone of his team?">
-      <div className="grid gap-2 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         {MANAGERS.map((option) => {
           const selected = draft.manager_requests === option.id
           return <label key={option.id} className={cn('flex cursor-pointer gap-2 rounded-lg border px-2.5 py-2',

@@ -87,7 +87,7 @@ function Summary({ document, showEmployee }: { document: DocumentRequest; showEm
     ...(document.requested_by ? [['Requested by', document.requested_by] as [string, ReactNode]] : []),  // un RH, ou le manager
     ...(document.refusal ? [['Refusal reason', document.refusal] as [string, ReactNode]] : []),
   ]
-  return <dl className="grid gap-x-4 gap-y-2.5 rounded-xl border border-slate-200/80 bg-white p-4 text-xs sm:grid-cols-2">
+  return <dl className="grid grid-cols-1 gap-x-4 gap-y-2.5 rounded-xl border border-slate-200/80 bg-white p-4 text-xs sm:grid-cols-2">
     {rows.map(([label, value]) => <div key={label}>
       <dt className="text-[11px] text-slate-500">{label}</dt>
       <dd className="mt-0.5 font-medium text-[#192646]">{value}</dd>

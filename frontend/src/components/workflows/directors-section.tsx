@@ -19,7 +19,7 @@ export function DirectorsSection({ poles, onPole }: { poles: PoleDirector[]; onP
         The DG is an employee (HR file + Manager account) and answers the &quot;DG du pôle&quot; steps. Saved as soon as you choose.
       </p>
     </header>
-    <div className="grid gap-4 p-4 sm:grid-cols-2">
+    <div className="grid grid-cols-1 gap-4 p-4 sm:grid-cols-2">
       {poles.map((pole) => <PoleRow key={pole.id} pole={pole} onChanged={onPole} />)}
     </div>
   </section>

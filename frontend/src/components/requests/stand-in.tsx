@@ -58,7 +58,9 @@ export function StandIn() {
   const active = (delegations ?? []).filter((item) => item.state === 'ACTIVE')
   const planned = (delegations ?? []).filter((item) => item.state === 'PLANNED')
 
-  return <div className="mx-auto flex max-w-4xl flex-col gap-4">
+  // w-full (2026-11-20) : sans lui, "mx-auto" dans la colonne de la page prenait la largeur du plus long texte
+  // (un commentaire de l'historique) : sur téléphone, la page devenait plus large que l'écran.
+  return <div className="mx-auto flex w-full max-w-4xl flex-col gap-4">
     <div>
       <h1 className="text-lg font-semibold text-[#192646]">Stand-in requests</h1>
       <p className="text-xs text-slate-500">A colleague who is away chose you to answer their team&apos;s requests. Only these requests are shown here.</p>
@@ -70,7 +72,7 @@ export function StandIn() {
           {/* Qui je remplace, et quand. */}
           {delegations.length === 0
             ? <Message><UserRoundCheck className="mx-auto mb-2 size-6 text-slate-300" />You are not standing in for anyone right now.</Message>
-            : <ul className="grid gap-3 sm:grid-cols-2">
+            : <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {delegations.map((item) => <li key={item.id} className={cn('flex flex-col gap-3 rounded-xl border bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]',
                   item.state === 'WAITING' ? 'border-amber-200 sm:col-span-2' : 'border-slate-200/80')}>
                   <div className="flex items-start gap-3">

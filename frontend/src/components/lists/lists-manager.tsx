@@ -150,7 +150,7 @@ export function ListsManager() {
         </header>
 
         {/* Organisation : les niveaux au-dessus, à choisir d'abord. */}
-        {chain.length > 0 && <div className="grid gap-3 border-b border-slate-100 px-4 py-3 sm:grid-cols-3">
+        {chain.length > 0 && <div className="grid grid-cols-1 gap-3 border-b border-slate-100 px-4 py-3 sm:grid-cols-3">
           {chain.map((level, index) => {
             // Le premier filtre n'a pas de parent ; les suivants dépendent du filtre d'avant.
             const above = index > 0 ? filters[chain[index - 1].name] : undefined

@@ -162,7 +162,7 @@ function CategoriesAndCeilings() {
       </table>
     </div>
     {/* La légende (règle "Don't Make Me Think", 2026-11-18) : ce que veut dire chaque colonne. */}
-    <ul className="grid gap-x-6 gap-y-0.5 text-[11px] text-slate-500 sm:grid-cols-2">
+    <ul className="grid grid-cols-1 gap-x-6 gap-y-0.5 text-[11px] text-slate-500 sm:grid-cols-2">
       <li><b className="text-slate-600">Amounts</b> in MAD, by grade · <b className="text-slate-600">—</b> = no maximum</li>
       <li><b className="text-slate-600">Maximum per day</b> = the total of the day · <b className="text-slate-600">per night</b> = each night ·
         <b className="text-slate-600"> per trip</b> = the whole mission · <b className="text-slate-600">per expense</b> = each receipt</li>
@@ -235,7 +235,7 @@ function CategoryForm({ category, grades, ceilings, onSaved }: {
 
     <fieldset className="flex flex-col gap-2">
       <legend className="mb-1 text-xs font-semibold text-slate-700">Maximum amount</legend>
-      <div className="grid gap-2 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <label className={choice(!limited)}><input type="radio" checked={!limited} onChange={() => setLimited(false)} className="mt-0.5 accent-[#192646]" />
           <span><b className="block text-[#192646]">No maximum</b><span className="text-[11px] text-slate-500">Any amount (e.g. a plane ticket).</span></span></label>
         <label className={choice(limited)}><input type="radio" checked={limited} onChange={() => setLimited(true)} className="mt-0.5 accent-[#192646]" />
