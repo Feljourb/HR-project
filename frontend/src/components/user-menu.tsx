@@ -35,7 +35,8 @@ export function UserMenu({ me, displayName, onLogout, children, triggerClassName
 
     {/* Portal : le menu est dessiné au-dessus de toute la page (pas coupé par la sidebar). */}
     <Menu.Portal>
-      <Menu.Positioner side={side} align={align} sideOffset={8} className="z-50">
+      {/* fixed : comme la cloche, le menu flotte au-dessus de la page sans l'allonger (pas de "saut"). */}
+      <Menu.Positioner side={side} align={align} sideOffset={8} positionMethod="fixed" className="z-50">
         <Menu.Popup className="w-60 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg shadow-slate-900/10 outline-none">
           <div className="px-2.5 py-2">
             <p className="truncate text-sm font-semibold text-[#192646]">{displayName}</p>

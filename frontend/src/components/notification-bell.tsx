@@ -90,7 +90,9 @@ export function NotificationBell() {
     </Menu.Trigger>
 
     <Menu.Portal>
-      <Menu.Positioner side="bottom" align="end" sideOffset={8} className="z-50">
+      {/* positionMethod="fixed" (2026-11-20) : la liste flotte AU-DESSUS de la page. En "absolute", une longue liste
+          allongeait une page courte (Stand-in requests) : une barre de défilement apparaissait et la page "sautait". */}
+      <Menu.Positioner side="bottom" align="end" sideOffset={8} positionMethod="fixed" className="z-50">
         <Menu.Popup className="w-[min(92vw,360px)] rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg shadow-slate-900/10 outline-none">
           <div className="flex items-center justify-between gap-2 px-2.5 py-2">
             <p className="text-sm font-semibold text-[#192646]">Notifications</p>

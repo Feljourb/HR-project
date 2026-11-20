@@ -334,9 +334,11 @@ export function AppShell({ me, onLogout, children }: AppShellProps) {
           <label htmlFor="colleague-search" className="sr-only">Search colleagues</label>
           <Input id="colleague-search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search colleagues by name, position or department..." className="h-9 border-slate-200 bg-slate-50 pl-10 text-xs shadow-none" />
         </form>
+        {/* La cloche : TOUJOURS visible, aussi sur téléphone (2026-11-20 : elle était cachée sous 640 px, standard
+            Gmail / LinkedIn mobile). Help et l'avatar : à partir d'une tablette (sur téléphone, le compte et
+            "Log out" sont dans le menu ☰). */}
+        {me && <div className="shrink-0"><NotificationBell /></div>}
         <div className="hidden items-center gap-5 sm:flex">
-          {/* La cloche : les vraies notifications (fin de période d'essai...). */}
-          {me && <NotificationBell />}
           <button className="flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-[#23355d]"><CircleHelp className="size-4" /> Help</button>
           {/* L'avatar ouvre le menu du compte (profil, mot de passe, déconnexion). */}
           {me
