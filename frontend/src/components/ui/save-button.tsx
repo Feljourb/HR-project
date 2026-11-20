@@ -4,7 +4,7 @@
  * B11 (2026-11-20, remarque de l'utilisatrice : le petit "Changes saved" vert ne se voyait pas). Standard "dirty state"
  * (GitHub, Google, Notion) pour TOUS les formulaires, un seul composant :
  * - rien n'a changé : le bouton est gris et désactivé ("No changes to save") ;
- * - quelque chose a changé : un point orange "Unsaved changes" et le bouton bleu, actif ;
+ * - quelque chose a changé : le bouton devient bleu, actif ;
  * - juste enregistré : le bouton devient vert "✓ Saved" pendant 3 secondes ;
  * - quitter / recharger la page avec des changements non enregistrés : le navigateur demande d'abord.
  */
@@ -39,10 +39,9 @@ export function SaveButton({ dirty, busy, saved, label = 'Save changes', size = 
   dirty: boolean; busy: boolean; saved: boolean; label?: string; size?: 'sm' | 'md'; className?: string
 }) {
   const showSaved = saved && !dirty && !busy
+  // (Le texte "Unsaved changes" à côté du bouton a été enlevé le 2026-11-20 : l'utilisatrice ne l'aimait pas ;
+  //  le bouton bleu / gris suffit.)
   return <div className={cn('flex items-center gap-3', className)}>
-    {dirty && !busy && <span role="status" className="flex items-center gap-1.5 text-xs font-medium text-amber-700">
-      <span className="size-2 rounded-full bg-amber-500" aria-hidden /> Unsaved changes
-    </span>}
     <button type="submit" disabled={!dirty || busy} title={!dirty && !showSaved ? 'No changes to save' : undefined}
       className={cn('flex items-center gap-2 rounded-lg font-semibold shadow-sm transition-colors disabled:cursor-not-allowed',
         size === 'md' ? 'px-5 py-2 text-xs' : 'px-4 py-2 text-xs',
