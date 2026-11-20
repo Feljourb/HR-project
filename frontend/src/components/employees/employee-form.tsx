@@ -13,8 +13,9 @@
  */
 import { useEffect, useState, type FormEvent } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, CheckCircle2, Info, Loader2 } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, Info } from 'lucide-react'
 import { apiFetch, roleLabel, seesBothPoles, type Me } from '@/lib/api'
+import { SaveButton, useSavedFlash, useUnsavedWarning } from '@/components/ui/save-button'
 import {
   FORM_FIELDS, MARITAL_LABELS, RELATIONSHIP_LABELS, STATUS_LABELS, TITLE_LABELS, seniorityLabel,
   type Child, type EmployeeFiche, type FormField, type HierarchyLevel, type ReferenceItem,
@@ -105,10 +106,19 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
 
   const [errors, setErrors] = useState<Errors>({})
   const [saving, setSaving] = useState(false)
-  const [savedMessage, setSavedMessage] = useState('')
+  const [saved, flashSaved] = useSavedFlash()  // B11 : "✓ Saved" 3 s sur le bouton
   const [created, setCreated] = useState<EmployeeFiche | null>(null)  // écran "compte créé"
   const [fiche, setFiche] = useState<EmployeeFiche | null>(null)       // le dossier chargé (modification)
   const [loadError, setLoadError] = useState('')
+  // B11 (2026-11-20) : quelque chose a changé ? Modification : par rapport au dossier enregistré (champs, rôle,
+  // enfants) ; création : quelque chose a été rempli. (Save actif, "Unsaved changes", alerte en quittant la page.)
+  // (Création : "touched" = le RH a tapé quelque chose ; les valeurs remplies toutes seules ne comptent pas.)
+  const [touched, setTouched] = useState(false)
+  const dirty = isEdit
+    ? Boolean(fiche) && (JSON.stringify(values) !== JSON.stringify(valuesOf(fiche!)) || role !== fiche!.account_role
+      || JSON.stringify(children) !== JSON.stringify(fiche!.children))
+    : touched
+  useUnsavedWarning(dirty && !created)
 
   // --- Les listes déroulantes (la cascade suit les choix) ---
   // include : en modification, la valeur ACTUELLE du dossier reste dans la liste même si elle a été
@@ -232,7 +242,7 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
     setRole('COLLABORATOR')
     setErrors({})
     setSaving(false)
-    setSavedMessage('')
+    setTouched(false)
     setCreated(null)
     setFiche(null)
     setLoadError('')
@@ -245,7 +255,7 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
   function set(name: FormField, value: string) {
     setValues((current) => ({ ...current, [name]: value }))
     setErrors((current) => ({ ...current, [name]: [] }))
-    setSavedMessage('')
+    setTouched(true)
   }
 
   // La catégorie propose le samedi des congés : Ouvrier -> journée entière (il travaille tout le samedi à l'usine),
@@ -277,7 +287,6 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
     event.preventDefault()
     setSaving(true)
     setErrors({})
-    setSavedMessage('')
 
     // Ce qu'on envoie : '' devient null pour un champ "liste" ou date optionnel vide.
     // Les textes optionnels (CNSS, RIB, contact...) restent '' : Django les stocke vides, pas null.
@@ -307,7 +316,7 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
           setValues(valuesOf(data))
           setChildren(data.children)
           setRole(data.account_role)
-          setSavedMessage('Changes saved.')
+          flashSaved()
         } else {
           setCreated(data)  // affiche l'écran "compte créé"
         }
@@ -400,7 +409,7 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
       {/* Création : les rôles selon qui crée. Modification : les rôles que Django autorise pour CE compte
           (assignable_roles). Liste vide (son propre compte, un RH vu par un RH...) : affiché, pas modifiable. */}
       {fiche
-        ? <SelectField id="role" label="Account role" required value={role} onChange={(v) => { setRole(v); setSavedMessage('') }}
+        ? <SelectField id="role" label="Account role" required value={role} onChange={(v) => setRole(v)}
             options={(fiche.assignable_roles.length ? fiche.assignable_roles : [fiche.account_role]).map((id) => ({ id, name: roleLabel(id) }))}
             disabled={fiche.assignable_roles.length === 0} error={error('role')}
             hint={fiche.assignable_roles.length === 0 ? 'You cannot change the role of this account.' : undefined} />
@@ -559,12 +568,9 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
 
     {/* Barre d'actions, toujours visible en bas de l'écran. */}
     <div className="sticky bottom-0 -mx-4 flex items-center justify-end gap-3 border-t border-slate-200 bg-[#F1F5F9]/95 px-4 py-3 backdrop-blur sm:-mx-5 sm:px-5 lg:-mx-6 lg:px-6">
-      {savedMessage && <p role="status" className="mr-auto flex items-center gap-1.5 text-xs font-medium text-emerald-700"><CheckCircle2 className="size-4" /> {savedMessage}</p>}
       <Link href="/employees" className="rounded-lg px-4 py-2 text-xs font-semibold text-slate-500 hover:text-[#23355d]">Cancel</Link>
-      <button type="submit" disabled={saving} className="flex items-center gap-2 rounded-lg bg-[#23355d] px-5 py-2 text-xs font-semibold text-white shadow-sm hover:bg-[#192646] disabled:cursor-not-allowed disabled:opacity-60">
-        {saving && <Loader2 className="size-3.5 animate-spin" />}
-        {isEdit ? 'Save changes' : 'Create employee'}
-      </button>
+      {/* B11 : gris tant que rien ne change, "Unsaved changes" + bleu après un changement, "✓ Saved" vert 3 s. */}
+      <SaveButton dirty={dirty} busy={saving} saved={saved} label={isEdit ? 'Save changes' : 'Create employee'} />
     </div>
   </form>
   </>

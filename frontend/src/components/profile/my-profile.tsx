@@ -9,8 +9,8 @@
  * Django vérifie aussi (MyFicheSerializer) : un autre champ envoyé serait ignoré.
  */
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
-import { CheckCircle2, Loader2 } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
+import { SaveButton, useSavedFlash, useUnsavedWarning } from '@/components/ui/save-button'
 import {
   MARITAL_LABELS, PERSONAL_FIELDS, RELATIONSHIP_LABELS, STATUS_LABELS, TITLE_LABELS, seniorityLabel,
   type MyFiche, type PersonalField,
@@ -47,8 +47,11 @@ export function MyProfile() {
   const [loadError, setLoadError] = useState('')
   const [errors, setErrors] = useState<Errors>({})
   const [saving, setSaving] = useState(false)
-  const [savedMessage, setSavedMessage] = useState('')
+  const [saved, flashSaved] = useSavedFlash()  // B11 : "✓ Saved" 3 s sur le bouton
   const cities = useList('cities')  // les villes actives, proposées pendant la frappe
+  // B11 (2026-11-20) : quelque chose a changé depuis le dernier enregistrement ? (Save actif, "Unsaved changes".)
+  const dirty = Boolean(fiche && values && JSON.stringify(values) !== JSON.stringify(valuesOf(fiche)))
+  useUnsavedWarning(dirty)
 
   useEffect(() => {
     // AbortController : si on quitte la page avant la réponse, on annule la requête.
@@ -76,7 +79,6 @@ export function MyProfile() {
       setValues(null)
       setLoadError('')
       setErrors({})
-      setSavedMessage('')
     }
   }, [])
 
@@ -84,7 +86,6 @@ export function MyProfile() {
   function set(name: PersonalField, value: string) {
     setValues((current) => current && { ...current, [name]: value })
     setErrors((current) => ({ ...current, [name]: [] }))
-    setSavedMessage('')
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -92,7 +93,6 @@ export function MyProfile() {
     if (!values) return
     setSaving(true)
     setErrors({})
-    setSavedMessage('')
     try {
       // On envoie SEULEMENT les champs personnels (PATCH : le reste ne bouge pas).
       const response = await apiFetch('/api/employees/me/', { method: 'PATCH', body: JSON.stringify(values) })
@@ -100,7 +100,7 @@ export function MyProfile() {
       if (response.ok) {
         setFiche(data)
         setValues(valuesOf(data))  // les valeurs nettoyées par Django
-        setSavedMessage('Changes saved.')
+        flashSaved()
       } else if (response.status === 400) {
         setErrors(data)  // chaque message s'affiche sous son champ
       } else {
@@ -192,11 +192,8 @@ export function MyProfile() {
 
     {/* Barre d'actions, toujours visible en bas de l'écran. */}
     <div className="sticky bottom-0 -mx-4 flex items-center justify-end gap-3 border-t border-slate-200 bg-[#F1F5F9]/95 px-4 py-3 backdrop-blur sm:-mx-5 sm:px-5 lg:-mx-6 lg:px-6">
-      {savedMessage && <p role="status" className="mr-auto flex items-center gap-1.5 text-xs font-medium text-emerald-700"><CheckCircle2 className="size-4" /> {savedMessage}</p>}
-      <button type="submit" disabled={saving} className="flex items-center gap-2 rounded-lg bg-[#23355d] px-5 py-2 text-xs font-semibold text-white shadow-sm hover:bg-[#192646] disabled:cursor-not-allowed disabled:opacity-60">
-        {saving && <Loader2 className="size-3.5 animate-spin" />}
-        Save changes
-      </button>
+      {/* B11 : gris tant que rien ne change, "Unsaved changes" + bleu après un changement, "✓ Saved" vert 3 s. */}
+      <SaveButton dirty={dirty} busy={saving} saved={saved} />
     </div>
   </form>
 }
