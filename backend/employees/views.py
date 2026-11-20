@@ -40,11 +40,11 @@ from . import history, notifications
 from .emails import address_of, hidden_in_bell
 from .models import (
     Assignment, Bank, Category, City, ContractType, CostCenter, Department, Direction, Division,
-    Employee, EmployeeHistory, Entity, Grade, Notification, NotificationSettings, Pole, Position, Region, TempAgency,
+    Employee, EmployeeHistory, Entity, Grade, Notification, NotificationPolicy, NotificationSettings, Pole, Position, Region, TempAgency,
 )
 from .serializers import (
     AuditLogSerializer, DirectorySerializer, EmployeeListSerializer, EmployeeSerializer, HistorySerializer,
-    MyFicheSerializer, NotificationSerializer, NotificationSettingsSerializer, ReferenceSerializer, hierarchy_data,
+    MyFicheSerializer, NotificationPolicySerializer, NotificationSerializer, NotificationSettingsSerializer, ReferenceSerializer, hierarchy_data,
 )
 from .services import limited_to_own_pole, sees_both_poles, user_pole
 
@@ -392,7 +392,22 @@ class NotificationViewSet(viewsets.GenericViewSet):
             serializer = NotificationSettingsSerializer(choices, data=request.data, partial=True)
             serializer.is_valid(raise_exception=True)
             choices = serializer.save()
-        return Response({**NotificationSettingsSerializer(choices).data, "email_address": address_of(request.user)})
+        # forced (B1) : les cases imposées par Admin RH (grisées, avec un cadenas) : {"email_to_approve": true, ...}.
+        return Response({**NotificationSettingsSerializer(choices).data, "email_address": address_of(request.user),
+                         "forced": NotificationPolicy.load().forced()})
+
+    @action(detail=False, methods=["get", "patch"], url_path="policy")
+    def policy(self, request):
+        """B1 (2026-11-20) : GET / PATCH /api/employees/notifications/policy/ -> pour TOUT LE MONDE, chaque case
+        imposée ou au choix de chacun ({"force_email_results": true, ...}). Admin RH et l'IT seulement."""
+        if not IsHRAdmin().has_permission(request, self):
+            raise PermissionDenied("Seuls Admin RH et l'IT règlent les notifications de la société.")
+        current = NotificationPolicy.load()
+        if request.method == "PATCH":
+            serializer = NotificationPolicySerializer(current, data=request.data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            current = serializer.save(updated_by=request.user)
+        return Response(NotificationPolicySerializer(current).data)
 
 
 # --- Annuaire ----------------------------------------------------------------------

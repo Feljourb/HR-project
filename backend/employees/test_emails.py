@@ -13,7 +13,7 @@ from workflows.models import Request
 from workflows.test_engine import EngineTestCase
 
 from .emails import MAX_ATTEMPTS, resend, send_pending
-from .models import Employee, Notification, NotificationSettings
+from .models import Employee, Notification, NotificationPolicy, NotificationSettings
 from .notifications import refresh_everyone
 
 
@@ -74,6 +74,17 @@ class EmailTests(EngineTestCase):
         self.assertFalse(client.patch(url, {"app_info": False}, format="json").json()["app_info"])
         self.assertEqual(client.get(bell).json(), {"unread": 0, "results": []})
         self.assertTrue(Notification.objects.filter(recipient=self.sara.user, kind="RIGHT_CHANGED").exists())
+        # B1 (2026-11-20) : Admin RH impose ou laisse le choix, case par case. Défaut : "à valider" imposé.
+        from .emails import wanted
+        self.assertTrue(client.get(url).json()["forced"]["email_to_approve"])
+        client.patch(url, {"email_to_approve": False}, format="json")
+        to_validate = Notification(recipient=self.sara.user, employee=self.sara, kind=Notification.Kind.TO_VALIDATE)
+        self.assertTrue(wanted(to_validate))  # imposé : envoyé quand même
+        policy = reverse("employees:notification-policy")
+        self.assertEqual(client.patch(policy, {"force_email_to_approve": False}, format="json").status_code, 403)  # Sara
+        NotificationPolicy.objects.update_or_create(pk=1, defaults={"force_email_to_approve": False, "force_app_info": True})
+        self.assertFalse(wanted(to_validate))  # au choix : elle l'a décoché
+        self.assertEqual(client.get(bell).json()["unread"], 1)  # "info" imposé dans la cloche : revenu, malgré son choix
 
     def test_the_morning_round_makes_reminders_without_opening_the_bell(self):
         # Sara est en période d'essai, fin dans 5 jours : Nadia (RH du pôle) doit être prévenue,

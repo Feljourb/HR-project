@@ -8,19 +8,25 @@
  */
 import { useState } from 'react'
 import Link from 'next/link'
-import { Bell, KeyRound, type LucideIcon } from 'lucide-react'
+import { Bell, Building2, KeyRound, type LucideIcon } from 'lucide-react'
+import { useCurrentUser } from '@/lib/current-user'
 import { cn } from '@/lib/utils'
+import { CompanyNotifications } from './company-notifications'
 import { NotificationSettings } from './notification-settings'
 
-type Section = { id: string; label: string; icon: LucideIcon; href?: string }
+type Section = { id: string; label: string; icon: LucideIcon; href?: string; adminOnly?: boolean }
 
 const SECTIONS: Section[] = [
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'password', label: 'Password', icon: KeyRound, href: '/change-password' },  // une page à part (déjà là)
+  // B1 (2026-11-20) : la règle de la société (imposé / au choix), Admin RH et IT seulement.
+  { id: 'company', label: 'Company notifications', icon: Building2, adminOnly: true },
 ]
 
 export function SettingsPage() {
   const [current, setCurrent] = useState('notifications')
+  const { me } = useCurrentUser()
+  const admin = Boolean(me && (me.is_superuser || me.role === 'HR_ADMIN'))
 
   // w-full : toujours la largeur de l'écran (sinon, sur téléphone, la largeur du plus long texte).
   return <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
@@ -32,7 +38,7 @@ export function SettingsPage() {
     <div className="grid items-start gap-5 md:grid-cols-[200px_minmax(0,1fr)]">
       {/* Les sections : en colonne sur ordinateur, en ligne sur téléphone. */}
       <nav aria-label="Settings sections" className="flex gap-1 overflow-x-auto md:flex-col">
-        {SECTIONS.map(({ id, label, icon: Icon, href }) => {
+        {SECTIONS.filter((section) => !section.adminOnly || admin).map(({ id, label, icon: Icon, href }) => {
           const className = cn('flex shrink-0 items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-colors',
             current === id && !href ? 'bg-white text-[#192646] shadow-sm ring-1 ring-slate-200' : 'text-slate-600 hover:bg-white/70 hover:text-[#192646]')
           return href
@@ -44,6 +50,7 @@ export function SettingsPage() {
       </nav>
 
       {current === 'notifications' && <NotificationSettings />}
+      {current === 'company' && admin && <CompanyNotifications />}
     </div>
   </div>
 }

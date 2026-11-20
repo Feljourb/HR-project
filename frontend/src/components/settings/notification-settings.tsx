@@ -14,12 +14,14 @@ import { Check, CheckCircle2, Lock } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
-type Field = 'email_results' | 'email_info' | 'app_to_approve' | 'app_results' | 'app_info'
-type Choices = Record<Field, boolean> & { email_address: string }
+export type Field = 'email_to_approve' | 'email_results' | 'email_info' | 'app_to_approve' | 'app_results' | 'app_info'
+// forced (B1, 2026-11-20) : les cases qu'Admin RH impose à tous (Settings -> Company notifications) -> cadenas.
+type Choices = Record<Field, boolean> & { email_address: string; forced: Record<Field, boolean> }
 
-// Les familles : le titre, ce qu'elles contiennent, la case de la cloche, et celle de l'email (null = toujours envoyé).
-const ROWS: { title: string; text: string; app: Field; email: Field | null }[] = [
-  { title: 'Requests to approve', text: 'A request waits for your answer (as a manager, HR, or a stand-in).', app: 'app_to_approve', email: null },
+// Les familles : le titre, ce qu'elles contiennent, la case de la cloche, et celle de l'email.
+// (Exportées : le même tableau dans "Company notifications" d'Admin RH.)
+export const ROWS: { title: string; text: string; app: Field; email: Field }[] = [
+  { title: 'Requests to approve', text: 'A request waits for your answer (as a manager, HR, or a stand-in).', app: 'app_to_approve', email: 'email_to_approve' },
   { title: 'Results of my requests', text: 'Your leave or expense claim is approved, refused, cancelled or recounted.', app: 'app_results', email: 'email_results' },
   { title: 'Information & reminders', text: 'For information, leave balance changes, days lost on 31/12, reminders.', app: 'app_info', email: 'email_info' },
 ]
@@ -86,14 +88,12 @@ export function NotificationSettings() {
                   <p className="font-semibold text-slate-800">{row.title}</p>
                   <p className="text-xs text-slate-500">{row.text}</p>
                 </td>
-                <td className="px-2 py-3.5 text-center">
-                  <Box checked={choices[row.app]} busy={saving === row.app} label={`${row.title}, in app`} onToggle={() => toggle(row.app)} />
-                </td>
-                <td className="px-5 py-3.5 text-center">
-                  {row.email === null
-                    ? <Box checked locked label={`${row.title}, email`} />
-                    : <Box checked={choices[row.email]} busy={saving === row.email} label={`${row.title}, email`} onToggle={() => toggle(row.email as Field)} />}
-                </td>
+                {/* Une case imposée par Admin RH : cochée, grisée, avec un cadenas ; sinon, mon choix. */}
+                {[row.app, row.email].map((field, index) => <td key={field} className={cn('py-3.5 text-center', index === 0 ? 'px-2' : 'px-5')}>
+                  {choices.forced[field]
+                    ? <Box checked locked label={`${row.title}, ${index === 0 ? 'in app' : 'email'}`} />
+                    : <Box checked={choices[field]} busy={saving === field} label={`${row.title}, ${index === 0 ? 'in app' : 'email'}`} onToggle={() => toggle(field)} />}
+                </td>)}
               </tr>)}
             </tbody>
           </table>
@@ -101,8 +101,8 @@ export function NotificationSettings() {
             <Lock className="mt-0.5 size-3 shrink-0" aria-hidden />
             <span>
               In app = the bell. Unticked, those notifications are not shown in the bell (requests to approve stay in
-              Team approvals, with their counter in the menu). Requests to approve are always emailed (locked) so that
-              nothing gets stuck. Emails go to <b className="font-semibold text-slate-700">{choices.email_address || 'your professional email'}</b>.
+              Team approvals, with their counter in the menu). Locked boxes are imposed by Admin RH for everybody.
+              {' '}Emails go to <b className="font-semibold text-slate-700">{choices.email_address || 'your professional email'}</b>.
             </span>
           </p>
         </>}
@@ -110,7 +110,7 @@ export function NotificationSettings() {
 }
 
 /** Une case à cocher (accessible : role="checkbox"). Verrouillée : cochée, grisée, avec un cadenas. */
-function Box({ checked, locked = false, busy = false, label, onToggle }: {
+export function Box({ checked, locked = false, busy = false, label, onToggle }: {
   checked: boolean; locked?: boolean; busy?: boolean; label: string; onToggle?: () => void
 }) {
   return <button type="button" role="checkbox" aria-checked={checked} aria-label={label} aria-disabled={locked || undefined}

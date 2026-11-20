@@ -13,7 +13,7 @@ from rest_framework import serializers
 from accounts.services import can_change_role, can_give_role_to_new_account, can_reset_password
 
 from . import history, notifications, services
-from .models import Child, City, Employee, EmployeeHistory, Notification, NotificationSettings
+from .models import Child, City, Employee, EmployeeHistory, Notification, NotificationPolicy, NotificationSettings
 
 User = get_user_model()
 
@@ -325,7 +325,23 @@ class NotificationSettingsSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = NotificationSettings
-        fields = ["email_results", "email_info", "app_to_approve", "app_results", "app_info"]
+        fields = ["email_to_approve", "email_results", "email_info", "app_to_approve", "app_results", "app_info"]
+
+
+class NotificationPolicySerializer(serializers.ModelSerializer):
+    """B1 (2026-11-20) : la règle de la société (Admin RH) : chaque case imposée (true) ou au choix de chacun (false)."""
+
+    updated_by = serializers.SerializerMethodField()
+
+    class Meta:
+        model = NotificationPolicy
+        fields = ["force_app_to_approve", "force_email_to_approve", "force_app_results", "force_email_results",
+                  "force_app_info", "force_email_info", "updated_at", "updated_by"]
+        read_only_fields = ["updated_at"]
+
+    def get_updated_by(self, current):
+        from workflows.serializers import name_of  # ici : workflows importe déjà employees
+        return name_of(current.updated_by) if current.updated_by_id else None
 
 
 class DirectorySerializer(serializers.ModelSerializer):

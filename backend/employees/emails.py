@@ -22,7 +22,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from . import notifications
-from .models import Employee, Notification, NotificationSettings
+from .models import Employee, Notification, NotificationPolicy, NotificationSettings
 
 # Les 3 familles d'emails (page Settings). Kind = Notification.Kind.
 Kind = Notification.Kind
@@ -35,30 +35,32 @@ RESULTS = {Kind.APPROVED, Kind.REJECTED, Kind.CANCELLED, Kind.RECOUNTED, Kind.EX
 # "email_info".
 
 
+def family_of(kind):
+    """La famille d'une sorte de notification : "to_approve", "results" ou "info" (les 3 lignes de Settings)."""
+    return "to_approve" if kind in ALWAYS else "results" if kind in RESULTS else "info"
+
+
+def is_on(user_id, field, policy=None, choices=None):
+    """La case `field` (ex. "email_results") vaut-elle pour cet utilisateur ? Imposée par Admin RH (NotificationPolicy,
+    B1 2026-11-20) -> oui ; sinon SON choix (pas de réglage enregistré = oui)."""
+    policy = policy or NotificationPolicy.load()
+    if getattr(policy, f"force_{field}"):
+        return True
+    choices = choices if choices is not None else NotificationSettings.objects.filter(user=user_id).first()
+    return choices is None or getattr(choices, field)
+
+
 def hidden_in_bell(user):
-    """Les sortes de notifications que CET utilisateur a désactivées dans la cloche (page Settings, 2026-11-20).
-    Seulement l'affichage : elles restent enregistrées (et les emails suivent leurs propres réglages)."""
+    """Les sortes de notifications que CET utilisateur a désactivées dans la cloche (page Settings, 2026-11-20), si
+    Admin RH ne les impose pas. Seulement l'affichage : elles restent enregistrées."""
+    policy = NotificationPolicy.load()
     choices = NotificationSettings.objects.filter(user=user).first()
-    if choices is None:
-        return set()
-    hidden = set()
-    if not choices.app_to_approve:
-        hidden |= ALWAYS
-    if not choices.app_results:
-        hidden |= RESULTS
-    if not choices.app_info:
-        hidden |= set(Kind.values) - ALWAYS - RESULTS
-    return hidden
+    return {kind for kind in Kind.values if not is_on(user.pk, f"app_{family_of(kind)}", policy, choices)}
 
 
 def wanted(notification):
-    """Cet utilisateur veut-il CETTE famille d'emails ? (Pas de réglage enregistré = oui.)"""
-    if notification.kind in ALWAYS:
-        return True
-    choices = NotificationSettings.objects.filter(user=notification.recipient_id).first()
-    if choices is None:
-        return True
-    return choices.email_results if notification.kind in RESULTS else choices.email_info
+    """Cet utilisateur veut-il l'email de CETTE notification ? (Imposé par Admin RH, ou son choix.)"""
+    return is_on(notification.recipient_id, f"email_{family_of(notification.kind)}")
 
 # Après le 1er échec, on réessaie dans 1 min ; après le 2e, dans 5 min... (plus de 27 h en tout).
 RETRY_MINUTES = [1, 5, 15, 30, 60, 120, 240, 480, 720]

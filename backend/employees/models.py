@@ -742,6 +742,8 @@ class NotificationSettings(models.Model):
                                 verbose_name="Compte")
     email_results = models.BooleanField("Email : résultat de mes demandes", default=True)  # acceptée, refusée, annulée...
     email_info = models.BooleanField("Email : informations et rappels", default=True)      # pour info, solde, 31/12, rappels
+    # Chaque case ne compte que si Admin RH ne l'impose pas (NotificationPolicy, B1 2026-11-20).
+    email_to_approve = models.BooleanField("Email : demandes à valider", default=True)
     app_to_approve = models.BooleanField("Cloche : demandes à valider", default=True)
     app_results = models.BooleanField("Cloche : résultat de mes demandes", default=True)
     app_info = models.BooleanField("Cloche : informations et rappels", default=True)
@@ -753,3 +755,40 @@ class NotificationSettings(models.Model):
 
     def __str__(self):
         return str(self.user)
+
+
+class NotificationPolicy(models.Model):
+    """B1 (2026-11-20, demande de l'utilisatrice) : Admin RH décide, pour TOUT LE MONDE, famille par famille et canal par
+    canal (cloche / email) : IMPOSÉ (toujours actif, cadenas dans Settings) ou AU CHOIX de chacun (sa case dans Settings).
+    Standard : la politique imposée par l'admin (Slack, Microsoft 365). UNE ligne (load()) ; page Settings ->
+    "Company notifications" (Admin RH + IT). Par défaut : "Demandes à valider" imposé (sinon une demande peut rester
+    bloquée), le reste au choix. Mêmes noms que NotificationSettings : force_<champ>."""
+
+    force_app_to_approve = models.BooleanField("Imposé : cloche, demandes à valider", default=True)
+    force_email_to_approve = models.BooleanField("Imposé : email, demandes à valider", default=True)
+    force_app_results = models.BooleanField("Imposé : cloche, résultat de mes demandes", default=False)
+    force_email_results = models.BooleanField("Imposé : email, résultat de mes demandes", default=False)
+    force_app_info = models.BooleanField("Imposé : cloche, informations et rappels", default=False)
+    force_email_info = models.BooleanField("Imposé : email, informations et rappels", default=False)
+    updated_at = models.DateTimeField("Modifié le", auto_now=True)
+    updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name="+", verbose_name="Modifié par")
+
+    # Les 6 cases d'un utilisateur, dans l'ordre du tableau.
+    FIELDS = ["app_to_approve", "email_to_approve", "app_results", "email_results", "app_info", "email_info"]
+
+    class Meta:
+        verbose_name = "Notifications de la société"
+        verbose_name_plural = "Notifications de la société"
+
+    def __str__(self):
+        return "Notifications de la société"
+
+    @classmethod
+    def load(cls):
+        current, _ = cls.objects.get_or_create(pk=1)
+        return current
+
+    def forced(self):
+        """{"app_to_approve": True, "email_results": False, ...} : ce qu'Admin RH impose."""
+        return {field: getattr(self, f"force_{field}") for field in self.FIELDS}

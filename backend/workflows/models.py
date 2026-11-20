@@ -239,6 +239,7 @@ class WorkflowSettings(models.Model):
     # Remarque de la réunion (2026-11-19) : le délégué choisi accepte ou refuse. Coché par défaut ; décoché = la
     # délégation vaut tout de suite (standard SAP / Workday / Outlook).
     delegate_must_accept = models.BooleanField("Le délégué doit accepter", default=True)
+    # (Les notifications imposées à tous : employees.NotificationPolicy, page Settings -> Company notifications.)
     updated_at = models.DateTimeField("Modifié le", auto_now=True)
     updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
                                    related_name="+", verbose_name="Modifié par")

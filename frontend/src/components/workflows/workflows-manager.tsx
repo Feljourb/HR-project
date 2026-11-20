@@ -63,7 +63,7 @@ export function WorkflowsManager() {
 
           {/* 2026-11-19 : la délégation (qui valide à la place d'un absent) : son réglage est ici, avec "qui valide". */}
           <section className="flex flex-col gap-3">
-            <h2 className="text-[11px] font-bold uppercase tracking-[0.1em] text-slate-400">Delegation</h2>
+            <h2 className="text-[11px] font-bold uppercase tracking-[0.1em] text-slate-400">Rules</h2>
             <DelegationSettings />
           </section>
         </>}
