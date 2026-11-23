@@ -143,7 +143,7 @@ const whoOf = (step: RequestStep) => (step.validator === step.approver_label ? r
 const MODE: Record<string, string> = { VALIDATE: 'approval', INFORM: 'for information' }
 
 // Le type de demande en anglais, pour le petit titre ("LEAVE REQUEST · N° 12").
-const TYPE: Record<string, string> = { LEAVE: 'Leave request', EXPENSE: 'Expense claim', ADMIN_REQUEST: 'Administrative request' }
+const TYPE: Record<string, string> = { LEAVE: 'Leave request', EXPENSE: 'Expense claim', ADMIN_REQUEST: 'Administrative request', DEPARTURE: 'Departure' }
 
 // Le statut en anglais, avec les couleurs de "My requests".
 const STATUS: Record<string, { label: string; badge: string }> = {

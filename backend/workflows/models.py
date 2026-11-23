@@ -20,6 +20,8 @@ class Workflow(ReferenceItem):
         LEAVE = "LEAVE", "Congé"
         EXPENSE = "EXPENSE", "Note de frais"
         ADMIN_REQUEST = "ADMIN_REQUEST", "Demande administrative"
+        # Arrivées et départs (2026-11-23) : le manager (ou les RH) déclare le départ d'un collaborateur.
+        DEPARTURE = "DEPARTURE", "Départ collaborateur"
 
     code = models.CharField("Code", max_length=30, choices=Code.choices, unique=True)
 

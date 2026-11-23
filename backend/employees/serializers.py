@@ -245,6 +245,10 @@ class EmployeeSerializer(serializers.ModelSerializer):
         self.save_children(employee, children)
         history.record(employee, self.context["request"].user, EmployeeHistory.Action.CREATED,
                        [{"field": "Rôle du compte", "old": "", "new": employee.user.get_role_display()}])
+        # Arrivées et départs (2026-11-23) : la fiche d'un NOUVEL arrivant commence son parcours d'arrivée (les tâches
+        # de l'IT, des RH, du manager...). Importé ici : l'app journeys importe déjà employees.
+        from journeys.services import auto_start
+        auto_start(employee, self.context["request"].user)
         return employee
 
     @transaction.atomic
@@ -261,6 +265,9 @@ class EmployeeSerializer(serializers.ModelSerializer):
             employee.user.email = employee.professional_email
             employee.user.save(update_fields=["email"])
         history.record_changes(employee, actor, before)  # une ligne seulement si quelque chose a changé
+        # La date d'embauche a bougé : l'arrivée en cours (et ses tâches pas encore faites) bouge avec elle.
+        from journeys.services import hire_date_changed
+        hire_date_changed(employee)
 
         # Le rôle est dans le compte, pas dans le dossier (validate a déjà vérifié le droit de le changer).
         if role and role != employee.user.role:

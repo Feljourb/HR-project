@@ -19,8 +19,8 @@ import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import {
   BookOpen, BriefcaseBusiness, Building2, CalendarDays, CalendarRange, Check, ChevronRight, ChevronsUpDown,
-  CircleHelp, ClipboardCheck, FileText, FolderOpen, Headphones, Inbox, LayoutDashboard, ListChecks, LockKeyhole, type LucideIcon,
-  LogOut, Menu, PiggyBank, Plane, ReceiptText, ScrollText, Search, Sparkles, UserRound, UserRoundCheck, UserRoundCog, UsersRound, Workflow, X,
+  CircleHelp, ClipboardCheck, FileText, FolderOpen, Headphones, Inbox, LayoutDashboard, ListChecks, ListTodo, LockKeyhole, type LucideIcon,
+  LogOut, Menu, PiggyBank, Plane, ReceiptText, ScrollText, Search, Sparkles, UserPlus, UserRound, UserRoundCheck, UserRoundCog, UsersRound, Workflow, X,
 } from 'lucide-react'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { BrandLogo } from '@/components/brand-logo'
@@ -30,7 +30,7 @@ import { UserMenu } from '@/components/user-menu'
 import { accountLabel, apiFetch, isHr, seesBothPoles, type Me } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
-type Counter = 'approvals' | 'documents'  // le nombre affiché à droite du lien (voir useCounters)
+type Counter = 'approvals' | 'documents' | 'tasks'  // le nombre affiché à droite du lien (voir useCounters)
 
 type NavItem = {
   label: string
@@ -57,6 +57,8 @@ const navGroups: NavGroup[] = [
     { label: 'Leave Requests', icon: CalendarDays, href: '/leaves' },
     { label: 'Expense Claims', icon: ReceiptText, href: '/expenses' },
     { label: 'Administrative Documents', icon: FolderOpen, href: '/documents' },
+    // Arrivées et départs (2026-11-23) : MES tâches (IT, manager, RH, la nouvelle recrue...), avec leur nombre.
+    { label: 'My tasks', icon: ListTodo, href: '/my-tasks', counter: 'tasks' },
     { label: 'Stand-in requests', icon: UserRoundCheck, href: '/stand-in', standInOnly: true, counter: 'approvals' },
   ] },
   // L'annuaire est ouvert à tous les rôles.
@@ -68,6 +70,8 @@ const navGroups: NavGroup[] = [
     // P2 step 2b : mon équipe (les personnes dont je suis le N+1), qui est absent, mois par mois.
     { label: 'Team Calendar', icon: CalendarRange, href: '/team-calendar' },
     { label: 'Employees', icon: UserRoundCog, href: '/employees', hrOnly: true },
+    // RH : tout le pôle ; un manager : son équipe (il y déclare un départ, comme NOOR, et suit les tâches).
+    { label: 'Arrivals & departures', icon: UserPlus, href: '/onboarding' },
     { label: 'Absences', icon: CalendarDays, href: '/absences', hrOnly: true },
     { label: 'Leave balances', icon: PiggyBank, href: '/leave-balances', hrOnly: true },
     { label: 'Reimbursements', icon: ReceiptText, href: '/reimbursements', hrOnly: true },
@@ -110,7 +114,7 @@ const SUB_PAGES: [RegExp, string][] = [
 const FROM_ITEM: Record<string, string> = {
   requests: 'My Requests', received: 'My Requests', leaves: 'Leave Requests', expenses: 'Expense Claims', approvals: 'Team Approvals',
   'stand-in': 'Stand-in requests', absences: 'Absences', 'leave-balances': 'Leave balances', reimbursements: 'Reimbursements',
-  documents: 'Administrative Documents', 'document-requests': 'Document requests',
+  documents: 'Administrative Documents', 'document-requests': 'Document requests', onboarding: 'Arrivals & departures',
 }
 
 /**
@@ -146,15 +150,16 @@ type AppShellProps = {
  *  les demandes qui attendent MA réponse, et (RH) les documents à préparer. */
 function useCounters(me: Me | null): Record<Counter, number> {
   const pathname = usePathname()
-  const [counts, setCounts] = useState<Record<Counter, number>>({ approvals: 0, documents: 0 })
+  const [counts, setCounts] = useState<Record<Counter, number>>({ approvals: 0, documents: 0, tasks: 0 })
   useEffect(() => {
     if (!me) return
     const controller = new AbortController()
     const count = (path: string) => apiFetch(path, { signal: controller.signal })
       .then((response) => (response.ok ? response.json() : []))
       .then((rows: unknown[]) => rows.length)
-    Promise.all([count('/api/workflows/approvals/'), isHr(me) ? count('/api/documents/hr/?status=to_prepare') : Promise.resolve(0)])
-      .then(([approvals, documents]) => setCounts({ approvals, documents }))
+    Promise.all([count('/api/workflows/approvals/'), isHr(me) ? count('/api/documents/hr/?status=to_prepare') : Promise.resolve(0),
+      count('/api/journeys/tasks/')])
+      .then(([approvals, documents, tasks]) => setCounts({ approvals, documents, tasks }))
       .catch(() => { /* annulé (une autre page), ou serveur injoignable : on garde les anciens nombres */ })
     return () => controller.abort()
   }, [me, pathname])

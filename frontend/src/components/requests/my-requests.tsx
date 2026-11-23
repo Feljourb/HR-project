@@ -11,7 +11,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
-import { CalendarDays, ChevronLeft, ChevronRight, FileText, Inbox, Loader2, ReceiptText, Search, type LucideIcon } from 'lucide-react'
+import { CalendarDays, ChevronLeft, ChevronRight, FileText, Inbox, Loader2, LogOut, ReceiptText, Search, type LucideIcon } from 'lucide-react'
 import { apiFetch, type Me } from '@/lib/api'
 import { formatDate } from '@/lib/leaves'
 import type { DecidedStep, WorkflowRequest } from '@/lib/requests'
@@ -20,7 +20,7 @@ import { sendChange } from '@/lib/workflows'
 import { DecidedList } from './decided-list'
 
 // L'icône de chaque type de demande (un repère pour l'œil, avant de lire).
-const TYPE_ICON: Record<string, LucideIcon> = { LEAVE: CalendarDays, EXPENSE: ReceiptText, ADMIN_REQUEST: FileText }
+const TYPE_ICON: Record<string, LucideIcon> = { LEAVE: CalendarDays, EXPENSE: ReceiptText, ADMIN_REQUEST: FileText, DEPARTURE: LogOut }
 
 // Le statut en anglais (la page est en anglais) : texte et pastille.
 const STATUS: Record<string, { label: string; badge: string }> = {
@@ -35,6 +35,7 @@ const TYPES = [
   { id: 'LEAVE', label: 'Leave' },
   { id: 'EXPENSE', label: 'Expense claim' },
   { id: 'ADMIN_REQUEST', label: 'Document' },
+  { id: 'DEPARTURE', label: 'Departure' },
 ]
 const STATUSES = [
   { id: 'all', label: 'All statuses' },

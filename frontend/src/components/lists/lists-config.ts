@@ -45,7 +45,7 @@ export type ListConfig = {
   extra?: ExtraField[]  // des champs en plus du nom
   byDate?: boolean      // trier par date (jours fériés), pas par nom
   fixed?: boolean       // pas de "Add a value" ni de "Deactivate" (les pôles) : seulement renommer
-  panel?: 'holidays' | 'leave-settings' | 'signatures' | 'expense-settings' | 'document-settings'  // une page à part
+  panel?: 'holidays' | 'leave-settings' | 'signatures' | 'expense-settings' | 'document-settings' | 'journey-settings'  // une page à part
 }
 
 // Les listes du module Congés (adresse /api/leaves/lists/...). Depuis le 2026-11-19, TOUTES dans UNE page
@@ -96,6 +96,11 @@ export const DOCUMENT_LISTS: ListConfig[] = [
   // Tous les réglages des documents, en 4 questions dans UNE page (2026-11-17) : ce que le collaborateur demande,
   // comment le PDF est fait (les signatures, par pôle : automatique ou par les RH), les modèles, les managers.
   { name: 'document-settings', title: 'Réglages des documents', singular: 'Réglage', panel: 'document-settings' },
+]
+
+// Arrivées et départs (2026-11-23) : le modèle des tâches, dans UNE page (journey-settings.tsx, 2 onglets).
+export const JOURNEY_LISTS: ListConfig[] = [
+  { name: 'journey-settings', title: 'Réglages des arrivées et départs', singular: 'Réglage', panel: 'journey-settings' },
 ]
 
 /** La valeur d'un champ en plus, en texte pour un <input> ("true" / "false" pour une case). */

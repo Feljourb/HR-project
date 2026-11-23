@@ -682,6 +682,11 @@ class Notification(models.Model):
         ORIGINAL_HANDED = "ORIGINAL_HANDED", "Original remis à votre manager"
         # Notes de frais (2026-11-16) : un valideur a DIMINUÉ le montant d'une de mes dépenses (avec le motif).
         EXPENSE_CORRECTED = "EXPENSE_CORRECTED", "Note de frais corrigée"
+        # Arrivées et départs (app journeys, 2026-11-23) : `employee` = la personne qui arrive / part, `due_date` = son
+        # premier / dernier jour (une seule notification par personne et par parcours : le texte compte SES tâches).
+        JOURNEY_TASKS = "JOURNEY_TASKS", "Tâches à faire"
+        TASK_LATE = "TASK_LATE", "Tâche en retard"
+        JOURNEY_DONE = "JOURNEY_DONE", "Parcours prêt"
 
     recipient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notifications",
                                   verbose_name="Destinataire")

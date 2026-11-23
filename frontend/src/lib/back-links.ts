@@ -18,6 +18,7 @@ const PAGES: Record<string, BackLink> = {
   reimbursements: { href: '/reimbursements', label: 'Reimbursements' },
   documents: { href: '/documents', label: 'Administrative documents' },
   'document-requests': { href: '/document-requests', label: 'Document requests' },
+  onboarding: { href: '/onboarding', label: 'Arrivals & departures' },
   dashboard: { href: '/', label: 'Dashboard' },
 }
 

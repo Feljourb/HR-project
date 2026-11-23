@@ -50,6 +50,7 @@ INSTALLED_APPS = [
     'leaves',
     'expenses',
     'documents',
+    'journeys',  # arrivées et départs (2026-11-23)
 ]
 
 AUTH_USER_MODEL = "accounts.User"

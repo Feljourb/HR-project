@@ -149,6 +149,11 @@ def link(notification):
             return "/approvals"
         own = notification.request_id and notification.request.steps.filter(assignee__user=notification.recipient_id).exists()
         return "/approvals" if own and notification.kind != Kind.DELEGATED else "/stand-in"
+    # Arrivées et départs (2026-11-23) : mes tâches -> "My tasks" ; tout est prêt (les RH) -> "Arrivals & departures".
+    if notification.kind in (Kind.JOURNEY_TASKS, Kind.TASK_LATE):
+        return "/my-tasks"
+    if notification.kind == Kind.JOURNEY_DONE:
+        return "/onboarding"
     if not notification.request_id:
         return "/"  # (garde-fou) une notification sans demande ni page à elle : le tableau de bord
     if notification.kind in (Kind.BALANCE_ADJUSTED, Kind.RIGHT_CHANGED, Kind.EXPIRING):
@@ -182,7 +187,7 @@ def back_page(notification):
     if role in (Role.HR, Role.HR_ADMIN):
         # Les RH suivent les congés dans Absences, les notes de frais dans Reimbursements, les documents dans
         # Document requests.
-        return {"LEAVE": "absences", "EXPENSE": "reimbursements", "ADMIN_REQUEST": "document-requests"}.get(
+        return {"LEAVE": "absences", "EXPENSE": "reimbursements", "ADMIN_REQUEST": "document-requests", "DEPARTURE": "onboarding"}.get(
             request.workflow.code, "approvals")
     # Un valideur : Team approvals (onglet History) ; un collaborateur délégué : My requests -> Received (toujours
     # là, même la délégation finie). Un collaborateur responsable d'équipe (l'étape est la sienne) : Team approvals.
@@ -197,6 +202,10 @@ def message(notification):
     name = f"{employee.first_name} {employee.last_name}"
     Kind = Notification.Kind
 
+    # Arrivées et départs (app journeys) : le texte compte MES tâches aujourd'hui.
+    if notification.kind in (Kind.JOURNEY_TASKS, Kind.TASK_LATE, Kind.JOURNEY_DONE):
+        from journeys.handlers import journey_message  # importé ici : journeys importe déjà employees
+        return journey_message(notification, name)
     # Un congé recompté (un jour férié a changé) : le recalcul de CE moment-là (il peut y en avoir plusieurs).
     if notification.kind == Kind.RECOUNTED:
         return recount_message(notification, name)

@@ -60,7 +60,7 @@ class WorkflowApiTests(TestCase):
     def test_list_shows_the_circuits_and_their_steps(self):
         self.login_as()
         circuits = {item["code"]: item for item in self.client.get(url()).json()}
-        self.assertEqual(set(circuits), {"LEAVE", "EXPENSE", "ADMIN_REQUEST"})
+        self.assertEqual(set(circuits), {"LEAVE", "EXPENSE", "ADMIN_REQUEST", "DEPARTURE"})
         self.assertEqual(circuits["LEAVE"]["steps"], [
             {"order": 1, "approver": "MANAGER", "approver_label": "N+1", "mode": "VALIDATE", "mode_label": "Valider"},
             {"order": 2, "approver": "HR", "approver_label": "RH du pôle", "mode": "INFORM", "mode_label": "Informer"},
