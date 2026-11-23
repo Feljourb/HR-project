@@ -128,7 +128,7 @@ export function TeamApprovals({ me }: { me: Me }) {
     {/* P2 step 1 : mon "absent du bureau" (qui valide à ma place), et ceux que je remplace.
         Seulement pour ceux qui valident (2026-11-12) : un collaborateur ne valide personne, il n'a rien à déléguer
         (s'il remplace quelqu'un, il a sa page "Stand-in requests"). Sauf un collaborateur responsable d'une équipe. */}
-    {(me.role !== 'COLLABORATOR' || me.is_superuser || approvals?.some((approval) => !approval.on_behalf_of)) && <OutOfOffice me={me} />}
+    {(me.role !== 'COLLABORATOR' || me.is_superuser || me.leads_team || approvals?.some((approval) => !approval.on_behalf_of)) && <OutOfOffice me={me} />}
 
     {done && <p role="status" className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800">
       <CheckCheck className="size-4" /> {done}

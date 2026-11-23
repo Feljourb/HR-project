@@ -188,7 +188,8 @@ type NavListProps = {
 function NavList({ me, active, collapsed, counts, onNavigate }: NavListProps) {
   // Ce que ce rôle a le droit de voir. Pas encore de réponse de Django : seulement les liens de tout le monde.
   const visibleGroups = navGroups
-    .filter((group) => !group.restricted || (me !== null && (me.role !== 'COLLABORATOR' || me.is_superuser)))
+    // (2026-11-23) un Collaborateur chef d'équipe (leads_team) voit aussi les pages d'équipe : Team approvals, Team calendar.
+    .filter((group) => !group.restricted || (me !== null && (me.role !== 'COLLABORATOR' || me.is_superuser || me.leads_team === true)))
     .map((group) => ({ ...group, items: group.items.filter((item) =>
       (!item.hrOnly || (me !== null && isHr(me))) && (!item.adminOnly || (me !== null && seesBothPoles(me)))
       && (!item.itOnly || (me !== null && me.is_superuser))

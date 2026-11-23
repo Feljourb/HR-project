@@ -128,18 +128,17 @@ class DelegationTests(EngineTestCase):
         from employees.notifications import link
         self.assertEqual(link(Notification.objects.get(recipient=colleague.user, kind="TO_VALIDATE")), "/stand-in")
         self.assertEqual(link(Notification.objects.get(recipient=self.youssef.user, kind="TO_VALIDATE")), "/approvals")
-        # Quelqu'un de l'AUTRE pôle : refusé. La recherche ne le propose pas.
+        # Quelqu'un de l'AUTRE pôle : permis depuis le 2026-11-23 (B7, comme le responsable d'un service).
         production = Department.objects.get(name="Production", direction__entity__name="Eureka")
         riaya = self.make_employee("rida.riaya", "AA100032", department=production, position=production.positions.first())
-        with self.assertRaisesMessage(ValidationError, "même pôle"):
-            create_delegation(self.youssef, riaya, days(10), days(12), self.youssef.user)
+        create_delegation(self.youssef, riaya, days(10), days(12), self.youssef.user)
         client = APIClient()
         self.youssef.user.must_change_password = False
         self.youssef.user.save()
         client.force_authenticate(self.youssef.user)
         found = [person["id"] for person in client.get(reverse("workflows:delegation-candidates")).json()]
         self.assertIn(colleague.pk, found)
-        self.assertNotIn(riaya.pk, found)
+        self.assertIn(riaya.pk, found)
         self.assertNotIn(self.youssef.pk, found)
 
     # --- Sans délégué : personne ne remplace (décision du 2026-11-12) --------------------------

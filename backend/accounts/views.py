@@ -201,7 +201,14 @@ class MeView(APIView):
         # stood_in : j'ai déjà répondu à la place de quelqu'un -> "My requests" garde un lien vers ce que j'ai fait
         # (standard : on perd l'accès pour agir, jamais la trace de ses propres décisions).
         stood_in = RequestStep.objects.filter(decided_by=request.user, on_behalf_of__isnull=False).exists()
-        return Response({**user_info(request.user), "stands_in": stands_in, "stood_in": stood_in})
+        # leads_team (2026-11-23, standard Workday : c'est l'ORGANIGRAMME qui fait le chef, pas le rôle) : responsable
+        # d'un service ou d'une direction, ou DG d'un pôle -> le menu montre ses pages d'équipe (Team approvals,
+        # Team calendar), même avec le rôle Collaborateur (ex. un chef d'équipe de l'usine).
+        from employees.models import Department, Direction, Pole
+        leads_team = (Department.objects.filter(head__user=request.user, is_active=True).exists()
+                      or Direction.objects.filter(head__user=request.user, is_active=True).exists()
+                      or Pole.objects.filter(director__user=request.user).exists())
+        return Response({**user_info(request.user), "stands_in": stands_in, "stood_in": stood_in, "leads_team": leads_team})
 
 
 class SecuritySettingsView(RetrieveUpdateAPIView):

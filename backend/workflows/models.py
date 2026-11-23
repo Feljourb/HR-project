@@ -162,10 +162,11 @@ class RequestStep(models.Model):
 
 
 def can_be_delegate(delegate, delegator):
-    """Qui peut remplacer un valideur absent : N'IMPORTE QUI du même pôle que l'absent (une Admin RH : les deux
-    pôles), au choix de l'absent (décision de l'utilisateur, 2026-11-12 ; avant : seulement Manager / RH / Admin RH).
-    Toujours : jamais pour sa propre demande (engine.stand_in), et l'historique dit "on behalf of"."""
-    return delegate.user.role == "HR_ADMIN" or delegate.pole == delegator.pole
+    """Qui peut remplacer un valideur absent : N'IMPORTE QUI, de SBD ou de Riaya, au choix de l'absent.
+    2026-11-23 (B7, même règle que le responsable d'un service) : avant, seulement quelqu'un du même pôle ; mais un
+    chef de Riaya peut diriger une équipe de SBD, son délégué peut donc venir des deux pôles.
+    Toujours : jamais lui-même, jamais pour sa propre demande (engine.stand_in), l'historique dit "on behalf of"."""
+    return delegate.pk != delegator.pk
 
 
 class Delegation(models.Model):
@@ -212,9 +213,7 @@ class Delegation(models.Model):
             raise ValidationError({"delegate": "Choisissez une autre personne que l'absent."})
         if self.delegate.status == Employee.Status.LEFT or not self.delegate.user.is_active:
             raise ValidationError({"delegate": "Ce collaborateur n'est plus actif."})
-        # Quelqu'un du même pôle (Admin RH : les deux pôles), au choix de l'absent (décision du 2026-11-12).
-        if not can_be_delegate(self.delegate, self.delegator):
-            raise ValidationError({"delegate": "Choisissez quelqu'un du même pôle que l'absent."})
+        # (N'importe qui, de SBD ou de Riaya : 2026-11-23. "Pas lui-même" est vérifié juste au-dessus.)
         if self.end_date < self.start_date:
             raise ValidationError({"end_date": "La fin est avant le début."})
         if self.end_date < timezone.localdate():

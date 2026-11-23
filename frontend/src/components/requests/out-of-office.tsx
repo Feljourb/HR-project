@@ -140,8 +140,9 @@ function DelegationForm({ me, onClose, onSaved }: { me: Me; onClose: () => void;
         onChange={(person) => { setDelegator(person); setDelegate(null) }} source={(search) => `/api/employees/directory/?search=${search}`} />
     </div>}
     <div className="sm:col-span-2">
-      {/* N'importe qui du même pôle que l'absent (décision du 2026-11-12). Sans délégué, personne ne le remplace. */}
-      <PersonPicker id="delegate" label="Who answers in their place (anyone of the pôle)" value={delegate} onChange={setDelegate}
+      {/* N'importe qui, de SBD ou de Riaya (2026-11-23, comme le responsable d'un service). Sans délégué, personne
+          ne le remplace. */}
+      <PersonPicker id="delegate" label="Who answers in their place (anyone, SBD or Riaya)" value={delegate} onChange={setDelegate}
         source={(search) => `/api/workflows/delegations/candidates/?search=${search}${forOther && delegator ? `&delegator=${delegator.id}` : ''}`} />
     </div>
     <div>

@@ -141,6 +141,14 @@ class HierarchyApiAndEngineTests(HierarchyTestCase):
 
         self.assertEqual(self.client.patch(url, {"head": None}, format="json").status_code, 200)  # plus de responsable
 
+    def test_me_says_who_leads_a_team(self):
+        # 2026-11-23 : un chef d'équipe (même Collaborateur) voit ses pages d'équipe dans le menu (/me leads_team).
+        for employee, expected in ((self.youssef, True), (self.sara, False)):  # Youssef dirige Ventes ; Sara non
+            employee.user.must_change_password = False
+            employee.user.save()
+            self.client.force_authenticate(employee.user)
+            self.assertEqual(self.client.get(reverse("accounts:me")).json()["leads_team"], expected)
+
     def test_a_change_of_head_goes_to_the_history(self):
         """Youssef -> Amina : une ligne dans la fiche des deux, visible dans l'Audit log."""
         amina = self.make_employee("a.amina", "AB000006", first_name="Amina")  # Ventes

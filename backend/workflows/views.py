@@ -218,7 +218,7 @@ class DelegationViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     @action(detail=False, methods=["get"])
     def candidates(self, request):
         """GET /api/workflows/delegations/candidates/?search=kar&delegator=12 -> les personnes qui PEUVENT remplacer
-        l'absent (moi, ou `delegator` pour les RH) : n'importe qui du même pôle (models.can_be_delegate, 2026-11-12).
+        l'absent (moi, ou `delegator` pour les RH) : n'importe qui, de SBD ou de Riaya (models.can_be_delegate, 2026-11-23).
         La recherche ne propose qu'elles ; Django refuse les autres de toute façon."""
         delegator_id = request.query_params.get("delegator", "")
         delegator = (Employee.objects.filter(pk=delegator_id).first() if delegator_id.isdigit()
