@@ -14,7 +14,7 @@ from rest_framework.test import APIClient
 from accounts.models import User
 from workflows import engine
 
-from .models import Department, Direction, Employee, EmployeeHistory, Entity, Pole, Position
+from .models import Department, Direction, Employee, EmployeeHistory, Pole
 from .tests import EmployeeTestCase
 
 
@@ -87,15 +87,13 @@ class HeadRulesTests(HierarchyTestCase):
             item.full_clean()
         return error.exception.message_dict
 
-    def test_head_works_in_their_service_or_direction(self):
+    def test_the_head_can_be_anyone(self):
+        # B7 (décision de l'utilisatrice, 2026-11-23) : le responsable n'est pas forcément dans l'équipe.
         sales = Department.objects.get(pk=self.sales.pk)
-        sales.head = self.nizar  # il est dans le service "Direction", pas dans "Ventes"
-        self.assertIn("Le responsable doit faire partie de ce service", self.errors_of(sales)["head"][0])
-
+        sales.head = self.nizar  # il est dans le service "Direction", pas dans "Ventes" : OK
+        sales.full_clean()
         commercial = Direction.objects.get(pk=self.commercial.pk)
-        commercial.head = self.dg  # il travaille dans une autre direction
-        self.assertIn("Le responsable doit travailler dans cette direction", self.errors_of(commercial)["head"][0])
-        commercial.head = self.sara  # Ventes est dans cette direction : OK
+        commercial.head = self.dg  # il travaille dans une autre direction : OK
         commercial.full_clean()
 
     def test_an_employee_who_left_cannot_be_head(self):
@@ -104,37 +102,22 @@ class HeadRulesTests(HierarchyTestCase):
         sales.head = fresh(self.sara)
         self.assertIn("head", self.errors_of(sales))
 
-    def test_a_head_cannot_leave_their_team(self):
+    def test_a_head_can_change_team(self):
+        # (Avant le 2026-11-23 : refusé tant qu'il dirigeait "Ventes". Le responsable peut venir de n'importe où.)
         youssef = fresh(self.youssef)
         youssef.department = self.office
         youssef.position = self.office.positions.first()
-        self.assertIn("Ventes", self.errors_of(youssef)["department"][0])
+        youssef.full_clean()
 
-    def test_a_team_of_both_poles(self):
-        # B7 (2026-11-20, standard Workday : employeur ≠ équipe) : un service rangé dans "Les deux pôles" (ex.
-        # l'Informatique) ; un chef sous contrat SBD, un membre sous contrat Riaya. Chacun garde le pôle de SON contrat.
-        common = Entity.objects.get(name="Les deux pôles")
-        it = Direction.objects.create(name="Informatique", entity=common)
-        team = Department.objects.create(name="Infrastructure", direction=it)
-        job = Position.objects.create(name="Technicien", department=team)
-        sbd, riaya = self.sales.direction.entity, Entity.objects.get(name="Eureka")
-        karim = self.make_employee("k.karim", "AB000098", first_name="Karim", department=team, position=job, employer=sbd)
-        ali = self.make_employee("a.ali", "AB000099", first_name="Ali", department=team, position=job, employer=riaya)
-        Department.objects.filter(pk=team.pk).update(head=karim)
-        self.assertEqual(fresh(ali).n_plus_1, karim)                     # son chef : Karim (SBD)
-        self.assertEqual((fresh(ali).pole.name, fresh(karim).pole.name), ("Riaya", "SBD"))  # ses RH : Riaya
-        # Un service commun sans employeur choisi : refusé ; un service d'une autre entité : refusé.
-        no_employer = fresh(ali)
-        no_employer.employer = None
-        self.assertIn("employer", self.errors_of_clean(no_employer))
-        wrong = fresh(ali)
-        wrong.department = self.sales  # Ventes est dans l'entité Challenge (SBD), pas Eureka
-        self.assertIn("department", self.errors_of_clean(wrong))
-
-    def errors_of_clean(self, item):
-        with self.assertRaises(ValidationError) as error:
-            item.clean()
-        return error.exception.message_dict
+    def test_a_sbd_collaborator_with_a_riaya_n_plus_1(self):
+        # B7, la phrase de l'utilisatrice : "un collaborateur SBD peut avoir un N+1 de Riaya".
+        production = Department.objects.get(name="Production", direction__entity__name="Eureka")  # Riaya
+        karim = self.make_employee("k.karim", "AB000098", first_name="Karim", department=production,
+                                   position=production.positions.first())
+        Department.objects.filter(pk=self.sales.pk).update(head=karim)  # Karim (Riaya) dirige Ventes (SBD)
+        sara = fresh(self.sara)
+        self.assertEqual(sara.n_plus_1, karim)                                   # son chef : Karim, de Riaya
+        self.assertEqual((sara.pole.name, fresh(karim).pole.name), ("SBD", "Riaya"))  # ses RH restent SBD
 
 
 class HierarchyApiAndEngineTests(HierarchyTestCase):
@@ -150,9 +133,11 @@ class HierarchyApiAndEngineTests(HierarchyTestCase):
         self.assertEqual(response.status_code, 200, response.json())
         self.assertEqual(response.json()["head_label"], str(amina))  # le nom, pour la page Listes
 
-        response = self.client.patch(url, {"head": self.nizar.pk}, format="json")  # pas dans Ventes
+        response = self.client.patch(url, {"head": self.nizar.pk}, format="json")  # pas dans Ventes : permis (B7)
+        self.assertEqual(response.status_code, 200)
+        Employee.objects.filter(pk=self.omar.pk).update(status=Employee.Status.LEFT)
+        response = self.client.patch(url, {"head": self.omar.pk}, format="json")  # un "Sorti" : refusé
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["head"], ["Le responsable doit faire partie de ce service."])
 
         self.assertEqual(self.client.patch(url, {"head": None}, format="json").status_code, 200)  # plus de responsable
 

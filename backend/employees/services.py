@@ -45,17 +45,14 @@ def make_username(first_name, last_name):
     return username
 
 
-def make_email(first_name, last_name, department, employer=None):
+def make_email(first_name, last_name, department):
     """L'email professionnel d'un NOUVEAU collaborateur : 1re lettre du prénom + "." + nom + domaine du pôle.
     "Fatima", "El Alami", un service de SBD -> "f.el-alami@silent-believers.com" (déjà pris -> "f.el-alami2@...").
-    Le pôle = celui de son EMPLOYEUR (B7, 2026-11-20 : un service des deux pôles n'en a pas).
-    Renvoie "" s'il manque le prénom, le nom ou le service / l'employeur : leurs propres erreurs s'affichent."""
+    Renvoie "" s'il manque le prénom, le nom ou le service : leurs propres erreurs s'affichent."""
     first, last = clean_name(first_name), clean_name(last_name)
     if not (first and last and department):
         return ""
-    pole = (employer or department.direction.entity).pole
-    if pole is None:
-        return ""  # un service des deux pôles sans employeur choisi : l'erreur "employer" s'affiche
+    pole = department.direction.entity.pole
     if not pole.email_domain:
         raise ValidationError({"professional_email": f"Le pôle {pole} n'a pas de domaine email (à remplir dans l'admin)."})
 

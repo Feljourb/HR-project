@@ -144,14 +144,14 @@ class BalanceViewSet(viewsets.GenericViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        employees = (Employee.objects.select_related("employer__pole")
+        employees = (Employee.objects.select_related("department__direction__entity__pole")
                      .order_by("last_name", "first_name"))
         if self.request.query_params.get("left") != "1":
             employees = employees.exclude(status=Employee.Status.LEFT)
         if limited_to_own_pole(user):
             pole = user_pole(user)
             # Un RH sans dossier n'a pas de pôle : il ne voit rien (plus sûr que tout montrer).
-            employees = employees.filter(employer__pole=pole) if pole else employees.none()
+            employees = employees.filter(department__direction__entity__pole=pole) if pole else employees.none()
         return employees
 
     def row(self, employee, settings, today):
@@ -174,7 +174,7 @@ class BalanceViewSet(viewsets.GenericViewSet):
         """GET /api/leaves/balances/<employee>/ -> le panneau du clic : la ligne du tableau, + le détail
         année par année (les tirelires) et ses congés (tous les types : la liste complète pour les RH).
         Un collaborateur hors du pôle du RH : 404 (comme s'il n'existait pas). Les "Sorti" aussi s'ouvrent."""
-        employee = (Employee.objects.select_related("employer__pole")
+        employee = (Employee.objects.select_related("department__direction__entity__pole")
                     .filter(pk=pk, pk__in=self.visible_ids()).first()) if str(pk).isdigit() else None
         if employee is None:
             raise NotFound("Collaborateur introuvable.")
@@ -251,7 +251,7 @@ class BalanceViewSet(viewsets.GenericViewSet):
         user, employees = self.request.user, Employee.objects.all()
         if limited_to_own_pole(user):
             pole = user_pole(user)
-            employees = employees.filter(employer__pole=pole) if pole else employees.none()
+            employees = employees.filter(department__direction__entity__pole=pole) if pole else employees.none()
         return employees.values("pk")
 
 
@@ -360,9 +360,9 @@ def my_team(employee):
         return []
     places = Q(department__head=employee) | Q(department__direction__head=employee)
     if employee.pole.director_id == employee.pk:
-        places |= Q(employer__pole=employee.pole)
+        places |= Q(department__direction__entity__pole=employee.pole)
     candidates = (Employee.objects.filter(places).exclude(pk=employee.pk).exclude(status=Employee.Status.LEFT)
-                  .select_related("employer__pole", "department__head", "department__direction__head")
+                  .select_related("department__direction__entity__pole", "department__head", "department__direction__head")
                   .order_by("last_name", "first_name").distinct())
     return [member for member in candidates if member.n_plus_1 and member.n_plus_1.pk == employee.pk]
 
@@ -380,7 +380,7 @@ class TeamMonthView(APIView):
         except ValueError:
             raise ValidationError({"detail": "month : AAAA-MM."})
         last = (first + datetime.timedelta(days=32)).replace(day=1) - datetime.timedelta(days=1)
-        me = Employee.objects.filter(user=request.user).select_related("employer__pole").first()
+        me = Employee.objects.filter(user=request.user).select_related("department__direction__entity__pole").first()
         team = my_team(me)
         days, people, busy = team_grid([me, *team] if team else [], first, last)
         if people:
@@ -461,14 +461,14 @@ class AbsenceViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         statuses = Request.Status.values if params.get("status") == "all" else LeaveRequest.ACTIVE
         leaves = (
             LeaveRequest.objects.filter(request__status__in=statuses, start_date__lte=end, end_date__gte=start)
-            .select_related("leave_type", "request", "employee__employer__pole")
+            .select_related("leave_type", "request", "employee__department__direction__entity__pole")
             .prefetch_related("recounts")
             .order_by("start_date", "employee__last_name")
         )
         if limited_to_own_pole(user):
             pole = user_pole(user)
             # Un RH sans dossier n'a pas de pôle : il ne voit rien (plus sûr que tout montrer).
-            leaves = leaves.filter(employee__employer__pole=pole) if pole else leaves.none()
+            leaves = leaves.filter(employee__department__direction__entity__pole=pole) if pole else leaves.none()
         return leaves
 
     @action(detail=False, methods=["get"])

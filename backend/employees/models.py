@@ -59,27 +59,19 @@ class Pole(ReferenceItem):
 
 
 class Entity(ReferenceItem):
-    # Vide = "Les deux pôles" (B7, 2026-11-20) : l'entité qui range les directions communes aux deux pôles
-    # (ex. l'Informatique). Elle n'emploie personne : l'employeur d'un collaborateur a toujours un pôle.
-    pole = models.ForeignKey(Pole, on_delete=models.PROTECT, null=True, blank=True, related_name="entities", verbose_name="Pôle")
-
-    @property
-    def common(self):
-        """Les directions des deux pôles (pas de pôle) ?"""
-        return self.pole_id is None
+    pole = models.ForeignKey(Pole, on_delete=models.PROTECT, related_name="entities", verbose_name="Pôle")
 
     class Meta(ReferenceItem.Meta):
         verbose_name = "Entité"
 
 
-def check_head(head, works_there, message):
-    """Règles communes au responsable d'une direction et d'un service (voir leurs clean())."""
-    if head is None:
-        return
-    if head.status == Employee.Status.LEFT:
+def check_head(head):
+    """La règle du responsable d'une direction ou d'un service (voir leurs clean()).
+    B7 (décision de l'utilisatrice, 2026-11-23, standard Workday : le manager n'est pas forcément dans l'équipe) :
+    le responsable peut être N'IMPORTE QUI, de SBD ou de Riaya (ex. un collaborateur SBD a un N+1 de Riaya).
+    Seule règle : pas un collaborateur "Sorti"."""
+    if head is not None and head.status == Employee.Status.LEFT:
         raise ValidationError({"head": "Un collaborateur sorti ne peut pas être responsable."})
-    if not works_there:
-        raise ValidationError({"head": message})
 
 
 class Direction(ReferenceItem):
@@ -90,8 +82,6 @@ class Direction(ReferenceItem):
         "Employee", on_delete=models.PROTECT, null=True, blank=True,
         related_name="headed_directions", verbose_name="Responsable",
     )
-    # (B7, 2026-11-20 : une direction des DEUX pôles, ex. l'Informatique, est rangée dans l'entité "Les deux pôles"
-    #  (Entity sans pôle) ; le pôle de chaque collaborateur vient de son employeur, Employee.employer.)
 
     class Meta(ReferenceItem.Meta):
         verbose_name = "Direction"
@@ -105,9 +95,8 @@ class Direction(ReferenceItem):
         ]
 
     def clean(self):
-        # Le responsable travaille DANS cette direction (dans un de ses services, ex. "Direction").
-        check_head(self.head, self.head and self.head.department.direction_id == self.pk,
-                   "Le responsable doit travailler dans cette direction.")
+        # Le responsable : n'importe qui (SBD ou Riaya), pas un "Sorti" (B7, 2026-11-23).
+        check_head(self.head)
 
 
 class Department(ReferenceItem):
@@ -130,9 +119,8 @@ class Department(ReferenceItem):
         ]
 
     def clean(self):
-        # Le chef d'équipe fait partie de l'équipe (d'un pôle ou de l'autre, si le service est des deux pôles).
-        check_head(self.head, self.head and self.head.department_id == self.pk,
-                   "Le responsable doit faire partie de ce service.")
+        # Le chef d'équipe (le N+1 de ses membres) : n'importe qui, de SBD ou de Riaya, pas un "Sorti" (B7).
+        check_head(self.head)
 
 
 class Position(ReferenceItem):
@@ -310,12 +298,6 @@ class Employee(models.Model):
     # Unique : deux dossiers ne peuvent pas avoir le même CIN. Toujours stocké en
     # majuscules (voir clean() et save()), donc "ab123456" = "AB123456".
     cin = models.CharField("CIN", max_length=20, unique=True, error_messages={"unique": "Ce CIN existe déjà."})
-    # B7 (2026-11-20, standard Workday : l'employeur et l'équipe sont deux choses) : l'entité de son CONTRAT
-    # (SBD ou Riaya). C'est elle qui donne son pôle : ses RH, son solde, ses documents, son email. Son service
-    # (l'équipe) est dans cette entité, ou dans "Les deux pôles" (ex. l'Informatique, dirigée par un manager SBD).
-    # Rempli tout seul depuis le service quand il n'est pas donné (anciens dossiers, services d'une seule entité).
-    employer = models.ForeignKey("Entity", on_delete=models.PROTECT, null=True, blank=True, related_name="employees",
-                                 verbose_name="Entité (employeur)")
     city = models.ForeignKey(City, on_delete=models.PROTECT, related_name="employees", verbose_name="Ville")
     address = models.CharField("Adresse", max_length=255)
     country = models.CharField("Pays", max_length=100, default="Maroc")
@@ -419,13 +401,12 @@ class Employee(models.Model):
 
     @property
     def entity(self):
-        """L'entité de son contrat (B7 : l'employeur) ; un ancien dossier pas encore rempli : celle de son service."""
-        return self.employer if self.employer_id else self.department.direction.entity
+        return self.department.direction.entity
 
     @property
     def pole(self):
-        # Sert à savoir quel RH peut voir ce dossier (RH SBD ou RH Riaya) : le pôle de son EMPLOYEUR (B7).
-        return self.entity.pole
+        # Sert à savoir quel RH peut voir ce dossier (RH SBD ou RH Riaya) : le pôle de SON service.
+        return self.department.direction.entity.pole
 
     # --- La hiérarchie : N+1, N+2... jusqu'au DG -------------------------------
     # Rien n'est stocké : on la lit dans l'organigramme. Quand Admin RH change le responsable
@@ -552,25 +533,8 @@ class Employee(models.Model):
                 else:
                     setattr(self, field, number)
 
-        # Règle 10 : un responsable reste dans l'équipe qu'il dirige. Pour le changer de service,
-        # Admin RH choisit d'abord un autre responsable (page Listes) : l'équipe n'a jamais un chef parti ailleurs.
-        # Règle 11 (B7) : l'employeur = une entité d'un pôle (SBD ou Riaya, jamais "Les deux pôles"), et le service est
-        # dans cette entité ou dans une direction des deux pôles.
-        if self.department_id:
-            team_entity = self.department.direction.entity
-            employer = self.employer if self.employer_id else (None if team_entity.common else team_entity)
-            if employer is None or employer.common:
-                errors["employer"] = "Choisissez l'entité de son contrat (une entité de SBD ou de Riaya)."
-            elif not team_entity.common and team_entity.pk != employer.pk:
-                errors["department"] = f"Ce service n'est pas dans l'entité « {employer} » (ni dans les deux pôles)."
-
-        if self.pk and self.department_id:
-            headed = self.headed_departments.exclude(pk=self.department_id).first()
-            if headed is None and self.department.direction_id:
-                headed = self.headed_directions.exclude(pk=self.department.direction_id).first()
-            if headed is not None:
-                errors["department"] = (f"Ce collaborateur est responsable de « {headed} » : "
-                                        "choisissez d'abord un autre responsable (page Listes).")
+        # (Règle 10 "un responsable reste dans l'équipe qu'il dirige" : enlevée le 2026-11-23, B7 : le responsable
+        #  d'un service peut venir de n'importe où, même de l'autre pôle.)
 
         if errors:
             raise ValidationError(errors)
@@ -587,9 +551,6 @@ class Employee(models.Model):
         # Téléphones au format +212 (un numéro non marocain reste tel quel : clean() l'a déjà signalé).
         self.phone = moroccan_phone(self.phone) or self.phone
         self.emergency_contact_phone = moroccan_phone(self.emergency_contact_phone) or self.emergency_contact_phone
-        # B7 : pas d'employeur donné et un service d'une seule entité -> l'employeur est cette entité.
-        if not self.employer_id and self.department_id and not self.department.direction.entity.common:
-            self.employer = self.department.direction.entity
 
         # atomic : toutes les écritures passent ensemble, ou aucune (jamais de dossier sans matricule,
         # jamais un "Sorti" avec un compte encore ouvert).

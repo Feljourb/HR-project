@@ -116,14 +116,14 @@ export function ValueRow({ list, api = LISTS_API, item, withCode, headFilter, ex
     {!editing && extra.map((field) => <td key={field.name} className="px-4 py-3 text-xs text-slate-600">{extraText(item, field)}</td>)}
 
     {/* Le responsable : le N+1 de toute l'équipe. Le changer change le N+1 de chacun, sans toucher aux fiches.
-        La recherche ne propose que les gens qui travaillent dans ce service / cette direction. */}
+        B7 (2026-11-23) : la recherche propose TOUT le monde, de SBD et de Riaya (un collaborateur SBD peut avoir
+        un N+1 de Riaya). */}
     {headFilter && <td className="px-4 py-3">
       {choosingHead
         ? <div className="flex items-start gap-1">
             <div className="min-w-56 flex-1">
               <ManagerPicker id={`head-${item.id}`} fieldLabel="Head" value="" label="" placeholder="Search a person..."
-                filters={{ [headFilter]: String(item.id) }} disabled={busy}
-                hint={headFilter === 'department' ? 'People of this service.' : 'People of this direction.'}
+                disabled={busy} hint="Anyone, from SBD or Riaya."
                 onChange={(id) => send({ head: Number(id) })} />
             </div>
             <button type="button" onClick={() => { setChoosingHead(false); setError('') }} className={cn(actionClass, 'mt-6')}>Cancel</button>

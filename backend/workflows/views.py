@@ -227,7 +227,7 @@ class DelegationViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
             return Response([])
         people = (Employee.objects.exclude(status=Employee.Status.LEFT).exclude(pk=delegator.pk)
                   .filter(user__is_active=True)
-                  .select_related("user", "position", "employer__pole"))
+                  .select_related("user", "position", "department__direction__entity__pole"))
         if search := request.query_params.get("search", "").strip():
             people = people.filter(Q(last_name__icontains=search) | Q(first_name__icontains=search))
         found = [person for person in people.order_by("last_name")[:50] if can_be_delegate(person, delegator)][:8]
