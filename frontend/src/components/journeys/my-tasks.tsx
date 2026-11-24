@@ -7,12 +7,10 @@
  * Groupées par personne (qui arrive / part), la plus proche d'abord. Deux pilules : To do / Done.
  */
 import { useCallback, useEffect, useState } from 'react'
-import { ListTodo, LogOut } from 'lucide-react'
+import { ListTodo } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 import { cn } from '@/lib/utils'
-import { SidePanel } from '@/components/ui/side-panel'
-import type { DepartureOptions, MyTask } from '@/lib/journeys'
-import { DepartureForm } from './departure-form'
+import type { MyTask } from '@/lib/journeys'
 import { JourneyWho } from './journey-who'
 import { TaskRow } from './task-row'
 
@@ -22,17 +20,7 @@ export function MyTasks() {
   const [filter, setFilter] = useState<Filter>('open')
   const [tasks, setTasks] = useState<MyTask[] | null>(null)
   const [failed, setFailed] = useState(false)
-  // "Request my departure" : seulement si Admin RH le permet (NON par défaut, comme NOOR : on passe par son manager).
-  const [options, setOptions] = useState<DepartureOptions | null>(null)
-  const [declaring, setDeclaring] = useState(false)
-  const [notice, setNotice] = useState('')
-
-  useEffect(() => {
-    apiFetch('/api/journeys/departures/options/')
-      .then((response) => (response.ok ? response.json() : null))
-      .then(setOptions)
-      .catch(() => { /* pas de bouton */ })
-  }, [])
+  // (2026-11-24) "Request my departure" n'est plus ici : un départ est une DEMANDE, pas une tâche -> page "My departure".
 
   const load = useCallback((which: Filter) => {
     apiFetch(`/api/journeys/tasks/?status=${which}`)
@@ -51,24 +39,10 @@ export function MyTasks() {
   const late = (tasks ?? []).filter((task) => task.late).length
 
   return <div className="mx-auto flex w-full max-w-4xl flex-col gap-4">
-    <div className="flex flex-wrap items-start gap-3">
-      <div className="min-w-0 flex-1">
-        <h1 className="text-lg font-semibold text-[#192646]">My tasks</h1>
-        <p className="text-xs text-slate-500">What you must do so that a new colleague’s first day goes well, or a colleague leaves properly. Click “Mark done” when it is done.</p>
-      </div>
-      {options?.can_request_own && <button type="button" onClick={() => setDeclaring(true)}
-        className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-[#23355d] hover:border-[#23355d]/40">
-        <LogOut className="size-3.5" /> Request my departure
-      </button>}
+    <div>
+      <h1 className="text-lg font-semibold text-[#192646]">My tasks</h1>
+      <p className="text-xs text-slate-500">What you must do so that a new colleague’s first day goes well, or a colleague leaves properly. Click “Mark done” when it is done.</p>
     </div>
-    {notice && <p role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-xs text-emerald-800">{notice}</p>}
-    <SidePanel open={declaring} onClose={() => setDeclaring(false)} width={520} title="Request my departure"
-      description="HR approve it; then the departure tasks start (give back the PC, the badge…).">
-      {options && <DepartureForm options={options} self onDone={() => {
-        setDeclaring(false)
-        setNotice('Your departure request was sent to HR. You can follow it in My requests.')
-      }} />}
-    </SidePanel>
 
     <div className="flex flex-wrap items-center gap-2">
       {([['open', 'To do'], ['done', 'Done']] as [Filter, string][]).map(([id, label]) => {

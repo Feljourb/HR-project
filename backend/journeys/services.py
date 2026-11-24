@@ -260,6 +260,13 @@ def can_request_departure(user, employee):
     return employee.user_id == user.pk and JourneySettings.load().employee_can_request_departure
 
 
+def can_request_own_departure(user):
+    """La page "My departure" (et son lien dans le menu) : seulement si Admin RH le permet, pour quelqu'un qui a une
+    fiche et n'est pas parti. Les RH n'en ont pas besoin (ils déclarent les départs depuis "Arrivals & departures")."""
+    me = Employee.objects.filter(user=user).first()
+    return bool(me and me.status != Employee.Status.LEFT and not is_hr(user) and can_request_departure(user, me))
+
+
 def departure_in_progress(employee):
     """Un départ en attente de validation, ou déjà validé et pas annulé."""
     return (Departure.objects.filter(employee=employee, request__status="IN_PROGRESS").exists()
@@ -340,11 +347,25 @@ def can_see_departure(user, departure):
 
 
 def close_departures(today=None):
-    """Le tour du matin (chaque jour) : un départ validé dont le dernier jour est PASSÉ -> le collaborateur devient
-    "Sorti" (son compte est bloqué tout seul, voir Employee.save) ; une ligne dans l'historique de sa fiche."""
+    """Le tour du matin (chaque jour) : un départ validé dont le dernier jour est PASSÉ.
+    - Réglage "automatique" (par défaut) : le collaborateur devient "Sorti" (son compte est bloqué tout seul, voir
+      Employee.save) ; une ligne dans l'historique de sa fiche, par "système".
+    - Réglage "à la main" : rien ne change sur la fiche ; les RH de son pôle reçoivent "Compte à bloquer" (une seule
+      fois par départ ; enlevée, si pas lue, dès que la fiche est "Sorti").
+    Renvoie le nombre de collaborateurs passés "Sorti" par l'app."""
     today = today or timezone.localdate()
-    journeys = (Journey.objects.filter(kind=Kind.DEPARTURE, cancelled_at__isnull=True, day__lt=today)
-                .exclude(employee__status=Employee.Status.LEFT).select_related("employee"))
+    # Ménage : un rappel "Compte à bloquer" pas encore lu, alors que les RH l'ont déjà fait -> inutile.
+    Notification.objects.filter(kind=Notification.Kind.ACCOUNT_TO_BLOCK, read_at__isnull=True,
+                                employee__status=Employee.Status.LEFT).delete()
+    journeys = list(Journey.objects.filter(kind=Kind.DEPARTURE, cancelled_at__isnull=True, day__lt=today)
+                    .exclude(employee__status=Employee.Status.LEFT).select_related("employee__department__direction__entity__pole"))
+    if not JourneySettings.load().auto_block:
+        Notification.objects.bulk_create(
+            [Notification(recipient=user, employee=journey.employee, kind=Notification.Kind.ACCOUNT_TO_BLOCK, due_date=journey.day)
+             for journey in journeys for user in hr_people(journey.employee)],
+            ignore_conflicts=True,  # déjà envoyé un autre matin : pas de doublon (contrainte unique)
+        )
+        return 0
     for journey in journeys:
         employee = journey.employee
         before = history.snapshot(employee)

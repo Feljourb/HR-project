@@ -99,7 +99,7 @@ class MeTests(AuthTestCase):
             response.data,
             {"username": "ali.test", "role": "MANAGER", "is_superuser": False,
              "must_change_password": False, "mfa_setup_required": False, "stands_in": False, "stood_in": False,
-             "leads_team": False},
+             "leads_team": False, "can_request_departure": False},
         )
 
     def test_me_without_cookie_is_401(self):

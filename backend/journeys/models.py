@@ -181,6 +181,10 @@ class JourneySettings(models.Model):
 
     # Comme NOOR par défaut : NON, le collaborateur passe par son manager (ou les RH).
     employee_can_request_departure = models.BooleanField("Le collaborateur peut demander son propre départ", default=False)
+    # Le compte à la fin (2026-11-24, choix d'Admin RH) : OUI par défaut = le lendemain du dernier jour, l'app met
+    # "Sorti" et bloque le compte (sécurité). NON = les RH le font à la main ; l'app leur envoie alors une 🔔 + email
+    # "Compte à bloquer" chaque matin, tant que ce n'est pas fait (pour ne jamais l'oublier).
+    auto_block = models.BooleanField("Bloquer le compte automatiquement le lendemain du dernier jour", default=True)
     updated_at = models.DateTimeField("Modifié le", auto_now=True)
     updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
                                    related_name="+", verbose_name="Modifié par")

@@ -163,8 +163,7 @@ class DepartureViewSet(mixins.CreateModelMixin, viewsets.ReadOnlyModelViewSet):
             "types": [{"id": value, "name": label} for value, label in DepartureType.choices],
             "team": team,
             "is_hr": services.is_hr(request.user),
-            "can_request_own": bool(me and me.status != Employee.Status.LEFT and services.can_request_departure(request.user, me)
-                                    and not services.is_hr(request.user)),
+            "can_request_own": services.can_request_own_departure(request.user),
             "me": me.pk if me else None,
         })
 
@@ -177,7 +176,7 @@ class DepartureViewSet(mixins.CreateModelMixin, viewsets.ReadOnlyModelViewSet):
 
 
 class JourneySettingsView(APIView):
-    """Les réglages des arrivées et départs (Admin RH + IT) : GET / PATCH {employee_can_request_departure}."""
+    """Les réglages des arrivées et départs (Admin RH + IT) : GET / PATCH {employee_can_request_departure, auto_block}."""
 
     permission_classes = [IsHRAdmin]
 

@@ -687,6 +687,8 @@ class Notification(models.Model):
         JOURNEY_TASKS = "JOURNEY_TASKS", "Tâches à faire"
         TASK_LATE = "TASK_LATE", "Tâche en retard"
         JOURNEY_DONE = "JOURNEY_DONE", "Parcours prêt"
+        # Le dernier jour est passé et Admin RH a choisi "les RH bloquent à la main" : rappel aux RH (2026-11-24).
+        ACCOUNT_TO_BLOCK = "ACCOUNT_TO_BLOCK", "Compte à bloquer"
 
     recipient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notifications",
                                   verbose_name="Destinataire")

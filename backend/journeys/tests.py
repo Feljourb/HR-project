@@ -181,7 +181,11 @@ class DepartureTests(JourneyTestCase):
             self.ask(self.sara.user)
         with self.assertRaises(PermissionDenied):
             self.ask(self.karim.user)  # le N+2 : pas son manager direct
+        client = APIClient()
+        client.force_authenticate(self.sara.user)
+        self.assertFalse(client.get(reverse("accounts:me")).json()["can_request_departure"])  # pas de lien "My departure"
         JourneySettings.objects.update_or_create(pk=1, defaults={"employee_can_request_departure": True})
+        self.assertTrue(client.get(reverse("accounts:me")).json()["can_request_departure"])
         self.assertEqual(self.ask(self.sara.user).request.initiated_by, None)  # lui-même
 
     def test_hr_record_it_approved_at_once_and_only_one_at_a_time(self):
@@ -199,6 +203,24 @@ class DepartureTests(JourneyTestCase):
         self.assertEqual(self.sara.status, "LEFT")
         self.assertFalse(self.sara.user.is_active)
         self.assertEqual(departure.employee.history.first().actor_name, "système")
+
+    def test_admin_rh_chooses_hr_block_the_account_by_hand(self):
+        JourneySettings.objects.update_or_create(pk=1, defaults={"auto_block": False})
+        self.ask(self.nadia.user)
+        after = self.last_day + timedelta(days=1)
+        self.assertEqual(services.close_departures(today=after), 0)  # l'app ne touche pas la fiche
+        self.sara.refresh_from_db()
+        self.assertEqual(self.sara.status, "ACTIVE")
+        self.assertTrue(self.sara.user.is_active)
+        reminders = Notification.objects.filter(kind=N.ACCOUNT_TO_BLOCK, employee=self.sara)
+        self.assertTrue(reminders.filter(recipient=self.nadia.user).exists())  # les RH du pôle
+        services.close_departures(today=after + timedelta(days=1))  # un autre matin : pas de doublon
+        self.assertEqual(reminders.filter(recipient=self.nadia.user).count(), 1)
+        # Les RH mettent la fiche en "Sorti" : le rappel pas lu part au tour suivant.
+        self.sara.status, self.sara.departure_date = "LEFT", self.last_day
+        self.sara.save()
+        services.close_departures(today=after + timedelta(days=2))
+        self.assertFalse(reminders.exists())
 
     def test_cancelling_the_departure_removes_the_departure_date(self):
         departure = self.ask(self.nadia.user)

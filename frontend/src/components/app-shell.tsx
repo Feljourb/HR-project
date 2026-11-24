@@ -19,7 +19,7 @@ import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import {
   BookOpen, BriefcaseBusiness, Building2, CalendarDays, CalendarRange, Check, ChevronRight, ChevronsUpDown,
-  CircleHelp, ClipboardCheck, FileText, FolderOpen, Headphones, Inbox, LayoutDashboard, ListChecks, ListTodo, LockKeyhole, type LucideIcon,
+  CircleHelp, ClipboardCheck, DoorOpen, FileText, FolderOpen, Headphones, Inbox, LayoutDashboard, ListChecks, ListTodo, LockKeyhole, type LucideIcon,
   LogOut, Menu, PiggyBank, Plane, ReceiptText, ScrollText, Search, Sparkles, UserPlus, UserRound, UserRoundCheck, UserRoundCog, UsersRound, Workflow, X,
 } from 'lucide-react'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -40,6 +40,7 @@ type NavItem = {
   adminOnly?: boolean  // visible seulement pour Admin RH (et l'IT)
   itOnly?: boolean     // visible seulement pour l'IT (superuser)
   standInOnly?: boolean  // visible seulement pour un collaborateur choisi comme délégué (les autres ont Team approvals)
+  departureOnly?: boolean  // visible seulement si Admin RH permet de demander son propre départ (NON par défaut)
   counter?: Counter
 }
 
@@ -60,6 +61,8 @@ const navGroups: NavGroup[] = [
     // Arrivées et départs (2026-11-23) : MES tâches (IT, manager, RH, la nouvelle recrue...), avec leur nombre.
     { label: 'My tasks', icon: ListTodo, href: '/my-tasks', counter: 'tasks' },
     { label: 'Stand-in requests', icon: UserRoundCheck, href: '/stand-in', standInOnly: true, counter: 'approvals' },
+    // (2026-11-24) MON départ : une page à part (pas dans "My tasks" : ce n'est pas une tâche, c'est une demande).
+    { label: 'My departure', icon: DoorOpen, href: '/my-departure', departureOnly: true },
   ] },
   // L'annuaire est ouvert à tous les rôles.
   { label: 'Company', items: [
@@ -198,7 +201,8 @@ function NavList({ me, active, collapsed, counts, onNavigate }: NavListProps) {
     .map((group) => ({ ...group, items: group.items.filter((item) =>
       (!item.hrOnly || (me !== null && isHr(me))) && (!item.adminOnly || (me !== null && seesBothPoles(me)))
       && (!item.itOnly || (me !== null && me.is_superuser))
-      && (!item.standInOnly || (me !== null && me.stands_in === true && me.role === 'COLLABORATOR' && !me.is_superuser))) }))
+      && (!item.standInOnly || (me !== null && me.stands_in === true && me.role === 'COLLABORATOR' && !me.is_superuser))
+      && (!item.departureOnly || (me !== null && me.can_request_departure === true))) }))
     .filter((group) => group.items.length > 0)  // une section vide (ex. Administration pour un RH) : cachée
   const [soonOpen, setSoonOpen] = useState(false)
 

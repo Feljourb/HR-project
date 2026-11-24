@@ -31,14 +31,19 @@ export function JourneySettings() {
         hint: 'What must be ready for a new employee’s first day (PC, badge, contract, desk…) and in the first month.' },
       { id: 'departure', label: 'Departure tasks', icon: LogOut, content: <TemplateTable kind="DEPARTURE" />,
         hint: 'What must be given back or closed when someone leaves (PC, badge, car, email, certificate…).' },
-      { id: 'who', label: 'Who declares a departure', icon: UserRoundCheck, content: <DepartureRights />,
-        hint: 'The manager (N+1) and HR always can. Choose if an employee may also request his own departure.' },
+      { id: 'who', label: 'Departure rules', icon: UserRoundCheck, content: <DepartureRules />,
+        hint: 'Who may declare a departure, and what happens to the account after the last day.' },
     ]} />
 }
 
-/** Le réglage "le collaborateur peut demander son propre départ" (NON par défaut, comme NOOR). Enregistré au clic. */
-function DepartureRights() {
-  const [value, setValue] = useState<{ employee_can_request_departure: boolean; updated_at: string; updated_by_name: string | null } | null>(null)
+type Rules = { employee_can_request_departure: boolean; auto_block: boolean; updated_at: string; updated_by_name: string | null }
+type Choice = [boolean, string, string]
+
+/** Les 2 réglages des départs (une seule place), chacun enregistré au clic :
+ *  ① le collaborateur peut-il demander son propre départ (NON par défaut, comme NOOR) ;
+ *  ② le compte après le dernier jour : bloqué par l'app (OUI par défaut, sécurité) ou par les RH à la main. */
+function DepartureRules() {
+  const [value, setValue] = useState<Rules | null>(null)
   const [error, setError] = useState('')
   const [saved, setSaved] = useState(false)
 
@@ -46,33 +51,53 @@ function DepartureRights() {
     apiFetch('/api/journeys/settings/')
       .then((response) => (response.ok ? response.json() : Promise.reject()))
       .then(setValue)
-      .catch(() => setError('Could not load this setting: refresh the page.'))
+      .catch(() => setError('Could not load these settings: refresh the page.'))
   }, [])
 
-  async function change(allowed: boolean) {
+  async function change(field: 'employee_can_request_departure' | 'auto_block', on: boolean) {
     setError('')
     setSaved(false)
-    const response = await apiFetch('/api/journeys/settings/', { method: 'PATCH', body: JSON.stringify({ employee_can_request_departure: allowed }) }).catch(() => null)
+    const response = await apiFetch('/api/journeys/settings/', { method: 'PATCH', body: JSON.stringify({ [field]: on }) }).catch(() => null)
     if (response?.ok) { setValue(await response.json()); setSaved(true) } else setError(response ? await errorOf(response) : 'The server does not answer. Try again.')
   }
 
-  return <section className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-    <h2 className="text-sm font-semibold text-[#192646]">Who declares a departure</h2>
-    <p className="mt-1 text-xs text-slate-500">The manager (N+1) declares it for his team (e.g. he received the resignation letter), and HR for anyone of their pôle. HR approve it, then the departure tasks start.</p>
-    {value && <div className="mt-3 flex flex-col gap-2">
-      {[[false, 'No: the employee goes through his manager (recommended, like NOOR)', 'He sees “Please ask your manager” and has no button.'],
-        [true, 'Yes: the employee can also request his own departure', 'A “Request my departure” button on his My tasks page. HR still approve it.']].map(([allowed, label, hint]) =>
-        <label key={String(allowed)} className={cn('flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2.5',
-          value.employee_can_request_departure === allowed ? 'border-[#23355d] bg-[#23355d]/5' : 'border-slate-200 hover:border-slate-300')}>
-          <input type="radio" name="self-departure" checked={value.employee_can_request_departure === allowed} onChange={() => void change(allowed as boolean)}
-            className="mt-0.5 size-4 accent-[#23355d]" />
+  return <section className="flex flex-col gap-5 rounded-xl border border-slate-200/80 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+    {value && <>
+      <RadioGroup name="self-departure" title="① Who declares a departure" value={value.employee_can_request_departure}
+        text="The manager (N+1) declares it for his team (e.g. he received the resignation letter), and HR for anyone of their pôle. HR approve it, then the departure tasks start."
+        onChange={(on) => void change('employee_can_request_departure', on)} choices={[
+          [false, 'No: the employee goes through his manager (recommended, like NOOR)', 'He has no “My departure” page.'],
+          [true, 'Yes: the employee can also request his own departure', 'A “My departure” page appears in his menu (My space). HR still approve it.']]} />
+      <RadioGroup name="auto-block" title="② The account after the last day" value={value.auto_block}
+        text="E.g. last day Friday 28/11: what happens on Saturday 29/11, in the morning."
+        onChange={(on) => void change('auto_block', on)} choices={[
+          [true, 'Automatic: the app blocks the account (recommended)', 'The fiche becomes “Sorti” and the account is blocked. The history says “by système”.'],
+          [false, 'By hand: HR block it', 'Nothing changes on the fiche. HR of the pôle get a 🔔 + email “Compte à bloquer” with a link to the fiche: they set it to “Sorti”.']]} />
+      <div>
+        {saved && <p role="status" className="text-xs font-medium text-emerald-700">✓ Saved</p>}
+        {value.updated_by_name && <p className="text-[11px] text-slate-400">Last change by {value.updated_by_name}.</p>}
+      </div>
+    </>}
+    {error && <p role="alert" className="text-xs font-medium text-red-600">{error}</p>}
+  </section>
+}
+
+/** Un groupe de choix (cartes radio) : un titre, une phrase, 2 choix. */
+function RadioGroup({ name, title, text, value, choices, onChange }: {
+  name: string; title: string; text: string; value: boolean; choices: Choice[]; onChange: (on: boolean) => void
+}) {
+  return <div>
+    <h2 className="text-sm font-semibold text-[#192646]">{title}</h2>
+    <p className="mt-1 text-xs text-slate-500">{text}</p>
+    <div className="mt-3 flex flex-col gap-2">
+      {choices.map(([on, label, hint]) =>
+        <label key={String(on)} className={cn('flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2.5',
+          value === on ? 'border-[#23355d] bg-[#23355d]/5' : 'border-slate-200 hover:border-slate-300')}>
+          <input type="radio" name={name} checked={value === on} onChange={() => onChange(on)} className="mt-0.5 size-4 accent-[#23355d]" />
           <span><span className="block text-sm font-medium text-[#192646]">{label}</span><span className="block text-[11px] text-slate-500">{hint}</span></span>
         </label>)}
-      {saved && <p role="status" className="text-xs font-medium text-emerald-700">✓ Saved</p>}
-      {value.updated_by_name && <p className="text-[11px] text-slate-400">Last change by {value.updated_by_name}.</p>}
-    </div>}
-    {error && <p role="alert" className="mt-2 text-xs font-medium text-red-600">{error}</p>}
-  </section>
+    </div>
+  </div>
 }
 
 function TemplateTable({ kind }: { kind: JourneyKind }) {

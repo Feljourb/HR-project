@@ -11,6 +11,7 @@ export type Me = {
   stands_in?: boolean; // seulement dans /me : quelqu'un m'a choisi comme délégué (en cours ou prévu)
   stood_in?: boolean;  // seulement dans /me : j'ai déjà répondu à la place de quelqu'un (la trace, dans My requests)
   leads_team?: boolean;  // seulement dans /me : responsable d'un service / d'une direction, ou DG (menu d'équipe)
+  can_request_departure?: boolean;  // seulement dans /me : Admin RH permet de demander son départ (lien "My departure")
 };
 
 // Where a user must go first: change the password, then activate MFA, then home.

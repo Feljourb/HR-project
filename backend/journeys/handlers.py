@@ -32,6 +32,11 @@ def journey_message(notification, name):
     journey = journey_of(notification)
     arrival = journey is None or journey.kind == Kind.ARRIVAL
     label = f"{'Arrivée' if arrival else 'Départ'} de {name} le {notification.due_date:%d/%m/%Y}"
+    if notification.kind == Notification.Kind.ACCOUNT_TO_BLOCK:
+        if notification.employee.status == notification.employee.Status.LEFT:
+            return f"{name} est « Sorti » : son compte est bloqué."
+        return (f"Le dernier jour de {name} était le {notification.due_date:%d/%m/%Y} : mettez sa fiche en « Sorti » "
+                f"pour bloquer son compte.")
     if notification.kind == Notification.Kind.JOURNEY_DONE:
         return f"{label} : toutes les tâches sont faites."
     if journey is None:

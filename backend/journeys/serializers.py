@@ -145,7 +145,7 @@ class JourneySettingsSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = JourneySettings
-        fields = ["employee_can_request_departure", "updated_at", "updated_by_name"]
+        fields = ["employee_can_request_departure", "auto_block", "updated_at", "updated_by_name"]
         read_only_fields = ["updated_at"]
 
     def get_updated_by_name(self, current):

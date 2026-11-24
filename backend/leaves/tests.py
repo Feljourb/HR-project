@@ -408,6 +408,7 @@ class ApprovedLeaveTests(EngineTestCase):
     """Step 5 : quand le circuit accepte un congé (@on_approved("LEAVE"))."""
 
     def setUp(self):
+        freeze_today(self)  # "aujourd'hui" = 02/11/2026 : le congé du 23/11 reste dans le futur (le test marche toujours)
         super().setUp()
         self.annual = LeaveType.objects.get(name="Congé annuel")
 
