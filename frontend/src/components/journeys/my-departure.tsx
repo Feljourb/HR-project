@@ -17,9 +17,10 @@ import { DepartureForm } from './departure-form'
 
 // L'état de la demande, dit simplement (la couleur suit : ambre = on attend, vert = validé, gris = fermé).
 const STATUS: Record<Departure['status'], { label: string; text: string; tone: string }> = {
-  IN_PROGRESS: { label: 'Waiting for HR', text: 'HR have your request. You will get a 🔔 and an email when they answer.', tone: 'bg-amber-50 text-amber-800' },
-  APPROVED: { label: 'Approved', text: 'HR approved your departure. The departure tasks have started (give back the PC, the badge…): you may get some in My tasks.', tone: 'bg-emerald-50 text-emerald-700' },
-  REJECTED: { label: 'Refused', text: 'HR refused this request. See their reason in the history.', tone: 'bg-slate-100 text-slate-600' },
+  // (2026-11-24) le circuit = N+1 puis RH par défaut (Admin RH peut le changer) : on ne dit pas "les RH" seulement.
+  IN_PROGRESS: { label: 'In approval', text: 'Your manager, then HR, answer it. You get a 🔔 and an email at each answer. “View the history” shows who it is waiting for.', tone: 'bg-amber-50 text-amber-800' },
+  APPROVED: { label: 'Approved', text: 'Your departure is approved. The departure tasks have started (give back the PC, the badge…): you may get some in My tasks.', tone: 'bg-emerald-50 text-emerald-700' },
+  REJECTED: { label: 'Refused', text: 'This request was refused. See the reason in the history.', tone: 'bg-slate-100 text-slate-600' },
   CANCELLED: { label: 'Cancelled', text: 'This request was cancelled.', tone: 'bg-slate-100 text-slate-600' },
 }
 
@@ -51,7 +52,7 @@ export function MyDeparture() {
   return <div className="mx-auto flex w-full max-w-2xl flex-col gap-4">
     <div>
       <h1 className="text-lg font-semibold text-[#192646]">My departure</h1>
-      <p className="text-xs text-slate-500">You are leaving the company: tell HR here. HR approve it, then everything is prepared for your last day.</p>
+      <p className="text-xs text-slate-500">You are leaving the company: tell it here. Your manager and HR approve it, then everything is prepared for your last day.</p>
     </div>
 
     {failed && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700">Could not load this page: refresh it.</p>}
@@ -89,7 +90,7 @@ function DepartureCard({ departure, small }: { departure: Departure; small?: boo
       <span className={cn('rounded-full px-2.5 py-1 text-[11px] font-semibold', status.tone)}>{status.label}</span>
     </div>
     {!small && <p className="mt-3 text-xs text-slate-600">{status.text}</p>}
-    <Link href={`/requests/${departure.request}?from=requests`} className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-[#23355d] hover:underline">
+    <Link href={`/requests/${departure.request}?from=my-departure`} className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-[#23355d] hover:underline">
       View the history <ChevronRight className="size-3.5" />
     </Link>
   </section>

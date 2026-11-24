@@ -163,12 +163,39 @@ class DepartureTests(JourneyTestCase):
         values = {"departure_type": DepartureType.RESIGNATION, "last_day": self.last_day, **fields}
         return services.request_departure(self.sara, user, values.pop("departure_type"), values.pop("last_day"), **values)
 
+    def approve_all(self, departure):
+        """Chaque étape en attente est validée par la bonne personne (le valideur de l'étape, sinon une RH)."""
+        while (step := departure.request.steps.filter(status="PENDING").first()) is not None:
+            engine.approve(step, step.assignee.user if step.assignee_id else self.nadia.user)
+
+    def test_circuit_the_employee_asks_his_n_plus_1_then_hr(self):
+        JourneySettings.objects.update_or_create(pk=1, defaults={"employee_can_request_departure": True})
+        departure = self.ask(self.sara.user)
+        steps = list(departure.request.steps.order_by("order").values_list("approver", "assignee", "status"))
+        self.assertEqual(steps, [("MANAGER", self.youssef.pk, "PENDING"), ("HR", None, "WAITING")])
+
+    def test_circuit_the_manager_who_resigns_is_approved_by_his_own_n_plus_1(self):
+        # Youssef (manager) démissionne LUI-MÊME : il est le demandeur, il ne se valide pas ; Karim (son N+1) valide.
+        JourneySettings.objects.update_or_create(pk=1, defaults={"employee_can_request_departure": True})
+        departure = services.request_departure(self.youssef, self.youssef.user, DepartureType.RESIGNATION, self.last_day)
+        steps = list(departure.request.steps.order_by("order").values_list("approver", "assignee", "status"))
+        self.assertEqual(steps, [("MANAGER", self.karim.pk, "PENDING"), ("HR", None, "WAITING")])
+
+    def test_circuit_the_reason_of_the_skipped_step_is_kept(self):
+        request = engine.submit("DEPARTURE", self.sara, "Départ", initiated_by=self.youssef.user)
+        first = request.steps.get(order=1)
+        self.assertEqual((first.status, first.comment), ("SKIPPED", "Saisie par cette personne : sa saisie vaut son accord."))
+
     def test_the_manager_asks_hr_validate_the_tasks_start(self):
         departure = self.ask(self.youssef.user, comment="Lettre reçue", informed=[self.karim])
         self.assertEqual(departure.request.status, Request.Status.IN_PROGRESS)
         self.assertEqual(departure.request.initiated_by, self.youssef.user)
         self.assertIsNone(departure.journey)  # rien avant la validation des RH
-        engine.approve(departure.request.steps.get(status="PENDING"), self.nadia.user)
+        # Youssef (N+1) a saisi : sa saisie vaut son accord, son étape est passée ; les RH valident.
+        first = departure.request.steps.get(order=1)
+        self.assertEqual((first.approver, first.status), ("MANAGER", "SKIPPED"))
+        self.assertEqual(departure.request.steps.get(status="PENDING").approver, "HR")
+        self.approve_all(departure)
         departure.refresh_from_db()
         self.assertEqual((departure.journey.kind, departure.journey.day), (Kind.DEPARTURE, self.last_day))
         self.sara.refresh_from_db()
@@ -227,6 +254,10 @@ class DepartureTests(JourneyTestCase):
         services.cancel(departure.journey, self.nadia.user, "Il reste finalement")
         self.sara.refresh_from_db()
         self.assertIsNone(self.sara.departure_date)
+        # La DEMANDE est annulée aussi (historique "Cancelled by", 🔔 au collaborateur), plus seulement les tâches.
+        departure.request.refresh_from_db()
+        self.assertEqual((departure.request.status, departure.request.cancel_reason), ("CANCELLED", "Il reste finalement"))
+        self.assertTrue(Notification.objects.filter(recipient=self.sara.user, kind=N.CANCELLED, request=departure.request).exists())
 
     def test_api_form_letter_and_the_managers_view(self):
         client = APIClient()
@@ -246,7 +277,7 @@ class DepartureTests(JourneyTestCase):
         client.force_authenticate(self.karim.user)  # N+2 : ni son manager direct, ni RH
         self.assertEqual(client.get(letter_url).status_code, 404)
         # Validé : Youssef voit le départ de Sara, mais ne coche que SES tâches.
-        engine.approve(Departure.objects.get().request.steps.get(status="PENDING"), self.nadia.user)
+        self.approve_all(Departure.objects.get())
         client.force_authenticate(self.youssef.user)
         journey = client.get(reverse("journeys:journey-list") + "?kind=DEPARTURE").json()[0]
         handles = {task["owner"]: task["can_handle"] for task in journey["tasks"]}

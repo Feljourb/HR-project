@@ -118,6 +118,7 @@ const FROM_ITEM: Record<string, string> = {
   requests: 'My Requests', received: 'My Requests', leaves: 'Leave Requests', expenses: 'Expense Claims', approvals: 'Team Approvals',
   'stand-in': 'Stand-in requests', absences: 'Absences', 'leave-balances': 'Leave balances', reimbursements: 'Reimbursements',
   documents: 'Administrative Documents', 'document-requests': 'Document requests', onboarding: 'Arrivals & departures',
+  'my-departure': 'My departure',
 }
 
 /**

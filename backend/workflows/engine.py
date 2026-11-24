@@ -145,11 +145,18 @@ def submit(code, requester, title, initiated_by=None):
     # 2. La photo du circuit : une étape de demande par étape du circuit, avec QUI valide.
     steps = []
     for step in workflow.steps.all():
-        validator = find_validator(step.approver, requester)
+        validator, reason = find_validator(step.approver, requester), ""
+        # Règle (2026-11-24, décision de l'utilisatrice ; standard SAP SuccessFactors "the initiator is skipped as
+        # approver") : celui qui a SAISI la demande pour quelqu'un d'autre l'a déjà acceptée en la saisissant.
+        # Ex. Youssef (N+1) déclare le départ de Sara : son étape "N+1" est passée, les RH valident ensuite.
+        # (Sa PROPRE demande, ex. sa démission, c'est différent : il est le demandeur, son N+1 à lui valide.)
+        assignee = (validator or {}).get("assignee")
+        if initiated_by is not None and assignee is not None and assignee.user_id == initiated_by.pk:
+            validator, reason = None, "Saisie par cette personne : sa saisie vaut son accord."
         if validator is None:
             # Personne à ce poste (ex. pas de N+2) : l'étape est sautée tout de suite, et on en garde la trace.
             steps.append(RequestStep(request=request, order=step.order, approver=step.approver, mode=step.mode,
-                                     status=Status.SKIPPED, decided_at=now))
+                                     status=Status.SKIPPED, decided_at=now, comment=reason))
         else:
             steps.append(RequestStep(request=request, order=step.order, approver=step.approver, mode=step.mode, **validator))
 

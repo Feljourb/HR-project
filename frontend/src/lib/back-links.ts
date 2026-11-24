@@ -19,6 +19,7 @@ const PAGES: Record<string, BackLink> = {
   documents: { href: '/documents', label: 'Administrative documents' },
   'document-requests': { href: '/document-requests', label: 'Document requests' },
   onboarding: { href: '/onboarding', label: 'Arrivals & departures' },
+  'my-departure': { href: '/my-departure', label: 'My departure' },
   dashboard: { href: '/', label: 'Dashboard' },
 }
 

@@ -227,6 +227,13 @@ def cancel(journey, user, reason):
         raise ValidationError("Indiquez le motif.")
     journey.cancelled_at, journey.cancelled_by, journey.cancel_reason = timezone.now(), user, reason[:300]
     journey.save(update_fields=["cancelled_at", "cancelled_by", "cancel_reason"])
+    # (2026-11-24, trouvé par l'utilisatrice) un départ annulé = sa DEMANDE aussi : "Cancelled by Admin RH" + le motif
+    # dans l'historique, 🔔 au collaborateur et à ceux qui l'avaient validée, et "My departure" repropose le formulaire.
+    # Avant : seules les tâches étaient annulées, la demande restait "Approved".
+    departure = Departure.objects.filter(journey=journey).select_related("request").first()
+    if departure is not None and departure.request.status == "APPROVED":
+        from workflows import engine  # importé ici : le moteur importe déjà les modules (handlers)
+        engine.cancel_approved(departure.request, user, reason)
     # Un départ annulé (ex. la personne reste finalement) : la date de sortie mise à la validation est enlevée
     # (si elle n'est pas déjà "Sorti" : là, les RH corrigent la fiche eux-mêmes).
     employee = journey.employee

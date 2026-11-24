@@ -67,7 +67,7 @@ function DepartureRules() {
         text="The manager (N+1) declares it for his team (e.g. he received the resignation letter), and HR for anyone of their pôle. HR approve it, then the departure tasks start."
         onChange={(on) => void change('employee_can_request_departure', on)} choices={[
           [false, 'No: the employee goes through his manager (recommended, like NOOR)', 'He has no “My departure” page.'],
-          [true, 'Yes: the employee can also request his own departure', 'A “My departure” page appears in his menu (My space). HR still approve it.']]} />
+          [true, 'Yes: the employee can also request his own departure', 'A “My departure” page appears in his menu (My space). His manager, then HR, approve it.']]} />
       <RadioGroup name="auto-block" title="② The account after the last day" value={value.auto_block}
         text="E.g. last day Friday 28/11: what happens on Saturday 29/11, in the morning."
         onChange={(on) => void change('auto_block', on)} choices={[

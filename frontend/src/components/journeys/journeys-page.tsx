@@ -109,7 +109,7 @@ export function JourneysPage() {
 
     {/* Les demandes de départ qui attendent la validation des RH (avant : pas encore de tâches). */}
     {pending.length > 0 && <section className="overflow-hidden rounded-xl border border-amber-200 bg-amber-50/40">
-      <h2 className="border-b border-amber-200 px-4 py-2.5 text-xs font-semibold text-amber-900">Departures waiting for HR approval ({pending.length})</h2>
+      <h2 className="border-b border-amber-200 px-4 py-2.5 text-xs font-semibold text-amber-900">Departures waiting for approval ({pending.length})</h2>
       <ul className="divide-y divide-amber-100">
         {pending.map((departure) => <li key={departure.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
           <div className="min-w-0 flex-1"><JourneyWho employee={departure.employee} kind="DEPARTURE" day={departure.last_day} /></div>

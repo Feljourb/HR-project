@@ -131,12 +131,15 @@ export function DepartureForm({ options, self, onDone }: {
     <p className="rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-800">
       {options.is_hr
         ? 'Recorded by HR: approved at once. The departure tasks start now (IT, HR, manager…).'
-        : 'HR approve it in Team approvals. Then the departure tasks start (IT, HR, manager…).'}
+        : self
+          ? 'Your manager, then HR, approve it. Then the departure tasks start (IT, HR, manager…).'
+          // Le manager qui déclare : sa saisie vaut son accord (le moteur passe son étape), les RH valident ensuite.
+          : 'You declare it, so your agreement is given: HR approve it in Team approvals. Then the departure tasks start (IT, HR, manager…).'}
     </p>
     {error && <p role="alert" className="text-xs font-medium text-red-600">{error}</p>}
     <button type="submit" disabled={busy || !ready}
       className="flex items-center justify-center gap-1.5 rounded-lg bg-[#23355d] px-3 py-2 text-sm font-semibold text-white hover:bg-[#192646] disabled:opacity-50">
-      {busy && <Loader2 className="size-4 animate-spin" />} {options.is_hr ? 'Record the departure' : 'Send to HR'}
+      {busy && <Loader2 className="size-4 animate-spin" />} {options.is_hr ? 'Record the departure' : self ? 'Send to my manager' : 'Send to HR'}
     </button>
   </form>
 }

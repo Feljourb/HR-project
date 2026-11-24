@@ -142,6 +142,14 @@ export const roleOf = (step: Pick<RequestStep, 'approver_label'>) => ROLE[step.a
 const whoOf = (step: RequestStep) => (step.validator === step.approver_label ? roleOf(step) : `${step.validator} (${roleOf(step)})`)
 const MODE: Record<string, string> = { VALIDATE: 'approval', INFORM: 'for information' }
 
+// Les raisons d'une étape sautée écrites par le moteur (en français dans la base), dites en anglais comme la page.
+const SKIPPED_REASONS: Record<string, string> = {
+  'Saisie par cette personne : sa saisie vaut son accord.': 'This person entered the request: entering it counts as their approval.',
+}
+function skippedReason(comment: string) {
+  return SKIPPED_REASONS[comment] ?? comment
+}
+
 // Le type de demande en anglais, pour le petit titre ("LEAVE REQUEST · N° 12").
 const TYPE: Record<string, string> = { LEAVE: 'Leave request', EXPENSE: 'Expense claim', ADMIN_REQUEST: 'Administrative request', DEPARTURE: 'Departure' }
 
@@ -179,7 +187,10 @@ function stepEvents(request: WorkflowRequest): Event[] {
         events.push({ icon: Info, tone: 'text-sky-600', title: `${who} notified`, detail: `Step ${step.order} · for information`, at: step.decided_at })
         break
       case 'SKIPPED':
-        events.push({ icon: Minus, tone: 'text-slate-400', title: `Step ${step.order} skipped`, detail: `No ${roleOf(step)} when the request was submitted.`, at: step.decided_at })
+        // (2026-11-24) une étape peut être sautée pour une autre raison, écrite par le moteur (ex. "saisie par cette
+        // personne : sa saisie vaut son accord") ; sinon : personne à ce poste.
+        events.push({ icon: Minus, tone: 'text-slate-400', title: `Step ${step.order} skipped`,
+          detail: step.comment ? skippedReason(step.comment) : `No ${roleOf(step)} when the request was submitted.`, at: step.decided_at })
         break
       case 'PENDING':
         // Une demande terminée (annulée) dont l'étape attendait encore : la personne n'a pas répondu.
