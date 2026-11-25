@@ -10,6 +10,7 @@
 import { useState } from 'react'
 import { Check, Circle, Loader2, RotateCcw } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { refreshCounters } from '@/lib/counters'
 import { errorOf, frDate, markDone, reopenTask, whoLabel, type Task } from '@/lib/journeys'
 
 export function TaskRow({ task, showWho = true, readOnly = false, onChanged }: {
@@ -29,6 +30,7 @@ export function TaskRow({ task, showWho = true, readOnly = false, onChanged }: {
     setBusy(false)
     if (response?.ok) {
       setOpen(false)
+      refreshCounters()  // le nombre de "My tasks" dans la sidebar
       onChanged()
     } else {
       setError(response ? await errorOf(response) : 'The server does not answer. Try again.')

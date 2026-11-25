@@ -16,6 +16,7 @@ import { apiFetch } from '@/lib/api'
 import { formatDate } from '@/lib/leaves'
 import type { Approval, DecidedStep, Delegation } from '@/lib/requests'
 import { cn } from '@/lib/utils'
+import { AfterAnswer } from './after-answer'
 import { ApprovalItem } from './approval-item'
 import { DecidedList } from './decided-list'
 import { DelegationAnswer, DelegationBadge } from './delegation-answer'
@@ -24,7 +25,7 @@ export function StandIn() {
   const [delegations, setDelegations] = useState<Delegation[] | null>(null)
   const [approvals, setApprovals] = useState<Approval[] | null>(null)
   const [failed, setFailed] = useState(false)
-  const [done, setDone] = useState('')
+  const [done, setDone] = useState<ReactNode>(null)
   const [history, setHistory] = useState<DecidedStep[] | null>(null)
 
   // L'historique : relu au départ, puis après chaque réponse (la demande y passe).
@@ -51,7 +52,8 @@ export function StandIn() {
 
   function answered(approval: Approval, verb: string, label?: string) {
     setApprovals((list) => list && list.filter((item) => item.id !== approval.id))
-    setDone(`${verb}: ${label ?? approval.request.title}`)
+    // (2026-11-25) ce qui se passe maintenant + un lien pour suivre (le même composant que Team approvals).
+    setDone(<>{verb}: {label ?? approval.request.title}.<AfterAnswer approval={approval} verb={verb} from="stand-in" /></>)
     loadHistory()
   }
 

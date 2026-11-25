@@ -11,6 +11,7 @@
  */
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import { ChevronRight, FileText, Loader2, LogOut, Plus, Search, X } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 import { getFile } from '@/lib/expenses'
@@ -76,6 +77,19 @@ export function JourneysPage() {
     const timer = setTimeout(load, 300)
     return () => clearTimeout(timer)
   }, [load])
+
+  // (2026-11-25) ouvert depuis "Open in Arrivals & departures" (après avoir validé un départ) : ?request=<n° de la
+  // demande> -> le panneau de CE départ s'ouvre tout de suite (standard : le lien mène à la chose, pas à une liste).
+  const fromRequest = useSearchParams().get('request')
+  useEffect(() => {
+    if (!fromRequest) return
+    apiFetch(`/api/journeys/departures/request/${fromRequest}/`)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((departure: Departure | null) => (departure?.journey ? apiFetch(`/api/journeys/journeys/${departure.journey}/`) : null))
+      .then((response) => (response?.ok ? response.json() : null))
+      .then((journey: Journey | null) => { if (journey) setOpened(journey) })
+      .catch(() => { /* la liste reste affichée */ })
+  }, [fromRequest])
 
   function refresh(journeyId: number) {
     load()

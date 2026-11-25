@@ -18,8 +18,8 @@ import { apiFetch, type Me } from '@/lib/api'
 import { stateOf, type DocumentRequest } from '@/lib/documents'
 import { CancelClaim } from '@/components/expenses/claim-actions'
 import { formatDate } from '@/lib/leaves'
-import { closesExpenseClaim, type Approval, type DecidedStep, type WorkflowRequest } from '@/lib/requests'
-import { ToReimburseHint } from '@/components/expenses/to-reimburse-hint'
+import { type Approval, type DecidedStep, type WorkflowRequest } from '@/lib/requests'
+import { AfterAnswer } from './after-answer'
 import { PrepareSteps } from '@/components/documents/prepare-steps'
 import { cn } from '@/lib/utils'
 import { ApprovalItem } from './approval-item'
@@ -82,9 +82,9 @@ export function TeamApprovals({ me }: { me: Me }) {
   // Après une réponse : l'étape n'attend plus personne. Un document à préparer par les RH : la carte RESTE et devient
   // "Approved · Next step" (Print draft, Upload PDF, Original ready). Sinon elle quitte la liste.
   function answered(approval: Approval, verb: string, label?: string) {
-    // La dernière validation d'une note de frais : dire où elle attend maintenant (le paiement).
-    const paid = verb === 'Approved' && closesExpenseClaim(approval.request)
-    setDone(<>{verb}: {label ?? approval.request.title}.{paid && <ToReimburseHint />}</>)
+    // (2026-11-25) dire ce qui se passe maintenant, avec un lien pour suivre (le paiement d'une note de frais,
+    // les RH après moi, les tâches d'un départ...) : un seul composant, AfterAnswer.
+    setDone(<>{verb}: {label ?? approval.request.title}.<AfterAnswer approval={approval} verb={verb} from="approvals" /></>)
     loadHistory()
     if (verb !== 'Approved' || approval.request.workflow_code !== 'ADMIN_REQUEST') return remove(approval)
     refreshNext(approval, '')

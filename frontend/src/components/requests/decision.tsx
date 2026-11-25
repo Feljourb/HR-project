@@ -10,6 +10,7 @@
 import { useState } from 'react'
 import { Check, Loader2, X } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
+import { refreshCounters } from '@/lib/counters'
 import type { Approval, WorkflowRequest } from '@/lib/requests'
 import { sendChange } from '@/lib/workflows'
 
@@ -24,8 +25,10 @@ export function Decision({ approval, onAnswered }: { approval: Approval; onAnswe
     const result = await sendChange<WorkflowRequest>(
       () => apiFetch(`/api/workflows/approvals/${approval.id}/${action}/`, { method: 'POST', body: JSON.stringify({ comment }) }),
       'You cannot answer this request.')
-    if ('data' in result) onAnswered(action === 'approve' ? 'Approved' : 'Rejected')
-    else setError(result.error)
+    if ('data' in result) {
+      refreshCounters()  // le "1" de Team approvals / Stand-in dans la sidebar
+      onAnswered(action === 'approve' ? 'Approved' : 'Rejected')
+    } else setError(result.error)
     setBusy(null)
   }
 

@@ -28,6 +28,7 @@ import { Input } from '@/components/ui/input'
 import { NotificationBell } from '@/components/notification-bell'
 import { UserMenu } from '@/components/user-menu'
 import { accountLabel, apiFetch, isHr, seesBothPoles, type Me } from '@/lib/api'
+import { COUNTERS_EVENT } from '@/lib/counters'
 import { cn } from '@/lib/utils'
 
 type Counter = 'approvals' | 'documents' | 'tasks'  // le nombre affiché à droite du lien (voir useCounters)
@@ -155,6 +156,13 @@ type AppShellProps = {
 function useCounters(me: Me | null): Record<Counter, number> {
   const pathname = usePathname()
   const [counts, setCounts] = useState<Record<Counter, number>>({ approvals: 0, documents: 0, tasks: 0 })
+  // (2026-11-25) une action sur la page (Approve, "Mark done"...) demande de relire les nombres (lib/counters).
+  const [tick, setTick] = useState(0)
+  useEffect(() => {
+    const bump = () => setTick((value) => value + 1)
+    window.addEventListener(COUNTERS_EVENT, bump)
+    return () => window.removeEventListener(COUNTERS_EVENT, bump)
+  }, [])
   useEffect(() => {
     if (!me) return
     const controller = new AbortController()
@@ -166,7 +174,7 @@ function useCounters(me: Me | null): Record<Counter, number> {
       .then(([approvals, documents, tasks]) => setCounts({ approvals, documents, tasks }))
       .catch(() => { /* annulé (une autre page), ou serveur injoignable : on garde les anciens nombres */ })
     return () => controller.abort()
-  }, [me, pathname])
+  }, [me, pathname, tick])
   return counts
 }
 
