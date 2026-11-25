@@ -15,6 +15,7 @@ import { getFile } from '@/lib/expenses'
 import { formatDate } from '@/lib/leaves'
 import { frDate, fromToday, type Departure } from '@/lib/journeys'
 import type { Approval } from '@/lib/requests'
+import { DepartureNotice } from '@/components/journeys/notice'
 import { Decision } from './decision'
 import { roleOf } from './request-history'
 
@@ -58,6 +59,9 @@ export function DepartureApprovalCard({ approval, onAnswered }: { approval: Appr
             <span className="text-slate-500">({fromToday(departure.last_day)})</span>
           </span>
         </div>}
+
+        {/* Le préavis légal (2026-11-25) : le valideur voit tout de suite si le dernier jour va (jamais bloquant). */}
+        {departure && <div className="mt-2"><DepartureNotice departure={departure} /></div>}
 
         {/* La lettre : l'ouvrir dans un onglet, ou l'enregistrer. */}
         {departure && <div className="mt-2.5 flex flex-wrap items-center gap-2 text-xs">

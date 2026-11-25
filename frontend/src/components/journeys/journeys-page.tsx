@@ -21,6 +21,7 @@ import { PersonPicker, type Person } from '@/components/requests/out-of-office'
 import { errorOf, frDate, type Departure, type DepartureOptions, type Journey, type JourneyKind } from '@/lib/journeys'
 import { DepartureForm } from './departure-form'
 import { JourneyWho } from './journey-who'
+import { DepartureNotice, NoticeDecision } from './notice'
 import { TaskRow } from './task-row'
 
 type Status = 'open' | 'done' | 'cancelled' | 'all'
@@ -274,6 +275,11 @@ function JourneyDetail({ journey, onChanged }: { journey: Journey; onChanged: ()
           <dd className="text-slate-800">“{journey.departure.comment}”</dd></div>}
         {journey.departure.has_letter && <div className="sm:col-span-2"><LetterButton departure={journey.departure} /></div>}
       </dl>}
+      {/* Le préavis (2026-11-25) : ce que dit la loi, et la décision des RH (sert au solde de tout compte). */}
+      {journey.departure && <div className="mt-3 flex flex-col gap-2 border-t border-slate-100 pt-3">
+        <DepartureNotice departure={journey.departure} />
+        {!cancelled && <NoticeDecision key={`${journey.departure.notice_status}-${journey.departure.notice_start}`} departure={journey.departure} onChanged={onChanged} />}
+      </div>}
     </div>
 
     <section className="overflow-hidden rounded-xl border border-slate-200/80 bg-white">

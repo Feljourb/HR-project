@@ -17,6 +17,7 @@ import {
 } from '@/lib/employees'
 import { FormSection, PhoneField, SelectField, TextField } from '@/components/employees/form-fields'
 import { useList } from '@/components/employees/use-list'
+import { MyNoticeText, useMyNotice } from '@/components/journeys/notice'
 
 type Values = Record<PersonalField, string>
 type Errors = Record<string, string[]>  // les erreurs de Django : {"champ": ["message"]}
@@ -49,6 +50,7 @@ export function MyProfile() {
   const [saving, setSaving] = useState(false)
   const [saved, flashSaved] = useSavedFlash()  // B11 : "✓ Saved" 3 s sur le bouton
   const cities = useList('cities')  // les villes actives, proposées pendant la frappe
+  const myNotice = useMyNotice()  // mon préavis (transparence : connaître la règle avant de décider)
   // B11 (2026-11-20) : quelque chose a changé depuis le dernier enregistrement ? (Save actif, "Unsaved changes".)
   const dirty = Boolean(fiche && values && JSON.stringify(values) !== JSON.stringify(valuesOf(fiche)))
   useUnsavedWarning(dirty)
@@ -169,6 +171,8 @@ export function MyProfile() {
       <Info label="Hire date">{formatDate(fiche.hire_date)}</Info>
       {/* Calculée par Django depuis la date d'embauche. */}
       <Info label="Seniority">{seniorityLabel(fiche.seniority)}</Info>
+      {/* (2026-11-25) mon préavis, calculé par Django (la grille d'Admin RH, ma catégorie, mon ancienneté). */}
+      {myNotice && <Info label="Notice period"><MyNoticeText mine={myNotice} /></Info>}
       <Info label="Status">{STATUS_LABELS[fiche.status]}</Info>
     </FormSection>
 

@@ -8,13 +8,14 @@
  * Jamais supprimer : "Active" décoché = la tâche n'est plus copiée dans les prochains parcours.
  */
 import { useCallback, useEffect, useState } from 'react'
-import { Loader2, LogIn, LogOut, Pencil, Plus, UserRoundCheck } from 'lucide-react'
+import { Hourglass, Loader2, LogIn, LogOut, Pencil, Plus, UserRoundCheck } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { SidePanel } from '@/components/ui/side-panel'
 import { PersonPicker, type Person } from '@/components/requests/out-of-office'
 import { controlClass } from '@/components/ui/control-class'
 import { errorOf, OWNER_LABEL, whenLabel, type JourneyKind, type Owner, type TaskTemplate } from '@/lib/journeys'
+import { NoticeSettings } from './notice-settings'
 import { SettingsTabs } from './settings-tabs'
 
 const LEGEND: [string, string][] = [
@@ -33,6 +34,8 @@ export function JourneySettings() {
         hint: 'What must be given back or closed when someone leaves (PC, badge, car, email, certificate…).' },
       { id: 'who', label: 'Departure rules', icon: UserRoundCheck, content: <DepartureRules />,
         hint: 'Who may declare a departure, and what happens to the account after the last day.' },
+      { id: 'notice', label: 'Notice period', icon: Hourglass, content: <NoticeSettings />,
+        hint: 'How long an employee keeps working after a resignation or a dismissal (the law, by category and seniority).' },
     ]} />
 }
 

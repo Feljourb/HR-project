@@ -7,13 +7,14 @@
  * - pas de demande en cours : le formulaire (le composant partagé DepartureForm) ;
  * - une demande envoyée : son état en mots simples (en attente des RH / validée / refusée), sans formulaire.
  */
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import Link from 'next/link'
-import { CalendarDays, ChevronRight, DoorOpen } from 'lucide-react'
+import { CalendarDays, ChevronRight, CircleHelp, DoorOpen, FileText, Hourglass, type LucideIcon, Palmtree, PenLine } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { frDate, type Departure, type DepartureOptions } from '@/lib/journeys'
 import { DepartureForm } from './departure-form'
+import { MyNoticeText, useMyNotice } from './notice'
 
 // L'état de la demande, dit simplement (la couleur suit : ambre = on attend, vert = validé, gris = fermé).
 const STATUS: Record<Departure['status'], { label: string; text: string; tone: string }> = {
@@ -55,6 +56,8 @@ export function MyDeparture() {
       <p className="text-xs text-slate-500">You are leaving the company: tell it here. Your manager and HR approve it, then everything is prepared for your last day.</p>
     </div>
 
+    <GoodToKnow />
+
     {failed && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700">Could not load this page: refresh it.</p>}
     {!failed && (options === null || mine === null) && <p className="text-xs text-slate-500">Loading...</p>}
 
@@ -72,6 +75,27 @@ export function MyDeparture() {
       <div className="flex flex-col gap-2">{past.map((row) => <DepartureCard key={row.id} departure={row} small />)}</div>
     </section>}
   </div>
+}
+
+/** "Good to know before you leave" (2026-11-25, transparence : l'employé connaît ses droits et les règles AVANT
+ *  d'envoyer). Les règles du Code du travail marocain, en mots simples ; le préavis vient de Django (MON calcul). */
+function GoodToKnow() {
+  const mine = useMyNotice()
+  const rules: [LucideIcon, ReactNode][] = [
+    [Hourglass, <>Your notice period: {mine ? <MyNoticeText mine={mine} /> : '…'} You keep working until then, unless the company agrees to let you leave earlier.</>],
+    [PenLine, <>A resignation is a <span className="font-semibold">written letter, signed by you, with the signature legalized</span> (Code du travail, art. 34). Attach it here and give the original to HR.</>],
+    [Palmtree, <>The leave days you have not taken are paid with your last salary (art. 251).</>],
+    [FileText, <>HR give you your <span className="font-semibold">work certificate</span> within 8 days after your last day (art. 72).</>],
+    [CircleHelp, <>A question? Ask your HR before sending.</>],
+  ]
+  return <section className="rounded-xl border border-blue-100 bg-blue-50/60 p-4">
+    <h2 className="text-sm font-semibold text-[#192646]">Good to know before you leave</h2>
+    <ul className="mt-2.5 flex flex-col gap-2">
+      {rules.map(([Icon, text], index) => <li key={index} className="flex items-start gap-2 text-xs text-slate-700">
+        <Icon className="mt-0.5 size-3.5 shrink-0 text-blue-700" aria-hidden /> <span>{text}</span>
+      </li>)}
+    </ul>
+  </section>
 }
 
 /** Une demande de départ : le type, le dernier jour, l'état en mots simples, et le lien vers son historique. */

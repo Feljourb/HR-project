@@ -142,6 +142,52 @@ class DepartureType(models.TextChoices):
     OTHER = "OTHER", "Autre"
 
 
+# --- Le préavis (2026-11-25, Code du travail art. 43, décret n° 2-04-469) -------------------------------------
+# La durée dépend du GROUPE (cadres et assimilés / employés et ouvriers) et de l'ANCIENNETÉ. La loi donne le minimum :
+# le contrat, la convention collective ou le règlement intérieur peuvent donner plus. Admin RH change la grille.
+
+class NoticeGroup(models.TextChoices):
+    EXECUTIVE = "EXECUTIVE", "Cadres et assimilés"
+    OTHER = "OTHER", "Employés et ouvriers"
+
+
+class NoticeUnit(models.TextChoices):
+    DAYS = "DAYS", "jours"
+    MONTHS = "MONTHS", "mois"
+
+
+class NoticeRule(models.Model):
+    """Une case de la grille du préavis : ex. "Employés et ouvriers, à partir de 1 an d'ancienneté : 1 mois".
+    3 lignes par groupe (moins d'un an, 1 à 5 ans, plus de 5 ans), valeurs de la loi par défaut (migration 0007)."""
+
+    group = models.CharField("Groupe", max_length=10, choices=NoticeGroup.choices)
+    min_years = models.PositiveSmallIntegerField("À partir de (années d'ancienneté)")
+    amount = models.PositiveSmallIntegerField("Durée", validators=[MinValueValidator(1), MaxValueValidator(365)])
+    unit = models.CharField("Unité", max_length=6, choices=NoticeUnit.choices)
+
+    class Meta:
+        verbose_name = "Préavis (grille)"
+        verbose_name_plural = "Préavis (grille)"
+        ordering = ["group", "min_years"]
+        constraints = [models.UniqueConstraint("group", "min_years", name="journeys_notice_one_rule_per_step")]
+
+    def __str__(self):
+        return f"{self.get_group_display()}, dès {self.min_years} an(s) : {self.amount} {self.get_unit_display()}"
+
+
+class NoticeStatus(models.TextChoices):
+    """Ce que les RH retiennent pour le préavis (sert au solde de tout compte, fait par la paie)."""
+    RESPECTED = "RESPECTED", "Respecté"
+    WAIVED = "WAIVED", "Dispensé par l'employeur"
+    NOT_RESPECTED = "NOT_RESPECTED", "Non respecté par le salarié"
+    NONE = "NONE", "Pas de préavis pour ce type de départ"
+
+
+def default_notice_types():
+    """Les types de départ où le préavis s'applique, par défaut : démission et licenciement (art. 43)."""
+    return [DepartureType.RESIGNATION.value, DepartureType.DISMISSAL.value]
+
+
 def letter_path(departure, filename):
     """media/departures/2026/11/<nom au hasard>.pdf : jamais le nom d'origine (il peut contenir n'importe quoi)."""
     return f"departures/{departure.created_at:%Y/%m}/{uuid.uuid4().hex}{os.path.splitext(filename)[1].lower()}"
@@ -166,6 +212,26 @@ class Departure(models.Model):
     journey = models.OneToOneField(Journey, on_delete=models.SET_NULL, null=True, blank=True, related_name="departure",
                                    verbose_name="Parcours de départ")
     created_at = models.DateTimeField("Créée le", default=timezone.now)
+    # Le préavis (2026-11-25) : une PHOTO prise à la demande (la grille peut changer après) ; les RH peuvent corriger
+    # le début (ex. la date de la lettre) et décident du statut. Vide = pas de préavis pour ce type de départ.
+    notice_group = models.CharField("Préavis : groupe", max_length=10, choices=NoticeGroup.choices, blank=True)
+    notice_years = models.PositiveSmallIntegerField("Préavis : ancienneté (années)", null=True, blank=True)
+    notice_amount = models.PositiveSmallIntegerField("Préavis : durée", null=True, blank=True)
+    notice_unit = models.CharField("Préavis : unité", max_length=6, choices=NoticeUnit.choices, blank=True)
+    notice_start = models.DateField("Préavis : début", null=True, blank=True)
+    notice_until = models.DateField("Préavis : dernier jour au plus tôt", null=True, blank=True)
+    # Vide = à décider par les RH (le dernier jour tombe avant la fin du préavis).
+    notice_status = models.CharField("Préavis : statut", max_length=15, choices=NoticeStatus.choices, blank=True)
+    notice_decided_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                                          related_name="+", verbose_name="Préavis : décidé par")
+    notice_decided_at = models.DateTimeField("Préavis : décidé le", null=True, blank=True)
+
+    @property
+    def notice_short_days(self):
+        """Combien de jours manquent au préavis (le dernier jour avant la fin du préavis), sinon 0."""
+        if self.notice_until is None or self.last_day >= self.notice_until:
+            return 0
+        return (self.notice_until - self.last_day).days
 
     class Meta:
         verbose_name = "Demande de départ"
@@ -185,6 +251,11 @@ class JourneySettings(models.Model):
     # "Sorti" et bloque le compte (sécurité). NON = les RH le font à la main ; l'app leur envoie alors une 🔔 + email
     # "Compte à bloquer" chaque matin, tant que ce n'est pas fait (pour ne jamais l'oublier).
     auto_block = models.BooleanField("Bloquer le compte automatiquement le lendemain du dernier jour", default=True)
+    # Le préavis (2026-11-25) : les catégories du groupe "cadres et assimilés" (les autres = employés et ouvriers),
+    # et les types de départ où il s'applique (démission et licenciement par défaut).
+    executive_categories = models.ManyToManyField("employees.Category", blank=True, related_name="+",
+                                                  verbose_name="Catégories cadres et assimilés (préavis)")
+    notice_types = models.JSONField("Types de départ avec préavis", default=default_notice_types, blank=True)
     updated_at = models.DateTimeField("Modifié le", auto_now=True)
     updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
                                    related_name="+", verbose_name="Modifié par")

@@ -7,13 +7,14 @@
  * - Le collaborateur lui-même : seulement si Admin RH l'autorise (sinon NOOR dit "référez-vous à votre supérieur").
  * Champs : qui, type (démission...), dernier jour, la lettre (PDF / photo), un commentaire, les personnes à prévenir.
  */
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Loader2, Paperclip, X } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 import { controlClass } from '@/components/ui/control-class'
 import { DatePicker } from '@/components/ui/date-picker'
 import { PersonPicker, type Person } from '@/components/requests/out-of-office'
-import { errorOf, type Departure, type DepartureOptions } from '@/lib/journeys'
+import { errorOf, type Departure, type DepartureOptions, type NoticePreview } from '@/lib/journeys'
+import { NoticeFacts } from './notice'
 
 const MAX_LETTER = 5 * 1024 * 1024
 const LETTER_TYPES = ['.pdf', '.jpg', '.jpeg', '.png']
@@ -40,6 +41,22 @@ export function DepartureForm({ options, self, onDone }: {
 
   const who = self ? options.me : options.is_hr ? employee?.id : Number(teamId) || null
   const ready = Boolean(who && type && lastDay)
+
+  // Le préavis légal (2026-11-25) : relu dès que la personne et le type sont choisis (Django calcule : la grille
+  // d'Admin RH, la catégorie, l'ancienneté). Affiché sous "Last day" : un dernier jour trop tôt = un avertissement.
+  // Gardé AVEC sa clé (personne + type) : une autre personne ou un autre type n'affiche pas l'ancien préavis.
+  const key = who && type ? `${who}-${type}` : ''
+  const [loaded, setLoaded] = useState<{ key: string; data: NoticePreview | null } | null>(null)
+  useEffect(() => {
+    if (!key) return
+    const controller = new AbortController()
+    apiFetch(`/api/journeys/departures/notice-preview/?employee=${who}&type=${type}`, { signal: controller.signal })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: NoticePreview | null) => setLoaded({ key, data }))
+      .catch(() => { /* changé entre-temps, ou serveur injoignable : pas d'aperçu */ })
+    return () => controller.abort()
+  }, [key, who, type])
+  const preview = key && loaded?.key === key ? loaded.data : null
 
   function chooseLetter(file: File | null) {
     setError('')
@@ -94,6 +111,11 @@ export function DepartureForm({ options, self, onDone }: {
       <label htmlFor="departure-last-day" className="text-xs font-semibold text-slate-700">Last day <span className="text-red-600">*</span></label>
       <DatePicker id="departure-last-day" value={lastDay} onChange={setLastDay} required min={options.is_hr ? undefined : todayIso()} />
       <p className="mt-1 text-[11px] text-slate-500">The last day worked. The day after, the employee becomes “Left” and the account is blocked.</p>
+      {preview && <div className="mt-2">
+        {preview.applies
+          ? <NoticeFacts amount={preview.amount} unit={preview.unit} group={preview.group} years={preview.years} until={preview.until} lastDay={lastDay} />
+          : <NoticeFacts amount={null} unit="" group="" years={null} until={null} lastDay={lastDay} />}
+      </div>}
     </div>
 
     {/* La lettre (démission...) : optionnelle, comme une pièce jointe de NOOR. */}

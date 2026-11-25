@@ -38,6 +38,42 @@ export type Departure = {
   requested_by_name: string
   created_at: string
   journey: number | null
+  // Le préavis (2026-11-25) : la photo prise à la demande, ce qui manque, la décision des RH.
+  notice_group: '' | 'EXECUTIVE' | 'OTHER'
+  notice_group_label: string
+  notice_years: number | null
+  notice_amount: number | null
+  notice_unit: '' | 'DAYS' | 'MONTHS'
+  notice_start: string | null
+  notice_until: string | null       // le dernier jour au plus tôt ; null = pas de préavis
+  notice_short_days: number         // jours manquants (0 = respecté)
+  notice_status: '' | NoticeStatus  // '' = à décider par les RH
+  notice_status_label: string
+  notice_decided_by_name: string | null
+  notice_decided_at: string | null
+  can_decide_notice: boolean
+}
+
+export type NoticeStatus = 'RESPECTED' | 'WAIVED' | 'NOT_RESPECTED' | 'NONE'
+
+/** Les choix des RH pour le préavis, en mots simples (la page est en anglais). */
+export const NOTICE_STATUS: Record<NoticeStatus, string> = {
+  RESPECTED: 'Respected',
+  WAIVED: 'Waived by the company',
+  NOT_RESPECTED: 'Not respected by the employee',
+  NONE: 'No notice for this type of departure',
+}
+
+/** Le préavis légal d'un collaborateur pour un type de départ (formulaire, avant d'envoyer). */
+export type NoticePreview = { applies: false } | {
+  applies: true; group: string; group_label: string; years: number; amount: number; unit: 'DAYS' | 'MONTHS'; start: string; until: string
+}
+
+/** 1 + MONTHS -> "1 month" ; 8 + DAYS -> "8 days". */
+export function noticeLabel(amount: number | null, unit: string) {
+  if (!amount) return ''
+  const word = unit === 'MONTHS' ? 'month' : 'day'
+  return `${amount} ${word}${amount > 1 ? 's' : ''}`
 }
 
 // Ce que le formulaire "New departure" propose (departures/options/).

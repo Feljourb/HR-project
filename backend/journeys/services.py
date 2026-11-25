@@ -13,6 +13,7 @@ from employees import history
 from employees.models import Employee, Notification
 from employees.services import sees_both_poles, user_pole
 
+from . import notice
 from .models import Departure, DepartureType, Journey, JourneySettings, JourneyTask, Kind, Owner, TaskTemplate
 
 # Une fiche créée avec une date d'embauche plus ancienne (ex. les RH saisissent les collaborateurs déjà là) :
@@ -317,6 +318,7 @@ def request_departure(employee, user, departure_type, last_day, comment="", lett
         request = engine.submit("DEPARTURE", employee, title, initiated_by=None if employee.user_id == user.pk else user)
     departure = Departure(request=request, employee=employee, departure_type=departure_type, last_day=last_day,
                           comment=(comment or "").strip()[:500])
+    notice.apply(departure)  # la photo du préavis (2026-11-25) : groupe, ancienneté, durée, dernier jour au plus tôt
     if letter is not None:
         departure.letter_name = os.path.basename(letter.name)[:150]
         departure.letter.save(letter.name, letter, save=False)

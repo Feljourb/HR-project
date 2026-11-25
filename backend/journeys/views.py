@@ -19,10 +19,12 @@ from rest_framework.views import APIView
 from accounts.permissions import IsHR, IsHRAdmin
 from employees.models import Employee
 
-from . import services
-from .models import Departure, DepartureType, JourneySettings, JourneyTask, Kind, TaskTemplate
+from django.utils import timezone
+
+from . import notice, services
+from .models import Departure, DepartureType, JourneySettings, JourneyTask, Kind, NoticeGroup, NoticeRule, TaskTemplate
 from .serializers import (DepartureSerializer, JourneySerializer, JourneySettingsSerializer, MyTaskSerializer,
-                          TaskTemplateSerializer)
+                          NoticeRuleSerializer, TaskTemplateSerializer)
 
 
 def run(action):
@@ -167,6 +169,41 @@ class DepartureViewSet(mixins.CreateModelMixin, viewsets.ReadOnlyModelViewSet):
             "me": me.pk if me else None,
         })
 
+    @action(detail=False, url_path="notice-preview")
+    def notice_preview(self, request):
+        """Le formulaire (2026-11-25) : le préavis légal de CE collaborateur pour CE type, si la demande part aujourd'hui.
+        ?employee=<id>&type=<code>. Seulement pour qui peut déclarer ce départ (sinon 404)."""
+        employee = get_object_or_404(Employee, pk=request.query_params.get("employee") or 0)
+        if not services.can_request_departure(request.user, employee):
+            raise NotFound()
+        result = notice.compute(employee, request.query_params.get("type", ""), timezone.localdate())
+        if result is None:
+            return Response({"applies": False})
+        return Response({"applies": True, **result, "group_label": NoticeGroup(result["group"]).label})
+
+    @action(detail=False, url_path="my-notice")
+    def my_notice(self, request):
+        """MON préavis (2026-11-25, transparence : l'employé connaît ses règles AVANT de décider) : si je démissionnais
+        aujourd'hui. Pour "My Profile" et "My departure", tout le monde (même sans le droit de demander son départ).
+        Pas de fiche (compte IT) ou déjà sorti : 404."""
+        me = Employee.objects.filter(user=request.user).exclude(status=Employee.Status.LEFT).first()
+        if me is None:
+            raise NotFound()
+        result = notice.compute(me, DepartureType.RESIGNATION, timezone.localdate())
+        if result is None:
+            return Response({"applies": False})
+        return Response({"applies": True, **result, "group_label": NoticeGroup(result["group"]).label})
+
+    @action(detail=True, methods=["post"], url_path="notice")
+    def decide_notice(self, request, pk=None):
+        """Les RH décident du préavis : {status, start?} (start = corriger le début, ex. la date de la lettre)."""
+        departure = get_object_or_404(Departure.objects.select_related("employee", "request"), pk=pk)
+        if not services.can_see_departure(request.user, departure):
+            raise NotFound()
+        start = serializers.DateField().to_internal_value(request.data["start"]) if request.data.get("start") else None
+        departure = run(lambda: notice.decide(departure, request.user, str(request.data.get("status", "")), start))
+        return Response(self.get_serializer(departure).data)
+
     @action(detail=False, url_path=r"request/(?P<request_id>\d+)")
     def by_request(self, request, request_id=None):
         """Le départ d'une demande (Team approvals : la carte "Departure" montre le type, le dernier jour, la lettre...
@@ -190,7 +227,8 @@ class DepartureViewSet(mixins.CreateModelMixin, viewsets.ReadOnlyModelViewSet):
 
 
 class JourneySettingsView(APIView):
-    """Les réglages des arrivées et départs (Admin RH + IT) : GET / PATCH {employee_can_request_departure, auto_block}."""
+    """Les réglages des arrivées et départs (Admin RH + IT) : GET / PATCH {employee_can_request_departure, auto_block,
+    notice_types, executive_categories}."""
 
     permission_classes = [IsHRAdmin]
 
@@ -220,3 +258,14 @@ class TaskTemplateViewSet(viewsets.ModelViewSet):
         templates = super().get_queryset()
         kind = self.request.query_params.get("kind")
         return templates.filter(kind=kind) if kind in Kind.values else templates
+
+
+class NoticeRuleViewSet(mixins.ListModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet):
+    """La grille du préavis (Réglages des arrivées et départs -> Notice period, Admin RH + IT) : GET la liste,
+    PATCH <id> {amount, unit}. Les 6 lignes sont fixes (2 groupes x 3 anciennetés) : ni ajout, ni suppression.
+    Une demande déjà faite garde SA photo : changer la grille ne touche que les prochaines."""
+
+    serializer_class = NoticeRuleSerializer
+    queryset = NoticeRule.objects.all()
+    permission_classes = [IsHRAdmin]
+    http_method_names = ["get", "patch", "head", "options"]

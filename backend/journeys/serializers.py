@@ -2,11 +2,12 @@
 from django.utils import timezone
 from rest_framework import serializers
 
-from employees.models import Employee
+from employees.models import Category, Employee
 from workflows.serializers import name_of, person
 
 from . import services
-from .models import Departure, Journey, JourneySettings, JourneyTask, Owner, TaskTemplate
+from .models import Departure, DepartureType, Journey, JourneySettings, JourneyTask, NoticeRule, Owner, TaskTemplate
+from .services import is_hr_of
 
 
 def employee_card(employee):
@@ -88,7 +89,7 @@ class JourneySerializer(serializers.ModelSerializer):
     def get_departure(self, journey):
         """Un départ : la demande d'où il vient (type, lettre, qui l'a saisie, personnes prévenues)."""
         departure = getattr(journey, "departure", None) if journey.kind == "DEPARTURE" else None
-        return DepartureSerializer(departure).data if departure else None
+        return DepartureSerializer(departure, context=self.context).data if departure else None  # context : can_decide_notice
 
     def get_can_cancel(self, journey):
         """Annuler : les RH du pôle seulement (un manager suit l'avancement)."""
@@ -120,11 +121,28 @@ class DepartureSerializer(serializers.ModelSerializer):
     requested_by_name = serializers.SerializerMethodField()
     informed = serializers.SerializerMethodField()
     has_letter = serializers.SerializerMethodField()
+    # Le préavis (2026-11-25) : la photo prise à la demande, ce qui manque, et la décision des RH.
+    notice_group_label = serializers.CharField(source="get_notice_group_display")
+    notice_status_label = serializers.CharField(source="get_notice_status_display")
+    notice_short_days = serializers.IntegerField(read_only=True)
+    notice_decided_by_name = serializers.SerializerMethodField()
+    can_decide_notice = serializers.SerializerMethodField()
 
     class Meta:
         model = Departure
         fields = ["id", "request", "employee", "departure_type", "type_label", "last_day", "comment", "has_letter",
-                  "letter_name", "informed", "status", "requested_by_name", "created_at", "journey"]
+                  "letter_name", "informed", "status", "requested_by_name", "created_at", "journey",
+                  "notice_group", "notice_group_label", "notice_years", "notice_amount", "notice_unit", "notice_start",
+                  "notice_until", "notice_short_days", "notice_status", "notice_status_label", "notice_decided_by_name",
+                  "notice_decided_at", "can_decide_notice"]
+
+    def get_notice_decided_by_name(self, departure):
+        return name_of(departure.notice_decided_by) if departure.notice_decided_by_id else None
+
+    def get_can_decide_notice(self, departure):
+        """Les RH de son pôle (Admin RH, IT) décident du préavis ; le manager et le collaborateur le voient seulement."""
+        request = self.context.get("request")
+        return bool(request and is_hr_of(request.user, departure.employee))
 
     def get_employee(self, departure):
         return employee_card(departure.employee)
@@ -142,14 +160,32 @@ class DepartureSerializer(serializers.ModelSerializer):
 
 class JourneySettingsSerializer(serializers.ModelSerializer):
     updated_by_name = serializers.SerializerMethodField()
+    # Le préavis : les types de départ où il s'applique (des codes de DepartureType), les catégories "cadres".
+    notice_types = serializers.ListField(child=serializers.ChoiceField(choices=DepartureType.choices), required=False)
+    executive_categories = serializers.PrimaryKeyRelatedField(many=True, required=False, queryset=Category.objects.all())
 
     class Meta:
         model = JourneySettings
-        fields = ["employee_can_request_departure", "auto_block", "updated_at", "updated_by_name"]
+        fields = ["employee_can_request_departure", "auto_block", "notice_types", "executive_categories",
+                  "updated_at", "updated_by_name"]
         read_only_fields = ["updated_at"]
 
     def get_updated_by_name(self, current):
         return name_of(current.updated_by) if current.updated_by_id else None
+
+    def validate_notice_types(self, value):
+        return list(dict.fromkeys(value))  # sans doublon, dans l'ordre
+
+
+class NoticeRuleSerializer(serializers.ModelSerializer):
+    """Une case de la grille du préavis : Admin RH change la durée et l'unité (les 6 lignes sont fixes)."""
+
+    group_label = serializers.CharField(source="get_group_display", read_only=True)
+
+    class Meta:
+        model = NoticeRule
+        fields = ["id", "group", "group_label", "min_years", "amount", "unit"]
+        read_only_fields = ["group", "min_years"]
 
 
 class TaskTemplateSerializer(serializers.ModelSerializer):

@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Departure, Journey, JourneySettings, JourneyTask, TaskTemplate
+from .models import Departure, Journey, JourneySettings, JourneyTask, NoticeRule, TaskTemplate
 
 
 @admin.register(JourneySettings)
@@ -16,10 +16,23 @@ class JourneySettingsAdmin(admin.ModelAdmin):
         return False
 
 
+@admin.register(NoticeRule)
+class NoticeRuleAdmin(admin.ModelAdmin):
+    """La grille du préavis : la durée et l'unité changent ; les 6 lignes restent (ni ajout, ni suppression)."""
+    list_display = ("group", "min_years", "amount", "unit")
+    readonly_fields = ("group", "min_years")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
 @admin.register(Departure)
 class DepartureAdmin(admin.ModelAdmin):
     """Les demandes de départ : en LECTURE (la trace ; la lettre seulement par l'API, jamais une adresse publique)."""
-    list_display = ("employee", "departure_type", "last_day", "created_at", "journey")
+    list_display = ("employee", "departure_type", "last_day", "notice_until", "notice_status", "created_at", "journey")
     list_filter = ("departure_type",)
     exclude = ("letter",)
 

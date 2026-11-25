@@ -18,7 +18,9 @@ from workflows import engine
 from workflows.models import Request
 from workflows.test_engine import EngineTestCase
 
-from . import services
+from employees.models import Category
+
+from . import notice, services
 from .models import Departure, DepartureType, Journey, JourneySettings, Kind, Owner, TaskTemplate
 
 MEDIA = tempfile.mkdtemp()  # les lettres des tests : un dossier jetable, jamais backend/media
@@ -289,6 +291,83 @@ class DepartureTests(JourneyTestCase):
         handles = {task["owner"]: task["can_handle"] for task in journey["tasks"]}
         self.assertEqual((handles["MANAGER"], handles["HR"], journey["can_cancel"]), (True, False, False))
         self.assertEqual(journey["departure"]["type_label"], "Démission")
+
+
+class NoticeTests(JourneyTestCase):
+    """Le préavis (2026-11-25, art. 43 + décret 2004) : la grille, la photo sur la demande, la décision des RH."""
+
+    def setUp(self):
+        super().setUp()
+        self.sara.hire_date = self.today - timedelta(days=3 * 365 + 10)  # 3 ans d'ancienneté, catégorie "Employé"
+        self.sara.save()
+
+    def declare(self, last_day, departure_type=DepartureType.RESIGNATION):
+        return services.request_departure(self.sara, self.youssef.user, departure_type, last_day)
+
+    def test_add_months_keeps_the_end_of_month(self):
+        from datetime import date
+        self.assertEqual(notice.add_months(date(2026, 1, 31), 1), date(2026, 2, 28))
+        self.assertEqual(notice.add_months(date(2026, 11, 25), 1), date(2026, 12, 25))
+
+    def test_an_employee_with_3_years_has_1_month_and_too_early_is_to_decide(self):
+        departure = self.declare(self.today + timedelta(days=10))
+        self.assertEqual((departure.notice_group, departure.notice_years, departure.notice_amount, departure.notice_unit),
+                         ("OTHER", 3, 1, "MONTHS"))
+        self.assertEqual(departure.notice_until, notice.add_months(self.today, 1))
+        self.assertEqual(departure.notice_status, "")  # à décider par les RH
+        self.assertEqual(departure.notice_short_days, (departure.notice_until - departure.last_day).days)
+
+    def test_a_cadre_and_a_last_day_after_the_notice_is_respected(self):
+        self.sara.category = Category.objects.get(name="Cadre")
+        self.sara.save()
+        departure = self.declare(self.today + timedelta(days=100))
+        self.assertEqual((departure.notice_group, departure.notice_amount, departure.notice_status), ("EXECUTIVE", 2, "RESPECTED"))
+
+    def test_no_notice_for_the_end_of_a_contract(self):
+        departure = self.declare(self.today + timedelta(days=5), DepartureType.END_OF_CONTRACT)
+        self.assertEqual((departure.notice_until, departure.notice_status), (None, "NONE"))
+
+    def test_hr_decide_and_can_correct_the_start(self):
+        departure = self.declare(self.today + timedelta(days=10))
+        with self.assertRaises(PermissionDenied):
+            notice.decide(departure, self.youssef.user, "WAIVED")  # le manager voit, ne décide pas
+        letter_day = self.today - timedelta(days=30)  # la lettre est arrivée il y a 30 jours
+        notice.decide(departure, self.nadia.user, "RESPECTED", start=letter_day)
+        departure.refresh_from_db()
+        self.assertEqual((departure.notice_start, departure.notice_status, departure.notice_decided_by),
+                         (letter_day, "RESPECTED", self.nadia.user))
+
+    def test_every_employee_sees_his_own_notice(self):
+        client = APIClient()
+        client.force_authenticate(self.sara.user)  # même sans le droit de demander son départ
+        mine = client.get(reverse("journeys:departure-my-notice")).json()
+        self.assertEqual((mine["applies"], mine["amount"], mine["unit"], mine["years"]), (True, 1, "MONTHS", 3))
+        it = User.objects.create_user("it.notice", password="x", is_superuser=True, must_change_password=False)
+        client.force_authenticate(it)  # pas de fiche : 404
+        self.assertEqual(client.get(reverse("journeys:departure-my-notice")).status_code, 404)
+
+    def test_api_preview_rules_and_settings(self):
+        client = APIClient()
+        client.force_authenticate(self.youssef.user)
+        url = reverse("journeys:departure-notice-preview")
+        preview = client.get(url, {"employee": self.sara.pk, "type": "RESIGNATION"}).json()
+        self.assertEqual((preview["applies"], preview["amount"], preview["unit"], preview["group_label"]),
+                         (True, 1, "MONTHS", "Employés et ouvriers"))
+        self.assertFalse(client.get(url, {"employee": self.sara.pk, "type": "END_OF_CONTRACT"}).json()["applies"])
+        client.force_authenticate(self.karim.user)  # pas son manager direct : 404
+        self.assertEqual(client.get(url, {"employee": self.sara.pk, "type": "RESIGNATION"}).status_code, 404)
+        # Admin RH : la grille (6 lignes) et les réglages.
+        admin = User.objects.create_user("admin.rh.notice", password="x", role=User.Role.HR_ADMIN, must_change_password=False)
+        client.force_authenticate(admin)
+        rules = client.get(reverse("journeys:notice-rule-list")).json()
+        self.assertEqual(len(rules), 6)
+        other_1_year = next(rule for rule in rules if rule["group"] == "OTHER" and rule["min_years"] == 1)
+        client.patch(reverse("journeys:notice-rule-detail", args=[other_1_year["id"]]), {"amount": 45, "unit": "DAYS"}, format="json")
+        response = client.patch(reverse("journeys:settings"), {"notice_types": ["RESIGNATION", "RETIREMENT"]}, format="json")
+        self.assertEqual(response.json()["notice_types"], ["RESIGNATION", "RETIREMENT"])
+        client.force_authenticate(self.youssef.user)
+        preview = client.get(url, {"employee": self.sara.pk, "type": "RESIGNATION"}).json()
+        self.assertEqual((preview["amount"], preview["unit"]), (45, "DAYS"))  # la nouvelle grille, tout de suite
 
 
 class ApiTests(JourneyTestCase):
