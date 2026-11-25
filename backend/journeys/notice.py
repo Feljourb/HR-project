@@ -55,7 +55,9 @@ def compute(employee, departure_type, start):
 def apply(departure, start=None):
     """Prend la PHOTO du préavis sur la demande (sans l'enregistrer) et propose un statut :
     pas de préavis -> "Pas de préavis" ; dernier jour après la fin du préavis -> "Respecté" ; sinon vide (à décider)."""
-    result = compute(departure.employee, departure.departure_type, start or timezone.localdate())
+    # Licenciement pour FAUTE GRAVE (art. 39) : pas de préavis (ni d'indemnité).
+    serious = departure.departure_type == "DISMISSAL" and departure.serious_misconduct
+    result = None if serious else compute(departure.employee, departure.departure_type, start or timezone.localdate())
     if result is None:
         departure.notice_group, departure.notice_years, departure.notice_amount, departure.notice_unit = "", None, None, ""
         departure.notice_start = departure.notice_until = None

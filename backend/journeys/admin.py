@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Departure, Journey, JourneySettings, JourneyTask, NoticeRule, TaskTemplate
+from .models import Departure, ExitQuestion, Journey, JourneySettings, JourneyTask, NoticeRule, TaskTemplate
 
 
 @admin.register(JourneySettings)
@@ -11,6 +11,15 @@ class JourneySettingsAdmin(admin.ModelAdmin):
 
     def has_add_permission(self, request):
         return not JourneySettings.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(ExitQuestion)
+class ExitQuestionAdmin(admin.ModelAdmin):
+    """Les questions de l'entretien de sortie (Admin RH les gère dans Reference lists ; ici pour l'IT). Jamais supprimer."""
+    list_display = ("order", "text", "kind", "required", "is_active")
 
     def has_delete_permission(self, request, obj=None):
         return False

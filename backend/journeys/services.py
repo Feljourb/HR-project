@@ -269,10 +269,19 @@ def can_request_departure(user, employee):
 
 
 def can_request_own_departure(user):
-    """La page "My departure" (et son lien dans le menu) : seulement si Admin RH le permet, pour quelqu'un qui a une
-    fiche et n'est pas parti. Les RH n'en ont pas besoin (ils déclarent les départs depuis "Arrivals & departures")."""
+    """Le FORMULAIRE "Request my departure" : seulement si Admin RH le permet, pour quelqu'un qui a une fiche et n'est
+    pas parti. Les RH n'en ont pas besoin (ils déclarent les départs depuis "Arrivals & departures")."""
     me = Employee.objects.filter(user=user).first()
     return bool(me and me.status != Employee.Status.LEFT and not is_hr(user) and can_request_departure(user, me))
+
+
+def shows_my_departure(user):
+    """Le lien "My departure" du menu (2026-11-25) : quand je peux demander mon départ, OU quand un départ me concerne
+    (déclaré par mon manager ou les RH) : je suis où il en est, et je réponds à l'entretien de sortie."""
+    if can_request_own_departure(user):
+        return True
+    me = Employee.objects.filter(user=user).exclude(status=Employee.Status.LEFT).first()
+    return bool(me and departure_in_progress(me))
 
 
 def departure_in_progress(employee):
@@ -282,9 +291,10 @@ def departure_in_progress(employee):
 
 
 @transaction.atomic
-def request_departure(employee, user, departure_type, last_day, comment="", letter=None, informed=()):
+def request_departure(employee, user, departure_type, last_day, comment="", letter=None, informed=(), serious_misconduct=False):
     """Déclare le départ d'un collaborateur. Manager (ou collaborateur autorisé) : la demande part chez les RH
-    (Team approvals). Les RH : acceptée tout de suite (ils sont l'autorité, comme les documents), les tâches commencent."""
+    (Team approvals). Les RH : acceptée tout de suite (ils sont l'autorité, comme les documents), les tâches commencent.
+    serious_misconduct : un licenciement pour faute grave (art. 39 : ni préavis, ni indemnité)."""
     from workflows import engine  # importé ici : workflows importe déjà employees
 
     if not can_request_departure(user, employee):
@@ -305,11 +315,16 @@ def request_departure(employee, user, departure_type, last_day, comment="", lett
         raise ValidationError({"last_day": "Le dernier jour est déjà passé : demandez aux RH."})
     if departure_in_progress(employee):
         raise ValidationError("Un départ est déjà en cours pour ce collaborateur.")
+    # Une démission est un ÉCRIT (art. 34 : lettre signée, signature légalisée) : la lettre est jointe (réglage
+    # d'Admin RH, OUI par défaut). Les RH reçoivent ensuite l'ORIGINAL papier (case "Original received" du panneau).
+    if departure_type == DepartureType.RESIGNATION and letter is None and JourneySettings.load().letter_required:
+        raise ValidationError({"letter": "Joignez la lettre de démission (écrite, signée, signature légalisée)."})
     if letter is not None:
         if os.path.splitext(letter.name)[1].lower() not in LETTER_TYPES:
             raise ValidationError({"letter": "La lettre : PDF, JPG ou PNG."})
         if letter.size > LETTER_MAX:
             raise ValidationError({"letter": "La lettre : 5 Mo au maximum."})
+    serious_misconduct = bool(serious_misconduct) and departure_type == DepartureType.DISMISSAL
 
     title = f"Départ : {DepartureType(departure_type).label}, dernier jour le {last_day:%d/%m/%Y}"
     if hr:
@@ -317,7 +332,7 @@ def request_departure(employee, user, departure_type, last_day, comment="", lett
     else:
         request = engine.submit("DEPARTURE", employee, title, initiated_by=None if employee.user_id == user.pk else user)
     departure = Departure(request=request, employee=employee, departure_type=departure_type, last_day=last_day,
-                          comment=(comment or "").strip()[:500])
+                          comment=(comment or "").strip()[:500], serious_misconduct=serious_misconduct)
     notice.apply(departure)  # la photo du préavis (2026-11-25) : groupe, ancienneté, durée, dernier jour au plus tôt
     if letter is not None:
         departure.letter_name = os.path.basename(letter.name)[:150]
@@ -343,10 +358,139 @@ def open_departure(departure, user):
     history.record_changes(employee, user, before)
     departure.journey = create_journey(employee, Kind.DEPARTURE, departure.last_day, user)
     departure.save(update_fields=["journey"])
+    cancel_leaves_after(departure, user)
+    request_exit_documents(departure, user)
+    invite_exit_interview(departure)
     people = [person.user for person in departure.informed.select_related("user") if person.user_id and person.user.is_active]
     if people:
         notify.send(people, notify.Kind.INFORMED, departure.request)
     return departure.journey
+
+
+def request_exit_documents(departure, user):
+    """Les documents de sortie (2026-11-25), demandés TOUT SEULS à la validation, dans le module Documents, au nom de la
+    RH qui a validé (comme "Employé (RH)" : acceptée tout de suite) : par défaut le certificat de travail (obligatoire,
+    au plus tard 8 jours après le dernier jour, art. 72) et le reçu pour solde de tout compte (fait par la paie, art.
+    73). Les RH les préparent dans "Document requests" (date limite = dernier jour + N jours, réglage).
+    Rien ne bloque la validation : un document déjà en cours (ex. un certificat demandé avant) -> on ne le redemande pas."""
+    from documents import services as documents
+    from documents.models import DocumentRequest
+
+    current = JourneySettings.load()
+    types = list(current.exit_document_types.filter(is_active=True))
+    if not types or departure.exit_request_id or user is None or not is_hr_of(user, departure.employee):
+        return None
+    try:
+        with transaction.atomic():  # un point de retour : un refus du module Documents n'annule pas le départ
+            created = documents.request_documents(departure.employee, types, purpose="Départ de l'entreprise", by=user,
+                                                  format=DocumentRequest.Format.ORIGINAL)
+    except (ValidationError, PermissionDenied):
+        return None
+    due = departure.last_day + timedelta(days=current.exit_document_days)
+    DocumentRequest.objects.filter(pk__in=[document.pk for document in created]).update(due_date=due)
+    departure.exit_request = created[0].request
+    departure.save(update_fields=["exit_request"])
+    return created
+
+
+def invite_exit_interview(departure):
+    """🔔 + email au collaborateur : "donnez votre avis avant de partir" (entretien de sortie, confidentiel), s'il y a
+    des questions actives. Il répond dans "My departure" (ou les RH remplissent avec lui pendant l'entretien)."""
+    from .models import ExitQuestion
+
+    user_of = departure.employee.user
+    if user_of is None or not user_of.is_active or not ExitQuestion.objects.filter(is_active=True).exists():
+        return
+    Notification.objects.get_or_create(recipient=user_of, employee=departure.employee,
+                                       kind=Notification.Kind.EXIT_INTERVIEW, due_date=departure.last_day)
+
+
+def mark_letter_original(departure, user, received):
+    """Les RH du pôle : l'ORIGINAL papier de la lettre (signée, légalisée) est arrivé (ou non, une erreur)."""
+    if not is_hr_of(user, departure.employee):
+        raise PermissionDenied("Seuls les RH de son pôle notent la lettre originale.")
+    departure.letter_original_at, departure.letter_original_by = (timezone.now(), user) if received else (None, None)
+    departure.save(update_fields=["letter_original_at", "letter_original_by"])
+    return departure
+
+
+# --- L'entretien de sortie (confidentiel) -------------------------------------------------------------------------
+
+def can_see_exit_interview(user, departure):
+    """Le collaborateur lui-même et les RH de son pôle (Admin RH, IT). JAMAIS le manager : il peut être la raison."""
+    return departure.employee.user_id == user.pk or is_hr_of(user, departure.employee)
+
+
+def exit_questions(departure):
+    """Les questions à montrer : la copie déjà enregistrée (réponses passées), sinon les questions actives d'aujourd'hui."""
+    from .models import ExitQuestion
+
+    interview = getattr(departure, "exit_interview", None)
+    if interview is not None and interview.questions:
+        return interview.questions
+    return [{"id": q.pk, "text": q.text, "kind": q.kind, "choices": q.choices, "required": q.required}
+            for q in ExitQuestion.objects.filter(is_active=True)]
+
+
+def save_exit_interview(departure, user, answers):
+    """Enregistre les réponses (le collaborateur, ou les RH avec lui). Une question obligatoire vide -> refusé.
+    Une note : 1 à 5 ; un choix : dans la liste ; oui / non : "yes" / "no"."""
+    from .models import ExitInterview, QuestionKind
+
+    if not can_see_exit_interview(user, departure):
+        raise PermissionDenied("L'entretien de sortie est confidentiel.")
+    if departure.request.status != "APPROVED" or (departure.journey and departure.journey.cancelled_at):
+        raise ValidationError("L'entretien de sortie s'ouvre quand le départ est validé.")
+    questions = exit_questions(departure)
+    clean, missing = {}, []
+    for question in questions:
+        key = str(question["id"])
+        value = answers.get(key, "") if isinstance(answers, dict) else ""
+        value = str(value).strip()[:2000]
+        if not value:
+            if question["required"]:
+                missing.append(question["text"])
+            continue
+        if question["kind"] == QuestionKind.RATING and value not in {"1", "2", "3", "4", "5"}:
+            raise ValidationError({"answers": f"« {question['text']} » : une note de 1 à 5."})
+        if question["kind"] == QuestionKind.CHOICE and value not in [str(choice) for choice in question["choices"]]:
+            raise ValidationError({"answers": f"« {question['text']} » : choisissez dans la liste."})
+        if question["kind"] == QuestionKind.YES_NO and value not in {"yes", "no"}:
+            raise ValidationError({"answers": f"« {question['text']} » : oui ou non."})
+        clean[key] = value
+    if missing:
+        raise ValidationError({"answers": f"Répondez à : {missing[0]}"})
+    interview, _ = ExitInterview.objects.get_or_create(departure=departure, defaults={"questions": questions})
+    interview.answers, interview.filled_by, interview.filled_at = clean, user, timezone.now()
+    interview.save()
+    return interview
+
+
+def cancel_leaves_after(departure, user):
+    """Le départ est validé (2026-11-25, standard Workday : le système annule et prévient) : les congés qui COMMENCENT
+    après le dernier jour n'ont plus de sens (la personne ne travaille plus là). Annulés tout de suite, en cours ou
+    validés, avec le motif ; les jours reviennent au solde (donc payés au départ, art. 251). 🔔 + email au collaborateur
+    et à ceux qui les avaient validés (son manager). Un congé qui commence AVANT et finit APRÈS le dernier jour n'est
+    pas touché : une partie est juste, les RH décident (l'avertissement du panneau)."""
+    from leaves.models import LeaveRequest  # importé ici : le module Congés ne dépend pas des départs
+    from workflows import engine
+
+    reason = f"Départ de l'entreprise : dernier jour le {departure.last_day:%d/%m/%Y}. Les jours reviennent au solde."
+    active = LeaveRequest.objects.filter(employee=departure.employee, request__status__in=LeaveRequest.ACTIVE).select_related("request")
+    for leave in active.filter(start_date__gt=departure.last_day):
+        # Annulé par L'APPLICATION (user None), pas par la RH qui a validé le départ (2026-11-25, remarque de
+        # l'utilisatrice : "c'est l'app qui l'a fait") : la 🔔 dit "annulée automatiquement", le motif dit pourquoi.
+        engine.cancel_for(leave.request, None, reason)
+    # À cheval (commence avant ou le dernier jour, finit après) : le COLLABORATEUR décide (2026-11-25, idée de
+    # l'utilisatrice) : 🔔 + email "Congé après le dernier jour" -> l'annuler, puis en demander un plus court.
+    # Les RH gardent l'avertissement du panneau (s'il ne fait rien, ils l'annulent).
+    user_of = departure.employee.user
+    if user_of is not None and user_of.is_active:
+        Notification.objects.bulk_create([
+            Notification(recipient=user_of, employee=departure.employee, kind=Notification.Kind.LEAVE_PAST_LAST_DAY,
+                         request=leave.request, due_date=departure.last_day)
+            for leave in active.filter(start_date__lte=departure.last_day, end_date__gt=departure.last_day)
+        ], ignore_conflicts=True)
 
 
 def can_see_departure(user, departure):

@@ -52,6 +52,35 @@ export type Departure = {
   notice_decided_by_name: string | null
   notice_decided_at: string | null
   can_decide_notice: boolean
+  // La procédure complète (2026-11-25).
+  serious_misconduct: boolean             // licenciement pour faute grave : ni préavis, ni indemnité
+  letter_original_at: string | null       // l'original papier de la lettre reçu par les RH
+  letter_original_by_name: string | null
+  exit_request: number | null             // la demande des documents de sortie (module Documents)
+  can_see_exit_interview: boolean         // le collaborateur et les RH (jamais le manager)
+  exit_interview_done: boolean
+}
+
+/** Ce que la paie et la CNSS doivent savoir (panneau des RH). Les nombres arrivent en texte ("9.50"). */
+export type Payroll = {
+  leave: {
+    on: string; available: string; acquired: string; adjusted: string; taken: string; pending: string; expired: string
+    leaves_after: { request: number; type: string; start_date: string; end_date: string; days: string; status: string }[]
+  }
+  notice: { status: string; status_label: string; short_days: number; days_to_deduct: number }
+  indemnity: { applies: false; reason: string; months?: number } | {
+    applies: true; months: number; years: string; hours: string
+    detail: { from_years: string; to_years: string | null; years: string; hours_per_year: string; hours: string }[]
+  }
+  cnss: { name: string; u_number: string | null; cin: string; cnss_number: string; hire_date: string; last_day: string; reason: string }
+}
+
+/** Une question de l'entretien de sortie (et sa copie dans un entretien). */
+export type QuestionKind = 'TEXT' | 'RATING' | 'CHOICE' | 'YES_NO'
+export type Question = { id: number; text: string; kind: QuestionKind; choices: string[]; required: boolean }
+export type ExitQuestion = Question & { order: number; is_active: boolean }
+export const QUESTION_KIND: Record<QuestionKind, string> = {
+  TEXT: 'Free text', RATING: 'Score from 1 to 5', CHOICE: 'One choice in a list', YES_NO: 'Yes / No',
 }
 
 export type NoticeStatus = 'RESPECTED' | 'WAIVED' | 'NOT_RESPECTED' | 'NONE'
@@ -83,6 +112,7 @@ export type DepartureOptions = {
   is_hr: boolean
   can_request_own: boolean    // le collaborateur peut demander SON départ (réglage Admin RH, NON par défaut)
   me: number | null
+  letter_required: boolean    // une démission : la lettre jointe (réglage, OUI par défaut)
 }
 
 export type MyTask = Task & { journey: { id: number; kind: JourneyKind; day: string; employee: EmployeeCard } }

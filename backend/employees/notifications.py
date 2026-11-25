@@ -150,6 +150,10 @@ def link(notification):
         own = notification.request_id and notification.request.steps.filter(assignee__user=notification.recipient_id).exists()
         return "/approvals" if own and notification.kind != Kind.DELEGATED else "/stand-in"
     # Arrivées et départs (2026-11-23) : mes tâches -> "My tasks" ; tout est prêt (les RH) -> "Arrivals & departures".
+    if notification.kind == Kind.LEAVE_PAST_LAST_DAY:
+        return "/leaves"  # ma page Congés : "Cancel" sur ce congé, puis un nouveau plus court
+    if notification.kind == Kind.EXIT_INTERVIEW:
+        return "/my-departure"  # le questionnaire de l'entretien de sortie
     if notification.kind in (Kind.JOURNEY_TASKS, Kind.TASK_LATE):
         return "/my-tasks"
     if notification.kind == Kind.JOURNEY_DONE:
@@ -206,6 +210,20 @@ def message(notification):
     if notification.kind in (Kind.JOURNEY_TASKS, Kind.TASK_LATE, Kind.JOURNEY_DONE, Kind.ACCOUNT_TO_BLOCK):
         from journeys.handlers import journey_message  # importé ici : journeys importe déjà employees
         return journey_message(notification, name)
+    if notification.kind == Kind.EXIT_INTERVIEW:
+        return (f"Votre départ est validé (dernier jour le {notification.due_date:%d/%m/%Y}). Avant de partir, donnez "
+                "votre avis : l'entretien de sortie prend 5 minutes, et seuls les RH le lisent.")
+    # Mon congé dépasse mon dernier jour (départ validé, 2026-11-25) : à moi de décider. Calculé à l'affichage :
+    # s'il est déjà annulé, on le dit.
+    if notification.kind == Kind.LEAVE_PAST_LAST_DAY:
+        leave = getattr(notification.request, "leave", None)
+        if leave is None:
+            return f"Un congé dépasse votre dernier jour ({notification.due_date:%d/%m/%Y})."
+        what = f"Votre congé du {leave.start_date:%d/%m/%Y} au {leave.end_date:%d/%m/%Y}"
+        if notification.request.status not in ("IN_PROGRESS", "APPROVED"):
+            return f"{what} est fermé : rien à faire."
+        return (f"{what} dépasse votre dernier jour ({notification.due_date:%d/%m/%Y}). Annulez-le, puis demandez "
+                f"un nouveau congé jusqu'au {notification.due_date:%d/%m/%Y} si vous le souhaitez. Une question : les RH.")
     # Un congé recompté (un jour férié a changé) : le recalcul de CE moment-là (il peut y en avoir plusieurs).
     if notification.kind == Kind.RECOUNTED:
         return recount_message(notification, name)
@@ -324,8 +342,12 @@ def message(notification):
         if notification.kind == Kind.CANCELLED:
             from workflows.serializers import name_of
             request = notification.request
-            who = name_of(request.cancelled_by) if request.cancelled_by else "?"  # "Manager Test", pas "manager.test"
             reason = f" Motif : {request.cancel_reason}" if request.cancel_reason else ""
+            # Personne n'a cliqué (2026-11-25, engine.cancel_for par l'application, ex. un congé après le dernier
+            # jour d'un départ) : "annulée automatiquement", le motif dit pourquoi.
+            if not request.cancelled_by:
+                return f"Demande annulée automatiquement : {title} ({name}).{reason}"
+            who = name_of(request.cancelled_by)  # "Manager Test", pas "manager.test"
             return f"Demande annulée par {who} : {title} ({name}).{reason}"
         if notification.kind == Kind.TO_VALIDATE:
             return f"{name} attend votre réponse : {title}."

@@ -1,5 +1,6 @@
 """Tests des arrivées et départs : le modèle copié, qui fait quoi, "Fait", la cloche, les droits, l'API."""
 from datetime import timedelta
+from decimal import Decimal
 
 import shutil
 import tempfile
@@ -20,7 +21,7 @@ from workflows.test_engine import EngineTestCase
 
 from employees.models import Category
 
-from . import notice, services
+from . import exit_summary, notice, services
 from .models import Departure, DepartureType, Journey, JourneySettings, Kind, Owner, TaskTemplate
 
 MEDIA = tempfile.mkdtemp()  # les lettres des tests : un dossier jetable, jamais backend/media
@@ -40,6 +41,8 @@ class JourneyTestCase(EngineTestCase):
         for employee in (self.sara, self.youssef, self.nadia, self.hind, self.karim):
             employee.user.must_change_password = False
             employee.user.save()
+        # La lettre obligatoire pour une démission (réglage, OUI par défaut) : testée à part (ExitProcedureTests).
+        JourneySettings.objects.update_or_create(pk=1, defaults={"letter_required": False})
 
     def task(self, journey, name):
         return journey.tasks.get(name=name)
@@ -337,6 +340,37 @@ class NoticeTests(JourneyTestCase):
         self.assertEqual((departure.notice_start, departure.notice_status, departure.notice_decided_by),
                          (letter_day, "RESPECTED", self.nadia.user))
 
+    def test_leave_balance_at_the_last_day_and_leaves_after_it(self):
+        from leaves.balance import balance
+        from leaves.models import LeaveType
+        from leaves.services import request_leave
+
+        last_day = self.today + timedelta(days=40)
+        annual = LeaveType.objects.get(name="Congé annuel")
+        # Deux congés déjà demandés : un À CHEVAL sur le dernier jour, un tout APRÈS (des semaines entières : des jours
+        # ouvrés, quel que soit le jour de la semaine).
+        across = request_leave(self.sara, annual, last_day - timedelta(days=3), last_day + timedelta(days=3))
+        after = request_leave(self.sara, annual, last_day + timedelta(days=7), last_day + timedelta(days=13))
+        departure = services.request_departure(self.sara, self.nadia.user, DepartureType.RESIGNATION, last_day)
+        # Le départ validé : le congé tout APRÈS est annulé par l'app (motif, 🔔 à Sara) ; celui à cheval reste (les RH).
+        after.request.refresh_from_db()
+        self.assertEqual((after.request.status, after.request.cancelled_by), ("CANCELLED", None))  # par l'application
+        self.assertIn("dernier jour le", after.request.cancel_reason)
+        bell = Notification.objects.get(recipient=self.sara.user, kind=N.CANCELLED, request=after.request)
+        self.assertTrue(message(bell).startswith("Demande annulée automatiquement"))
+        summary = exit_summary.leave_at_last_day(departure)
+        self.assertEqual(summary["available"], balance(self.sara, today=last_day)["available"])  # le moteur des congés
+        self.assertEqual([row["request"] for row in summary["leaves_after"]], [across.request_id])  # les RH décident
+        # ... et Sara est prévenue pour le congé à cheval : à elle de l'annuler ou d'en demander un plus court.
+        told = Notification.objects.get(recipient=self.sara.user, kind=N.LEAVE_PAST_LAST_DAY, request=across.request)
+        self.assertIn("dépasse votre dernier jour", message(told))
+        client = APIClient()
+        url = reverse("journeys:departure-payroll", args=[departure.pk])
+        client.force_authenticate(self.nadia.user)
+        self.assertEqual(client.get(url).status_code, 200)
+        client.force_authenticate(self.youssef.user)  # le manager : pas un élément de paie pour lui
+        self.assertEqual(client.get(url).status_code, 404)
+
     def test_every_employee_sees_his_own_notice(self):
         client = APIClient()
         client.force_authenticate(self.sara.user)  # même sans le droit de demander son départ
@@ -368,6 +402,83 @@ class NoticeTests(JourneyTestCase):
         client.force_authenticate(self.youssef.user)
         preview = client.get(url, {"employee": self.sara.pk, "type": "RESIGNATION"}).json()
         self.assertEqual((preview["amount"], preview["unit"]), (45, "DAYS"))  # la nouvelle grille, tout de suite
+
+
+@override_settings(MEDIA_ROOT=MEDIA)
+class ExitProcedureTests(JourneyTestCase):
+    """La procédure complète (2026-11-25) : lettre, faute grave, indemnité en heures, documents de sortie, entretien de
+    sortie (confidentiel), le lien "My departure", ce que la paie doit savoir."""
+
+    def setUp(self):
+        super().setUp()
+        self.sara.hire_date = self.today - timedelta(days=3 * 365 + 10)  # ~3 ans d'ancienneté
+        self.sara.save()
+        self.last_day = self.today + timedelta(days=40)
+
+    def letter(self):
+        return SimpleUploadedFile("demission.pdf", b"%PDF-1.4 lettre", content_type="application/pdf")
+
+    def test_a_resignation_needs_the_letter_when_admin_rh_asks_it(self):
+        JourneySettings.objects.update_or_create(pk=1, defaults={"letter_required": True})
+        with self.assertRaisesMessage(ValidationError, "lettre de démission"):
+            services.request_departure(self.sara, self.youssef.user, DepartureType.RESIGNATION, self.last_day)
+        departure = services.request_departure(self.sara, self.youssef.user, DepartureType.RESIGNATION, self.last_day, letter=self.letter())
+        services.mark_letter_original(departure, self.nadia.user, True)  # l'original papier, noté par les RH
+        self.assertIsNotNone(departure.letter_original_at)
+        with self.assertRaises(PermissionDenied):
+            services.mark_letter_original(departure, self.youssef.user, False)
+
+    def test_dismissal_indemnity_in_hours_and_serious_misconduct(self):
+        departure = services.request_departure(self.sara, self.nadia.user, DepartureType.DISMISSAL, self.last_day)
+        indemnity = exit_summary.dismissal_indemnity(departure)
+        months = exit_summary.months_between(self.sara.hire_date, self.last_day)
+        self.assertTrue(indemnity["applies"])
+        self.assertEqual(indemnity["hours"], (Decimal(months) / 12 * 96).quantize(Decimal("0.01")))  # moins de 5 ans : 96 h / an
+        services.cancel(departure.journey, self.nadia.user, "Test")
+        serious = services.request_departure(self.sara, self.nadia.user, DepartureType.DISMISSAL, self.last_day, serious_misconduct=True)
+        self.assertEqual(serious.notice_status, "NONE")  # faute grave : ni préavis...
+        self.assertFalse(exit_summary.dismissal_indemnity(serious)["applies"])  # ... ni indemnité
+
+    def test_notice_not_respected_gives_days_to_deduct(self):
+        departure = services.request_departure(self.sara, self.youssef.user, DepartureType.RESIGNATION, self.today + timedelta(days=10))
+        notice.decide(departure, self.nadia.user, "NOT_RESPECTED")
+        self.assertEqual(exit_summary.notice_days_to_deduct(departure), departure.notice_short_days)
+        self.assertGreater(departure.notice_short_days, 0)
+
+    def test_approval_asks_the_exit_documents_and_invites_to_the_exit_interview(self):
+        from documents.models import DocumentRequest
+
+        departure = services.request_departure(self.sara, self.nadia.user, DepartureType.RESIGNATION, self.last_day)
+        documents = DocumentRequest.objects.filter(request=departure.exit_request)
+        self.assertEqual(sorted(documents.values_list("doc_type__name", flat=True)),
+                         ["Certificat de travail", "Reçu pour solde de tout compte"])
+        self.assertEqual(set(documents.values_list("due_date", flat=True)), {self.last_day + timedelta(days=8)})  # art. 72
+        bell = Notification.objects.get(recipient=self.sara.user, kind=N.EXIT_INTERVIEW)
+        self.assertIn("entretien de sortie", message(bell))
+        # L'entretien : Sara répond (la question obligatoire d'abord) ; le manager ne le voit jamais ; les RH oui.
+        client = APIClient()
+        url = reverse("journeys:departure-exit-interview", args=[departure.pk])
+        client.force_authenticate(self.sara.user)
+        questions = client.get(url).json()["questions"]
+        first = next(question for question in questions if question["required"])
+        self.assertEqual(client.post(url, {"answers": {}}, format="json").status_code, 400)
+        response = client.post(url, {"answers": {str(first["id"]): first["choices"][0]}}, format="json")
+        self.assertEqual(response.status_code, 200, response.content)
+        client.force_authenticate(self.youssef.user)
+        self.assertEqual(client.get(url).status_code, 404)  # confidentiel
+        client.force_authenticate(self.nadia.user)
+        self.assertEqual(client.get(url).json()["answers"], {str(first["id"]): first["choices"][0]})
+
+    def test_my_departure_link_and_payroll_summary(self):
+        client = APIClient()
+        client.force_authenticate(self.sara.user)
+        self.assertFalse(client.get(reverse("accounts:me")).json()["can_request_departure"])
+        departure = services.request_departure(self.sara, self.youssef.user, DepartureType.RESIGNATION, self.last_day)
+        self.assertTrue(client.get(reverse("accounts:me")).json()["can_request_departure"])  # un départ la concerne
+        client.force_authenticate(self.nadia.user)
+        data = client.get(reverse("journeys:departure-payroll", args=[departure.pk])).json()
+        self.assertEqual(set(data), {"leave", "notice", "indemnity", "cnss"})
+        self.assertEqual(data["cnss"]["cin"], self.sara.cin)
 
 
 class ApiTests(JourneyTestCase):

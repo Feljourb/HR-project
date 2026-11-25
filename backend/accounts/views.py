@@ -208,10 +208,11 @@ class MeView(APIView):
         leads_team = (Department.objects.filter(head__user=request.user, is_active=True).exists()
                       or Direction.objects.filter(head__user=request.user, is_active=True).exists()
                       or Pole.objects.filter(director__user=request.user).exists())
-        # can_request_departure (2026-11-24) : le lien "My departure" du menu, seulement si Admin RH le permet.
-        from journeys.services import can_request_own_departure
+        # can_request_departure (2026-11-24) : le lien "My departure" du menu : si Admin RH permet de demander son départ,
+        # OU (2026-11-25) si un départ me concerne (déclaré par mon manager / les RH : je le suis, et l'entretien de sortie).
+        from journeys.services import shows_my_departure
         return Response({**user_info(request.user), "stands_in": stands_in, "stood_in": stood_in, "leads_team": leads_team,
-                         "can_request_departure": can_request_own_departure(request.user)})
+                         "can_request_departure": shows_my_departure(request.user)})
 
 
 class SecuritySettingsView(RetrieveUpdateAPIView):

@@ -39,23 +39,28 @@ export function DepartureForm({ options, self, onDone }: {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
+  // (2026-11-25) la procédure : une démission = un écrit (la lettre jointe, réglage d'Admin RH) ; un licenciement peut
+  // être pour faute grave (art. 39 : ni préavis, ni indemnité).
+  const [serious, setSerious] = useState(false)
+  const letterNeeded = type === 'RESIGNATION' && options.letter_required
   const who = self ? options.me : options.is_hr ? employee?.id : Number(teamId) || null
-  const ready = Boolean(who && type && lastDay)
+  const ready = Boolean(who && type && lastDay && (!letterNeeded || letter))
 
   // Le préavis légal (2026-11-25) : relu dès que la personne et le type sont choisis (Django calcule : la grille
   // d'Admin RH, la catégorie, l'ancienneté). Affiché sous "Last day" : un dernier jour trop tôt = un avertissement.
   // Gardé AVEC sa clé (personne + type) : une autre personne ou un autre type n'affiche pas l'ancien préavis.
-  const key = who && type ? `${who}-${type}` : ''
+  const seriousFlag = type === 'DISMISSAL' && serious ? '1' : '0'
+  const key = who && type ? `${who}-${type}-${seriousFlag}` : ''
   const [loaded, setLoaded] = useState<{ key: string; data: NoticePreview | null } | null>(null)
   useEffect(() => {
     if (!key) return
     const controller = new AbortController()
-    apiFetch(`/api/journeys/departures/notice-preview/?employee=${who}&type=${type}`, { signal: controller.signal })
+    apiFetch(`/api/journeys/departures/notice-preview/?employee=${who}&type=${type}&serious=${seriousFlag}`, { signal: controller.signal })
       .then((response) => (response.ok ? response.json() : null))
       .then((data: NoticePreview | null) => setLoaded({ key, data }))
       .catch(() => { /* changé entre-temps, ou serveur injoignable : pas d'aperçu */ })
     return () => controller.abort()
-  }, [key, who, type])
+  }, [key, who, type, seriousFlag])
   const preview = key && loaded?.key === key ? loaded.data : null
 
   function chooseLetter(file: File | null) {
@@ -74,6 +79,7 @@ export function DepartureForm({ options, self, onDone }: {
     body.append('departure_type', type)
     body.append('last_day', lastDay)
     body.append('comment', comment)
+    if (type === 'DISMISSAL' && serious) body.append('serious_misconduct', 'true')
     for (const person of informed) body.append('informed', String(person.id))
     if (letter) body.append('letter', letter)
     const response = await apiFetch('/api/journeys/departures/', { method: 'POST', body }).catch(() => null)
@@ -106,6 +112,10 @@ export function DepartureForm({ options, self, onDone }: {
         {options.types.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
       </select>
     </label>
+    {type === 'DISMISSAL' && <label className="-mt-2 flex items-start gap-2 text-xs text-slate-700">
+      <input type="checkbox" checked={serious} onChange={(e) => setSerious(e.target.checked)} className="mt-0.5 size-4 accent-[#23355d]" />
+      <span><span className="font-semibold">Serious misconduct</span> (faute grave): no notice and no dismissal indemnity (Code du travail, art. 39).</span>
+    </label>}
 
     <div>
       <label htmlFor="departure-last-day" className="text-xs font-semibold text-slate-700">Last day <span className="text-red-600">*</span></label>
@@ -120,7 +130,10 @@ export function DepartureForm({ options, self, onDone }: {
 
     {/* La lettre (démission...) : optionnelle, comme une pièce jointe de NOOR. */}
     <div>
-      <p className="text-xs font-semibold text-slate-700">Letter <span className="font-normal text-slate-400">(optional · PDF, JPG or PNG · 5 MB max)</span></p>
+      <p className="text-xs font-semibold text-slate-700">Letter {letterNeeded
+        ? <><span className="text-red-600">*</span> <span className="font-normal text-slate-400">(PDF, JPG or PNG · 5 MB max)</span></>
+        : <span className="font-normal text-slate-400">(optional · PDF, JPG or PNG · 5 MB max)</span>}</p>
+      {letterNeeded && <p className="mt-0.5 text-[11px] text-slate-500">A resignation is a written letter, signed, with the signature legalized (art. 34). Scan it here; HR keep the paper original.</p>}
       {letter
         ? <p className="mt-1.5 flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm">
             <Paperclip className="size-4 text-slate-400" aria-hidden /><span className="min-w-0 flex-1 truncate">{letter.name}</span>

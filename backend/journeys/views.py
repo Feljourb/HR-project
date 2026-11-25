@@ -21,10 +21,13 @@ from employees.models import Employee
 
 from django.utils import timezone
 
-from . import notice, services
-from .models import Departure, DepartureType, JourneySettings, JourneyTask, Kind, NoticeGroup, NoticeRule, TaskTemplate
-from .serializers import (DepartureSerializer, JourneySerializer, JourneySettingsSerializer, MyTaskSerializer,
-                          NoticeRuleSerializer, TaskTemplateSerializer)
+from workflows.serializers import name_of
+
+from . import exit_summary, notice, services
+from .models import (Departure, DepartureType, ExitQuestion, JourneySettings, JourneyTask, Kind, NoticeGroup, NoticeRule,
+                     TaskTemplate)
+from .serializers import (DepartureSerializer, ExitQuestionSerializer, JourneySerializer, JourneySettingsSerializer,
+                          MyTaskSerializer, NoticeRuleSerializer, TaskTemplateSerializer)
 
 
 def run(action):
@@ -150,9 +153,10 @@ class DepartureViewSet(mixins.CreateModelMixin, viewsets.ReadOnlyModelViewSet):
         last_day = serializers.DateField().to_internal_value(data["last_day"]) if data.get("last_day") else None
         ids = data.getlist("informed") if hasattr(data, "getlist") else data.get("informed", [])
         informed = list(Employee.objects.filter(pk__in=[int(i) for i in ids if str(i).isdigit()]).exclude(status=Employee.Status.LEFT))
+        serious = str(data.get("serious_misconduct", "")).lower() in ("1", "true", "yes", "on")  # faute grave (licenciement)
         departure = run(lambda: services.request_departure(
             employee, request.user, str(data.get("departure_type", "")), last_day, str(data.get("comment", "")),
-            request.FILES.get("letter"), informed))
+            request.FILES.get("letter"), informed, serious_misconduct=serious))
         return Response(self.get_serializer(self.get_queryset().get(pk=departure.pk)).data, status=201)
 
     @action(detail=False)
@@ -167,6 +171,7 @@ class DepartureViewSet(mixins.CreateModelMixin, viewsets.ReadOnlyModelViewSet):
             "is_hr": services.is_hr(request.user),
             "can_request_own": services.can_request_own_departure(request.user),
             "me": me.pk if me else None,
+            "letter_required": JourneySettings.load().letter_required,  # démission : la lettre jointe (réglage)
         })
 
     @action(detail=False, url_path="notice-preview")
@@ -176,7 +181,9 @@ class DepartureViewSet(mixins.CreateModelMixin, viewsets.ReadOnlyModelViewSet):
         employee = get_object_or_404(Employee, pk=request.query_params.get("employee") or 0)
         if not services.can_request_departure(request.user, employee):
             raise NotFound()
-        result = notice.compute(employee, request.query_params.get("type", ""), timezone.localdate())
+        kind = request.query_params.get("type", "")
+        serious = kind == DepartureType.DISMISSAL and request.query_params.get("serious") == "1"  # faute grave : rien
+        result = None if serious else notice.compute(employee, kind, timezone.localdate())
         if result is None:
             return Response({"applies": False})
         return Response({"applies": True, **result, "group_label": NoticeGroup(result["group"]).label})
@@ -203,6 +210,46 @@ class DepartureViewSet(mixins.CreateModelMixin, viewsets.ReadOnlyModelViewSet):
         start = serializers.DateField().to_internal_value(request.data["start"]) if request.data.get("start") else None
         departure = run(lambda: notice.decide(departure, request.user, str(request.data.get("status", "")), start))
         return Response(self.get_serializer(departure).data)
+
+    @action(detail=True)
+    def payroll(self, request, pk=None):
+        """Ce que la PAIE et la CNSS doivent savoir (2026-11-25) : les congés à payer au dernier jour (+ les congés après
+        le dernier jour), les jours de préavis à retenir, l'indemnité de licenciement en heures, les données CNSS.
+        Seulement les RH de son pôle (Admin RH, IT) : des éléments de paie. Les autres : 404."""
+        departure = get_object_or_404(Departure.objects.select_related("employee", "request"), pk=pk)
+        if not services.is_hr_of(request.user, departure.employee):
+            raise NotFound()
+        return Response(exit_summary.payroll(departure))
+
+    @action(detail=True, methods=["post"], url_path="letter-original")
+    def letter_original(self, request, pk=None):
+        """Les RH : {received: true / false} = l'original papier de la lettre (signée, légalisée, art. 34) est arrivé."""
+        departure = get_object_or_404(Departure.objects.select_related("employee", "request"), pk=pk)
+        if not services.can_see_departure(request.user, departure):
+            raise NotFound()
+        received = request.data.get("received") in (True, "true", "1", 1)
+        departure = run(lambda: services.mark_letter_original(departure, request.user, received))
+        return Response(self.get_serializer(departure).data)
+
+    @action(detail=True, methods=["get", "post"], url_path="exit-interview")
+    def exit_interview(self, request, pk=None):
+        """L'entretien de sortie (CONFIDENTIEL : le collaborateur et les RH de son pôle ; le manager : 404).
+        GET : les questions, les réponses, qui a rempli ; POST {answers: {id_question: réponse}}."""
+        departure = get_object_or_404(Departure.objects.select_related("employee", "request", "journey"), pk=pk)
+        if not services.can_see_exit_interview(request.user, departure):
+            raise NotFound()
+        if request.method == "POST":
+            run(lambda: services.save_exit_interview(departure, request.user, request.data.get("answers") or {}))
+            departure.refresh_from_db()
+        interview = getattr(departure, "exit_interview", None)
+        open_ = departure.request.status == "APPROVED" and not (departure.journey and departure.journey.cancelled_at)
+        return Response({
+            "questions": services.exit_questions(departure),
+            "answers": interview.answers if interview else {},
+            "filled_by_name": name_of(interview.filled_by) if interview and interview.filled_by_id else None,
+            "filled_at": interview.filled_at if interview else None,
+            "open": open_,
+        })
 
     @action(detail=False, url_path=r"request/(?P<request_id>\d+)")
     def by_request(self, request, request_id=None):
@@ -258,6 +305,16 @@ class TaskTemplateViewSet(viewsets.ModelViewSet):
         templates = super().get_queryset()
         kind = self.request.query_params.get("kind")
         return templates.filter(kind=kind) if kind in Kind.values else templates
+
+
+class ExitQuestionViewSet(viewsets.ModelViewSet):
+    """Les questions de l'entretien de sortie (Réglages -> Exit interview, Admin RH + IT) : lire, ajouter, modifier.
+    Jamais supprimer : décocher "Active" (les entretiens passés gardent leur copie des questions)."""
+
+    serializer_class = ExitQuestionSerializer
+    queryset = ExitQuestion.objects.all()
+    permission_classes = [IsHRAdmin]
+    http_method_names = ["get", "post", "patch", "head", "options"]
 
 
 class NoticeRuleViewSet(mixins.ListModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet):

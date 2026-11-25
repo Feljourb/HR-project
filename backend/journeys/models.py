@@ -188,6 +188,12 @@ def default_notice_types():
     return [DepartureType.RESIGNATION.value, DepartureType.DISMISSAL.value]
 
 
+def default_indemnity_hours():
+    """Art. 53 : 96 h de salaire par année pour les 5 premières années, 144 h de la 6e à la 10e, 192 h de la 11e à la
+    15e, 240 h au-delà (une fraction d'année compte au prorata). À vérifier par les RH / un juriste."""
+    return [[0, 96], [5, 144], [10, 192], [15, 240]]
+
+
 def letter_path(departure, filename):
     """media/departures/2026/11/<nom au hasard>.pdf : jamais le nom d'origine (il peut contenir n'importe quoi)."""
     return f"departures/{departure.created_at:%Y/%m}/{uuid.uuid4().hex}{os.path.splitext(filename)[1].lower()}"
@@ -225,6 +231,17 @@ class Departure(models.Model):
     notice_decided_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
                                           related_name="+", verbose_name="Préavis : décidé par")
     notice_decided_at = models.DateTimeField("Préavis : décidé le", null=True, blank=True)
+    # La procédure complète (2026-11-25, Code du travail) :
+    # - licenciement pour FAUTE GRAVE (art. 39) : ni préavis, ni indemnité de licenciement ;
+    serious_misconduct = models.BooleanField("Faute grave", default=False)
+    # - la lettre de démission ORIGINALE (écrite, signée, signature légalisée : art. 34) reçue par les RH ;
+    letter_original_at = models.DateTimeField("Lettre originale reçue le", null=True, blank=True)
+    letter_original_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                                           related_name="+", verbose_name="Lettre originale reçue par")
+    # - les documents de sortie (certificat de travail en 8 jours, art. 72 ; reçu pour solde de tout compte, art. 73),
+    #   demandés tout seuls à la validation, dans le module Documents (une demande, un document par type).
+    exit_request = models.OneToOneField("workflows.Request", on_delete=models.SET_NULL, null=True, blank=True,
+                                        related_name="+", verbose_name="Documents de sortie")
 
     @property
     def notice_short_days(self):
@@ -242,6 +259,58 @@ class Departure(models.Model):
         return f"Départ de {self.employee} ({self.last_day:%d/%m/%Y})"
 
 
+# --- L'entretien de sortie (2026-11-25, standard : savoir POURQUOI les gens partent) -------------------------------
+
+class QuestionKind(models.TextChoices):
+    TEXT = "TEXT", "Texte libre"
+    RATING = "RATING", "Note de 1 à 5"
+    CHOICE = "CHOICE", "Un choix dans une liste"
+    YES_NO = "YES_NO", "Oui / Non"
+
+
+class ExitQuestion(models.Model):
+    """Une question de l'entretien de sortie (Admin RH : Réglages des arrivées et départs -> Exit interview).
+    Jamais supprimée : décochée (les réponses passées gardent leur question, elles en ont une copie)."""
+
+    text = models.CharField("Question", max_length=200)
+    kind = models.CharField("Type de réponse", max_length=6, choices=QuestionKind.choices, default=QuestionKind.TEXT)
+    choices = models.JSONField("Choix (pour « un choix »)", default=list, blank=True)
+    required = models.BooleanField("Obligatoire", default=False)
+    order = models.PositiveSmallIntegerField("Ordre", default=0)
+    is_active = models.BooleanField("Active", default=True)
+
+    class Meta:
+        verbose_name = "Question de l'entretien de sortie"
+        verbose_name_plural = "Questions de l'entretien de sortie"
+        ordering = ["order", "id"]
+
+    def __str__(self):
+        return self.text
+
+    def clean(self):
+        if self.kind == QuestionKind.CHOICE and len([c for c in self.choices if str(c).strip()]) < 2:
+            raise ValidationError({"choices": "Donnez au moins 2 choix."})
+
+
+class ExitInterview(models.Model):
+    """Les réponses d'UN départ. CONFIDENTIEL : le collaborateur et les RH de son pôle, jamais le manager (il peut être
+    la raison du départ). `questions` = une COPIE des questions au moment de répondre (le modèle peut changer après)."""
+
+    departure = models.OneToOneField(Departure, on_delete=models.CASCADE, related_name="exit_interview", verbose_name="Départ")
+    questions = models.JSONField("Questions (copie)", default=list)
+    answers = models.JSONField("Réponses", default=dict)
+    filled_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                                  related_name="+", verbose_name="Rempli par")
+    filled_at = models.DateTimeField("Rempli le", null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Entretien de sortie"
+        verbose_name_plural = "Entretiens de sortie"
+
+    def __str__(self):
+        return f"Entretien de sortie de {self.departure.employee}"
+
+
 class JourneySettings(models.Model):
     """Les réglages (une seule ligne, Admin RH) : Reference lists -> Arrivées et départs -> Departure requests."""
 
@@ -256,6 +325,18 @@ class JourneySettings(models.Model):
     executive_categories = models.ManyToManyField("employees.Category", blank=True, related_name="+",
                                                   verbose_name="Catégories cadres et assimilés (préavis)")
     notice_types = models.JSONField("Types de départ avec préavis", default=default_notice_types, blank=True)
+    # La procédure complète (2026-11-25) :
+    # - une démission demande la lettre (écrite, signée, légalisée : art. 34) jointe au formulaire ;
+    letter_required = models.BooleanField("Lettre obligatoire pour une démission", default=True)
+    # - l'indemnité de licenciement (art. 52-53) en HEURES de salaire par année d'ancienneté (la paie la transforme en
+    #   argent) : [[à partir de (années), heures par an], ...] et le minimum d'ancienneté (6 mois) ;
+    indemnity_hours = models.JSONField("Indemnité de licenciement (heures par an)", default=default_indemnity_hours, blank=True)
+    indemnity_min_months = models.PositiveSmallIntegerField("Indemnité : ancienneté minimum (mois)", default=6)
+    # - les documents de sortie demandés tout seuls à la validation du départ, prêts au plus tard N jours après le
+    #   dernier jour (certificat de travail : 8 jours, art. 72).
+    exit_document_types = models.ManyToManyField("documents.DocumentType", blank=True, related_name="+",
+                                                 verbose_name="Documents de sortie")
+    exit_document_days = models.PositiveSmallIntegerField("Documents de sortie : jours après le dernier jour", default=8)
     updated_at = models.DateTimeField("Modifié le", auto_now=True)
     updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
                                    related_name="+", verbose_name="Modifié par")

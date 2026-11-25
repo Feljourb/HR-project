@@ -8,13 +8,14 @@
  * Jamais supprimer : "Active" décoché = la tâche n'est plus copiée dans les prochains parcours.
  */
 import { useCallback, useEffect, useState } from 'react'
-import { Hourglass, Loader2, LogIn, LogOut, Pencil, Plus, UserRoundCheck } from 'lucide-react'
+import { Hourglass, Loader2, LogIn, LogOut, MessageSquareHeart, Pencil, Plus, UserRoundCheck } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { SidePanel } from '@/components/ui/side-panel'
 import { PersonPicker, type Person } from '@/components/requests/out-of-office'
 import { controlClass } from '@/components/ui/control-class'
 import { errorOf, OWNER_LABEL, whenLabel, type JourneyKind, type Owner, type TaskTemplate } from '@/lib/journeys'
+import { ExitDocumentsSetting, ExitQuestionsSetting, IndemnitySetting } from './exit-settings'
 import { NoticeSettings } from './notice-settings'
 import { SettingsTabs } from './settings-tabs'
 
@@ -32,14 +33,16 @@ export function JourneySettings() {
         hint: 'What must be ready for a new employee’s first day (PC, badge, contract, desk…) and in the first month.' },
       { id: 'departure', label: 'Departure tasks', icon: LogOut, content: <TemplateTable kind="DEPARTURE" />,
         hint: 'What must be given back or closed when someone leaves (PC, badge, car, email, certificate…).' },
-      { id: 'who', label: 'Departure rules', icon: UserRoundCheck, content: <DepartureRules />,
-        hint: 'Who may declare a departure, and what happens to the account after the last day.' },
-      { id: 'notice', label: 'Notice period', icon: Hourglass, content: <NoticeSettings />,
-        hint: 'How long an employee keeps working after a resignation or a dismissal (the law, by category and seniority).' },
+      { id: 'who', label: 'Departure rules', icon: UserRoundCheck, content: <div className="flex flex-col gap-4"><DepartureRules /><ExitDocumentsSetting /></div>,
+        hint: 'Who may declare a departure, the account after the last day, the resignation letter, and the exit documents.' },
+      { id: 'notice', label: 'Notice & indemnity', icon: Hourglass, content: <div className="flex flex-col gap-4"><NoticeSettings /><IndemnitySetting /></div>,
+        hint: 'How long an employee keeps working after a resignation or a dismissal, and the dismissal indemnity (the law).' },
+      { id: 'exit-interview', label: 'Exit interview', icon: MessageSquareHeart, content: <ExitQuestionsSetting />,
+        hint: 'The questions asked to an employee who leaves (confidential: only HR read the answers).' },
     ]} />
 }
 
-type Rules = { employee_can_request_departure: boolean; auto_block: boolean; updated_at: string; updated_by_name: string | null }
+type Rules = { employee_can_request_departure: boolean; auto_block: boolean; letter_required: boolean; updated_at: string; updated_by_name: string | null }
 type Choice = [boolean, string, string]
 
 /** Les 2 réglages des départs (une seule place), chacun enregistré au clic :
@@ -57,7 +60,7 @@ function DepartureRules() {
       .catch(() => setError('Could not load these settings: refresh the page.'))
   }, [])
 
-  async function change(field: 'employee_can_request_departure' | 'auto_block', on: boolean) {
+  async function change(field: 'employee_can_request_departure' | 'auto_block' | 'letter_required', on: boolean) {
     setError('')
     setSaved(false)
     const response = await apiFetch('/api/journeys/settings/', { method: 'PATCH', body: JSON.stringify({ [field]: on }) }).catch(() => null)
@@ -76,6 +79,11 @@ function DepartureRules() {
         onChange={(on) => void change('auto_block', on)} choices={[
           [true, 'Automatic: the app blocks the account (recommended)', 'The fiche becomes “Sorti” and the account is blocked. The history says “by système”.'],
           [false, 'By hand: HR block it', 'Nothing changes on the fiche. HR of the pôle get a 🔔 + email “Compte à bloquer” with a link to the fiche: they set it to “Sorti”.']]} />
+      <RadioGroup name="letter-required" title="③ The resignation letter" value={value.letter_required}
+        text="The law (art. 34): a resignation is written, signed by the employee, with the signature legalized. HR keep the paper original (a box to tick in the departure)."
+        onChange={(on) => void change('letter_required', on)} choices={[
+          [true, 'Required: the scanned letter is attached to the request (recommended)', 'The request cannot be sent without it.'],
+          [false, 'Optional', 'The request can be sent without the letter; HR collect it later.']]} />
       <div>
         {saved && <p role="status" className="text-xs font-medium text-emerald-700">✓ Saved</p>}
         {value.updated_by_name && <p className="text-[11px] text-slate-400">Last change by {value.updated_by_name}.</p>}

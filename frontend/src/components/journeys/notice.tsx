@@ -99,10 +99,13 @@ export function NoticeDecision({ departure, onChanged }: { departure: Departure;
         <DatePicker id={`notice-start-${departure.id}`} value={start} onChange={(value) => { setStart(value); setSaved(false) }} max={departure.last_day} />
       </div>
     </div>
-    <p className="text-[11px] text-slate-500">
-      Starts the day of the request; change it if the letter came earlier. <span className="font-medium">Waived</span> = the company lets the employee leave earlier.
-      {' '}<span className="font-medium">Not respected</span> = the employee leaves earlier without agreement (payroll takes the missing days into account).
-    </p>
+    {/* (2026-11-25) mots réécrits : "payroll takes the missing days into account" n'était pas clair. */}
+    <ul className="flex flex-col gap-0.5 text-[11px] text-slate-500">
+      <li><span className="font-medium text-slate-600">Respected</span> = the employee works until the end of the notice. Nothing to do.</li>
+      <li><span className="font-medium text-slate-600">Waived</span> = the company agrees to let the employee leave earlier. Nobody pays anything.</li>
+      <li><span className="font-medium text-slate-600">Not respected</span> = the employee leaves earlier without the company’s agreement. The missing days are taken from the last pay (e.g. 10 days ≈ 1/3 of a monthly salary; payroll computes the amount).</li>
+      <li><span className="font-medium text-slate-600">Notice starts on</span> = the day of the request. Change it if the letter arrived earlier.</li>
+    </ul>
     {error && <p role="alert" className="text-[11px] font-medium text-red-600">{error}</p>}
     <div className="flex items-center gap-2">
       <button type="button" onClick={() => void save()} disabled={busy || !status || !changed}

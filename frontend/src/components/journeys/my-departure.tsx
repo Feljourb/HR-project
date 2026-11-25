@@ -13,7 +13,9 @@ import { CalendarDays, ChevronRight, CircleHelp, DoorOpen, FileText, Hourglass, 
 import { apiFetch } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { frDate, type Departure, type DepartureOptions } from '@/lib/journeys'
+import { CancelClaim } from '@/components/expenses/claim-actions'
 import { DepartureForm } from './departure-form'
+import { ExitInterview } from './exit-interview'
 import { MyNoticeText, useMyNotice } from './notice'
 
 // L'état de la demande, dit simplement (la couleur suit : ambre = on attend, vert = validé, gris = fermé).
@@ -61,7 +63,9 @@ export function MyDeparture() {
     {failed && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700">Could not load this page: refresh it.</p>}
     {!failed && (options === null || mine === null) && <p className="text-xs text-slate-500">Loading...</p>}
 
-    {current && <DepartureCard departure={current} />}
+    {current && <DepartureCard departure={current} onChanged={load} />}
+    {/* (2026-11-25) validé : l'entretien de sortie (confidentiel, seuls les RH lisent). */}
+    {current && current.status === 'APPROVED' && current.can_see_exit_interview && <ExitInterview departureId={current.id} />}
 
     {options && mine && !current && (options.can_request_own
       ? <section className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
@@ -99,7 +103,7 @@ function GoodToKnow() {
 }
 
 /** Une demande de départ : le type, le dernier jour, l'état en mots simples, et le lien vers son historique. */
-function DepartureCard({ departure, small }: { departure: Departure; small?: boolean }) {
+function DepartureCard({ departure, small, onChanged }: { departure: Departure; small?: boolean; onChanged?: () => void }) {
   const status = STATUS[departure.status]
   return <section className={cn('rounded-xl border border-slate-200/80 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]', small && 'opacity-70')}>
     <div className="flex flex-wrap items-start gap-3">
@@ -114,8 +118,16 @@ function DepartureCard({ departure, small }: { departure: Departure; small?: boo
       <span className={cn('rounded-full px-2.5 py-1 text-[11px] font-semibold', status.tone)}>{status.label}</span>
     </div>
     {!small && <p className="mt-3 text-xs text-slate-600">{status.text}</p>}
-    <Link href={`/requests/${departure.request}?from=my-departure`} className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-[#23355d] hover:underline">
-      View the history <ChevronRight className="size-3.5" />
-    </Link>
+    <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1">
+      <Link href={`/requests/${departure.request}?from=my-departure`} className="inline-flex items-center gap-1 text-xs font-semibold text-[#23355d] hover:underline">
+        View the history <ChevronRight className="size-3.5" />
+      </Link>
+      {/* (2026-11-25) Annuler : seulement EN VALIDATION (le même bouton que les notes de frais et les documents). Une fois
+          validé, la loi demande l'accord de l'employeur pour revenir sur une démission : on passe par les RH. */}
+      {!small && onChanged && departure.status === 'IN_PROGRESS' && <span className="ml-auto flex items-center gap-1.5">
+        <CancelClaim claim={departure} onCancelled={onChanged} />
+      </span>}
+      {!small && departure.status === 'APPROVED' && <span className="ml-auto text-[11px] text-slate-500">Changed your mind? Ask HR: they can cancel it.</span>}
+    </div>
   </section>
 }

@@ -401,6 +401,27 @@ def cancel_approved(request, user, reason):
 
 
 @transaction.atomic
+def cancel_for(request, user, reason):
+    """Un MODULE annule une demande devenue SANS OBJET, en cours OU déjà acceptée (2026-11-25, ex. un congé qui
+    commence après le dernier jour d'un départ validé : standard Workday, le système l'annule et prévient).
+    `user` = celui dont l'action l'a provoquée (ex. la RH qui a validé le départ), ou None (l'application).
+    Prévenus (🔔 + email "Demande annulée", avec le motif) : le demandeur, ceux qui l'avaient validée, ceux qu'elle
+    attendait encore. Déjà terminée : rien ne change. Rien n'est effacé : "Cancelled by ... + motif" dans l'historique."""
+    request = Request.objects.select_for_update().select_related("requester__user").get(pk=request.pk)
+    if request.status not in (Request.Status.IN_PROGRESS, Request.Status.APPROVED):
+        return request
+    waiting = [person for step in request.steps.filter(status=Status.PENDING) for person in people_of(step)]
+    deciders = list(get_user_model().objects.filter(pk__in=request.steps.exclude(decided_by=None).values("decided_by")))
+    request.status, request.closed_at = Request.Status.CANCELLED, timezone.now()
+    request.cancelled_by, request.cancel_reason = user, reason
+    request.save(update_fields=["status", "closed_at", "cancelled_by", "cancel_reason"])
+    notify.clear_waiting(request)  # plus rien à valider : les "Demande à valider" pas lues partent
+    people = [request.requester.user, *deciders, *waiting]
+    notify.send([person for person in dict.fromkeys(people) if user is None or person.pk != user.pk], notify.Kind.CANCELLED, request)
+    return request
+
+
+@transaction.atomic
 def expire(request, reason, also=()):
     """Une demande encore EN COURS devenue sans objet, annulée par L'APPLICATION (personne n'a cliqué : cancelled_by
     vide), avec le motif. Le moteur ne sait pas QUAND : le module le décide (Congés, 2026-11-12 : pas validée avant

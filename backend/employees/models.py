@@ -689,6 +689,11 @@ class Notification(models.Model):
         JOURNEY_DONE = "JOURNEY_DONE", "Parcours prêt"
         # Le dernier jour est passé et Admin RH a choisi "les RH bloquent à la main" : rappel aux RH (2026-11-24).
         ACCOUNT_TO_BLOCK = "ACCOUNT_TO_BLOCK", "Compte à bloquer"
+        # Un congé "à cheval" sur le dernier jour d'un départ validé (2026-11-25) : le collaborateur décide (l'annuler,
+        # en demander un plus court). `request` = le congé, `due_date` = le dernier jour.
+        LEAVE_PAST_LAST_DAY = "LEAVE_PAST_LAST_DAY", "Congé après le dernier jour"
+        # Le départ est validé : le collaborateur est invité à l'entretien de sortie (questionnaire, 2026-11-25).
+        EXIT_INTERVIEW = "EXIT_INTERVIEW", "Entretien de sortie"
 
     recipient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notifications",
                                   verbose_name="Destinataire")

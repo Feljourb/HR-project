@@ -53,6 +53,7 @@ export function DepartureApprovalCard({ approval, onAnswered }: { approval: Appr
         {/* L'essentiel en une ligne : le type et le dernier jour (dans combien de jours = le préavis). */}
         {departure && <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs">
           <span className="inline-flex items-center gap-1.5 rounded-full bg-[#E4E9F2] px-2.5 py-0.5 font-semibold text-[#23355d]">{departure.type_label}</span>
+          {departure.serious_misconduct && <span className="rounded-full bg-red-50 px-2.5 py-0.5 font-semibold text-red-700 ring-1 ring-inset ring-red-200">Serious misconduct</span>}
           <span className="inline-flex items-center gap-1.5 text-slate-700">
             <CalendarDays className="size-3.5 text-slate-400" aria-hidden />
             Last day: <span className="font-semibold text-[#192646]">{frDate(departure.last_day)}</span>

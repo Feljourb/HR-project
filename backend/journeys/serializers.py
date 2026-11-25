@@ -2,11 +2,13 @@
 from django.utils import timezone
 from rest_framework import serializers
 
+from documents.models import DocumentType
 from employees.models import Category, Employee
 from workflows.serializers import name_of, person
 
 from . import services
-from .models import Departure, DepartureType, Journey, JourneySettings, JourneyTask, NoticeRule, Owner, TaskTemplate
+from .models import (Departure, DepartureType, ExitQuestion, Journey, JourneySettings, JourneyTask, NoticeRule, Owner,
+                     TaskTemplate)
 from .services import is_hr_of
 
 
@@ -134,7 +136,26 @@ class DepartureSerializer(serializers.ModelSerializer):
                   "letter_name", "informed", "status", "requested_by_name", "created_at", "journey",
                   "notice_group", "notice_group_label", "notice_years", "notice_amount", "notice_unit", "notice_start",
                   "notice_until", "notice_short_days", "notice_status", "notice_status_label", "notice_decided_by_name",
-                  "notice_decided_at", "can_decide_notice"]
+                  "notice_decided_at", "can_decide_notice",
+                  # La procédure complète (2026-11-25) : faute grave, l'original de la lettre, les documents de sortie,
+                  # l'entretien de sortie (confidentiel : le collaborateur et les RH).
+                  "serious_misconduct", "letter_original_at", "letter_original_by_name", "exit_request",
+                  "can_see_exit_interview", "exit_interview_done"]
+
+    letter_original_by_name = serializers.SerializerMethodField()
+    can_see_exit_interview = serializers.SerializerMethodField()
+    exit_interview_done = serializers.SerializerMethodField()
+
+    def get_letter_original_by_name(self, departure):
+        return name_of(departure.letter_original_by) if departure.letter_original_by_id else None
+
+    def get_can_see_exit_interview(self, departure):
+        request = self.context.get("request")
+        return bool(request and services.can_see_exit_interview(request.user, departure))
+
+    def get_exit_interview_done(self, departure):
+        interview = getattr(departure, "exit_interview", None)
+        return bool(interview and interview.filled_at)
 
     def get_notice_decided_by_name(self, departure):
         return name_of(departure.notice_decided_by) if departure.notice_decided_by_id else None
@@ -163,18 +184,51 @@ class JourneySettingsSerializer(serializers.ModelSerializer):
     # Le préavis : les types de départ où il s'applique (des codes de DepartureType), les catégories "cadres".
     notice_types = serializers.ListField(child=serializers.ChoiceField(choices=DepartureType.choices), required=False)
     executive_categories = serializers.PrimaryKeyRelatedField(many=True, required=False, queryset=Category.objects.all())
+    exit_document_types = serializers.PrimaryKeyRelatedField(many=True, required=False, queryset=DocumentType.objects.all())
 
     class Meta:
         model = JourneySettings
         fields = ["employee_can_request_departure", "auto_block", "notice_types", "executive_categories",
+                  "letter_required", "indemnity_hours", "indemnity_min_months", "exit_document_types", "exit_document_days",
                   "updated_at", "updated_by_name"]
         read_only_fields = ["updated_at"]
+        extra_kwargs = {"indemnity_min_months": {"min_value": 0, "max_value": 60},
+                        "exit_document_days": {"min_value": 0, "max_value": 60}}
 
     def get_updated_by_name(self, current):
         return name_of(current.updated_by) if current.updated_by_id else None
 
     def validate_notice_types(self, value):
         return list(dict.fromkeys(value))  # sans doublon, dans l'ordre
+
+    def validate_indemnity_hours(self, value):
+        """[[à partir de (années), heures par an], ...] : des nombres >= 0, la première tranche à 0 an, sans doublon."""
+        try:
+            rows = sorted((float(start), float(hours)) for start, hours in value)
+        except (TypeError, ValueError):
+            raise serializers.ValidationError("Chaque tranche : [à partir de (années), heures par an].")
+        if not rows or rows[0][0] != 0 or any(start < 0 or hours < 0 or hours > 1000 for start, hours in rows) \
+                or len({start for start, _ in rows}) != len(rows):
+            raise serializers.ValidationError("La première tranche commence à 0 an ; des nombres positifs, sans doublon.")
+        return [[int(start) if start.is_integer() else start, int(hours) if hours.is_integer() else hours] for start, hours in rows]
+
+
+class ExitQuestionSerializer(serializers.ModelSerializer):
+    """Une question de l'entretien de sortie (Admin RH). Un choix : au moins 2 réponses possibles."""
+
+    class Meta:
+        model = ExitQuestion
+        fields = ["id", "text", "kind", "choices", "required", "order", "is_active"]
+
+    def validate(self, data):
+        kind = data.get("kind", getattr(self.instance, "kind", "TEXT"))
+        choices = [str(choice).strip() for choice in data.get("choices", getattr(self.instance, "choices", [])) if str(choice).strip()]
+        if kind == "CHOICE" and len(choices) < 2:
+            raise serializers.ValidationError({"choices": "Donnez au moins 2 choix."})
+        data["choices"] = choices if kind == "CHOICE" else []
+        if "text" in data:
+            data["text"] = data["text"].strip()
+        return data
 
 
 class NoticeRuleSerializer(serializers.ModelSerializer):

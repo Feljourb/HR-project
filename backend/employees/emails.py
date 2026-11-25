@@ -31,7 +31,8 @@ ALWAYS = {Kind.TO_VALIDATE, Kind.DELEGATED, Kind.TRIAL_END, Kind.DELEGATION_ASKE
           Kind.ACCOUNT_TO_BLOCK}  # le compte de quelqu'un qui est parti, encore ouvert = un risque : jamais manqué
 RESULTS = {Kind.APPROVED, Kind.REJECTED, Kind.CANCELLED, Kind.RECOUNTED, Kind.EXPIRED,  # mes demandes : "email_results"
            Kind.DOCUMENT_READY, Kind.ORIGINAL_READY, Kind.ORIGINAL_HANDED, Kind.EXPENSE_CORRECTED,
-           Kind.DELEGATION_ACCEPTED, Kind.DELEGATION_DECLINED}
+           Kind.DELEGATION_ACCEPTED, Kind.DELEGATION_DECLINED,
+           Kind.LEAVE_PAST_LAST_DAY}  # mon congé dépasse mon dernier jour (2026-11-25) : à moi d'agir
 # Le reste (pour information, solde corrigé, droit changé, jours perdus le 31/12, rappels, "pas encore validée",
 # "réponse en votre nom" par mon délégué) :
 # "email_info".

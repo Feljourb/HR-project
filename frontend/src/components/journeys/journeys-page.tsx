@@ -21,6 +21,8 @@ import { PersonPicker, type Person } from '@/components/requests/out-of-office'
 import { errorOf, frDate, type Departure, type DepartureOptions, type Journey, type JourneyKind } from '@/lib/journeys'
 import { DepartureForm } from './departure-form'
 import { JourneyWho } from './journey-who'
+import { DeparturePayroll } from './departure-payroll'
+import { ExitInterview } from './exit-interview'
 import { DepartureNotice, NoticeDecision } from './notice'
 import { TaskRow } from './task-row'
 
@@ -280,7 +282,15 @@ function JourneyDetail({ journey, onChanged }: { journey: Journey; onChanged: ()
         <DepartureNotice departure={journey.departure} />
         {!cancelled && <NoticeDecision key={`${journey.departure.notice_status}-${journey.departure.notice_start}`} departure={journey.departure} onChanged={onChanged} />}
       </div>}
+      {/* Le solde de congé au dernier jour (2026-11-25, art. 251) : RH seulement (le serveur répond 404 aux autres). */}
+      {/* (2026-11-25) la procédure complète : l'original de la lettre, les documents de sortie, puis ce que la paie
+          et la CNSS doivent savoir (RH seulement). */}
+      {journey.departure && <ExitSteps departure={journey.departure} cancelled={cancelled} onChanged={onChanged} />}
+      {journey.departure && !cancelled && <DeparturePayroll departureId={journey.departure.id} version={`${journey.departure.notice_status}-${done}`} />}
     </div>
+
+    {/* L'entretien de sortie : confidentiel (les RH et le collaborateur ; le manager ne le voit pas). */}
+    {journey.departure?.can_see_exit_interview && !cancelled && <ExitInterview departureId={journey.departure.id} forHr />}
 
     <section className="overflow-hidden rounded-xl border border-slate-200/80 bg-white">
       <h3 className="border-b border-slate-100 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-slate-500">Tasks</h3>
@@ -310,6 +320,55 @@ function JourneyDetail({ journey, onChanged }: { journey: Journey; onChanged: ()
       : <button type="button" onClick={() => setCancelling(true)} className="flex items-center gap-1 self-start text-xs font-semibold text-red-600 hover:underline">
           <X className="size-3.5" /> Cancel this {journey.kind === 'ARRIVAL' ? 'arrival' : 'departure'}
         </button>)}
+  </div>
+}
+
+/** Les étapes légales d'un départ (2026-11-25) : l'ORIGINAL de la lettre de démission (écrite, signée, légalisée :
+ *  art. 34), que les RH notent à sa réception ; les documents de sortie demandés tout seuls à la validation
+ *  (certificat de travail en 8 jours, art. 72 ; reçu pour solde de tout compte, art. 73), suivis dans Document requests. */
+function ExitSteps({ departure, cancelled, onChanged }: { departure: Departure; cancelled: boolean; onChanged: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const hr = departure.can_decide_notice  // les RH du pôle (le même droit)
+  const resignation = departure.departure_type === 'RESIGNATION'
+  if (!resignation && !departure.exit_request && !departure.serious_misconduct) return null
+
+  async function toggle(received: boolean) {
+    setBusy(true)
+    setError('')
+    const response = await apiFetch(`/api/journeys/departures/${departure.id}/letter-original/`, {
+      method: 'POST', body: JSON.stringify({ received }),
+    }).catch(() => null)
+    setBusy(false)
+    if (response?.ok) onChanged(); else setError(response ? await errorOf(response) : 'The server does not answer. Try again.')
+  }
+
+  return <div className="mt-3 flex flex-col gap-2 border-t border-slate-100 pt-3 text-xs">
+    {departure.serious_misconduct && <p className="rounded-md bg-red-50 px-2.5 py-1.5 font-medium text-red-800">Dismissal for serious misconduct: no notice and no dismissal indemnity (art. 39).</p>}
+    {resignation && <div>
+      <p className="font-semibold text-slate-700">Original resignation letter</p>
+      <p className="text-[11px] text-slate-500">Written, signed by the employee, with the signature legalized (Code du travail, art. 34). Keep the paper original.</p>
+      {hr && !cancelled
+        ? <label className="mt-1 inline-flex cursor-pointer items-center gap-2 text-slate-700">
+            <input type="checkbox" checked={Boolean(departure.letter_original_at)} disabled={busy} onChange={(e) => void toggle(e.target.checked)}
+              className="size-4 accent-[#23355d]" />
+            {departure.letter_original_at
+              ? <>Received on {frDate(departure.letter_original_at.slice(0, 10))}{departure.letter_original_by_name ? ` by ${departure.letter_original_by_name}` : ''}</>
+              : <>Received by HR</>}
+            {busy && <Loader2 className="size-3.5 animate-spin" />}
+          </label>
+        : <p className={cn('mt-1 font-medium', departure.letter_original_at ? 'text-emerald-700' : 'text-amber-800')}>
+            {departure.letter_original_at ? `Received on ${frDate(departure.letter_original_at.slice(0, 10))}` : 'Not received yet'}
+          </p>}
+      {hr && !departure.letter_original_at && !cancelled && <p className="mt-0.5 text-[11px] text-amber-800">Waiting for the paper original.</p>}
+      {error && <p role="alert" className="text-[11px] font-medium text-red-600">{error}</p>}
+    </div>}
+    {departure.exit_request && <div>
+      <p className="font-semibold text-slate-700">Exit documents</p>
+      <p className="text-slate-600">Work certificate (within 8 days after the last day, art. 72) and the final pay receipt (“reçu pour solde de tout compte”, made by payroll, art. 73) were requested automatically.
+        {' '}<Link href={`/requests/${departure.exit_request}?from=onboarding`} className="font-semibold text-[#23355d] underline underline-offset-2">See them</Link>
+        {' '}· prepare them in <Link href="/document-requests" className="font-semibold text-[#23355d] underline underline-offset-2">Document requests</Link>.</p>
+    </div>}
   </div>
 }
 
