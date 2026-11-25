@@ -274,8 +274,14 @@ class DepartureTests(JourneyTestCase):
         self.assertEqual(len(client.get(reverse("journeys:departure-list")).json()), 1)  # en attente des RH
         letter_url = reverse("journeys:departure-letter", args=[data["id"]])
         self.assertEqual(client.get(letter_url).status_code, 200)
-        client.force_authenticate(self.karim.user)  # N+2 : ni son manager direct, ni RH
+        # La carte de Team approvals : le départ lu par le n° de la demande (RH du pôle : oui).
+        card_url = reverse("journeys:departure-by-request", args=[data["request"]])
+        client.force_authenticate(self.nadia.user)
+        card = client.get(card_url).json()
+        self.assertEqual((card["type_label"], card["has_letter"]), ("Démission", True))
+        client.force_authenticate(self.karim.user)  # N+2 : ni son manager direct, ni RH, ni dans le circuit
         self.assertEqual(client.get(letter_url).status_code, 404)
+        self.assertEqual(client.get(card_url).status_code, 404)
         # Validé : Youssef voit le départ de Sara, mais ne coche que SES tâches.
         self.approve_all(Departure.objects.get())
         client.force_authenticate(self.youssef.user)

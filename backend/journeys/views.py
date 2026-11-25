@@ -167,11 +167,25 @@ class DepartureViewSet(mixins.CreateModelMixin, viewsets.ReadOnlyModelViewSet):
             "me": me.pk if me else None,
         })
 
+    @action(detail=False, url_path=r"request/(?P<request_id>\d+)")
+    def by_request(self, request, request_id=None):
+        """Le départ d'une demande (Team approvals : la carte "Departure" montre le type, le dernier jour, la lettre...
+        avant de valider). Mêmes droits que l'historique de la demande ; les autres : 404."""
+        departure = get_object_or_404(Departure.objects.select_related(
+            "request__initiated_by", "employee__position", "employee__department__direction__entity__pole"
+        ).prefetch_related("informed"), request_id=request_id)
+        if not services.can_see_departure(request.user, departure):
+            raise NotFound()
+        return Response(self.get_serializer(departure).data)
+
     @action(detail=True)
     def letter(self, request, pk=None):
-        departure = get_object_or_404(self.get_queryset(), pk=pk)
+        # Lu par l'id (pas get_queryset) : un valideur du circuit ou un délégué n'est pas dans la liste, mais il voit
+        # la lettre de la demande qu'il doit traiter (can_see_departure).
+        departure = get_object_or_404(Departure.objects.select_related("employee", "request"), pk=pk)
         if not departure.letter or not services.can_see_departure(request.user, departure):
             raise NotFound()
+        # Ouverte dans le navigateur (View) ; le bouton "Download" l'enregistre (côté page).
         return FileResponse(departure.letter.open("rb"), filename=departure.letter_name or "lettre.pdf")
 
 

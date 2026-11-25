@@ -348,9 +348,14 @@ def open_departure(departure, user):
 
 
 def can_see_departure(user, departure):
-    """La demande de départ (et sa lettre) : les RH du pôle, le manager, celui qui l'a saisie, la personne elle-même."""
-    return (user.is_superuser or is_hr_of(user, departure.employee) or is_manager_of(user, departure.employee)
-            or departure.employee.user_id == user.pk or departure.request.initiated_by_id == user.pk)
+    """La demande de départ (et sa lettre) : les RH du pôle, le manager, celui qui l'a saisie, la personne elle-même,
+    + (2026-11-25) tous ceux qui lisent l'historique de la demande : un valideur du circuit (ex. le N+2 si Admin RH
+    l'ajoute), le délégué d'un valideur absent. Jamais les autres (la lettre est un document personnel)."""
+    if (user.is_superuser or is_hr_of(user, departure.employee) or is_manager_of(user, departure.employee)
+            or departure.employee.user_id == user.pk or departure.request.initiated_by_id == user.pk):
+        return True
+    from workflows import engine  # importé ici : le moteur importe déjà les modules (handlers)
+    return engine.requests_visible_to(user).filter(pk=departure.request_id).exists()
 
 
 def close_departures(today=None):
