@@ -21,6 +21,12 @@ import { frDate, NOTICE_STATUS, type NoticeStatus, type Payroll } from '@/lib/jo
 
 const hours = (value: string) => `${Number(value).toLocaleString('fr-FR', { maximumFractionDigits: 2 })} h`
 
+// 42 jours calendaires -> "1 month and 11 days" : la paie compte un salaire au mois (2026-11-26).
+function monthsAndDays({ months, days }: { months: number; days: number }) {
+  const parts = [months ? `${months} month${months > 1 ? 's' : ''}` : '', days ? `${days} day${days > 1 ? 's' : ''}` : '']
+  return parts.filter(Boolean).join(' and ')
+}
+
 export function DeparturePayroll({ departureId, version }: { departureId: number; version: string }) {
   const [data, setData] = useState<Payroll | null>(null)
   const [copied, setCopied] = useState(false)
@@ -42,7 +48,9 @@ export function DeparturePayroll({ departureId, version }: { departureId: number
       `Départ : ${cnss.name} (${cnss.u_number ?? '—'}) · CIN ${cnss.cin} · CNSS ${cnss.cnss_number || '—'}`,
       `Motif : ${cnss.reason} · Embauche : ${frDate(cnss.hire_date)} · Dernier jour : ${frDate(cnss.last_day)}`,
       `Congés à payer au dernier jour : ${leave.available} jour(s)`,
-      `Préavis : ${notice.status_label || 'à décider'}${notice.days_to_deduct ? ` · ${notice.days_to_deduct} jour(s) à retenir` : ''}`,
+      `Préavis : ${notice.status_label || 'à décider'}${notice.days_to_deduct
+        ? ` · ${notice.days_to_deduct} jour(s) calendaire(s) à retenir${notice.to_deduct ? ` (${notice.to_deduct.months} mois et ${notice.to_deduct.days} jour(s))` : ''}`
+        : ''}`,
       `Indemnité de licenciement : ${indemnity.applies ? `${indemnity.hours} heures de salaire (${indemnity.years} ans d'ancienneté)` : 'aucune'}`,
     ]
     try { await navigator.clipboard.writeText(lines.join('\n')); setCopied(true); setTimeout(() => setCopied(false), 2500) } catch { /* pas de presse-papiers */ }
@@ -144,7 +152,7 @@ function PayrollFacts({ data, preview = false }: { data: Payroll; preview?: bool
       <p className="text-slate-600">{notice.status
         ? (notice.serious && notice.status === 'NONE' ? 'No notice: serious misconduct (art. 39)' : NOTICE_STATUS[notice.status as NoticeStatus])
         : preview ? 'The last day is before the end of the notice: you decide in the departure panel (respected, waived or not respected).' : 'To decide (see above)'}
-        {notice.days_to_deduct > 0 && <span className="font-semibold text-amber-800"> · {formatDays(notice.days_to_deduct)} to deduct from the last pay (art. 51)</span>}
+        {notice.days_to_deduct > 0 && <span className="font-semibold text-amber-800"> · {notice.days_to_deduct} calendar day{notice.days_to_deduct > 1 ? 's' : ''} to deduct{notice.to_deduct ? ` (${monthsAndDays(notice.to_deduct)})` : ''} · art. 51</span>}
         {notice.days_to_deduct === 0 && notice.status && notice.status !== 'NOT_RESPECTED' && ' · nothing to deduct'}
       </p>
     </div>

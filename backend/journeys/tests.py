@@ -1,5 +1,5 @@
 """Tests des arrivées et départs : le modèle copié, qui fait quoi, "Fait", la cloche, les droits, l'API."""
-from datetime import timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 
 import shutil
@@ -444,6 +444,8 @@ class ExitProcedureTests(JourneyTestCase):
         notice.decide(departure, self.nadia.user, "NOT_RESPECTED")
         self.assertEqual(exit_summary.notice_days_to_deduct(departure), departure.notice_short_days)
         self.assertGreater(departure.notice_short_days, 0)
+        # La même durée en mois + jours pour la paie : 15/12 -> 26/01 = 1 mois et 11 jours (42 jours calendaires).
+        self.assertEqual(exit_summary.months_and_days(date(2026, 12, 15), date(2027, 1, 26)), {"months": 1, "days": 11})
 
     def test_approval_asks_the_exit_documents_and_invites_to_the_exit_interview(self):
         from documents.models import DocumentRequest

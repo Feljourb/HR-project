@@ -13,6 +13,7 @@ from leaves.balance import balance
 from leaves.models import LeaveRequest
 
 from .models import DepartureType, JourneySettings, NoticeStatus
+from .notice import add_months
 
 
 def months_between(start, end):
@@ -54,6 +55,15 @@ def notice_days_to_deduct(departure):
     return departure.notice_short_days if departure.notice_status == NoticeStatus.NOT_RESPECTED else 0
 
 
+def months_and_days(start, end):
+    """La même durée en MOIS + JOURS (2026-11-26) : la paie compte un salaire au MOIS, donc "42 jours" se lit mieux
+    "1 mois et 11 jours" (15/12 -> 26/01). Retenue = salaire x 1 + salaire x 11 / 30."""
+    months = 0
+    while add_months(start, months + 1) <= end:
+        months += 1
+    return {"months": months, "days": (end - add_months(start, months)).days}
+
+
 def cnss_data(departure):
     """Ce qu'il faut pour déclarer la sortie à la CNSS (Damancom) : les RH copient, déclarent, puis cochent la tâche."""
     employee = departure.employee
@@ -69,7 +79,10 @@ def payroll(departure):
         "notice": {"status": departure.notice_status, "status_label": departure.get_notice_status_display(),
                    "short_days": departure.notice_short_days, "days_to_deduct": notice_days_to_deduct(departure),
                    # faute grave : la page dit POURQUOI il n'y a pas de préavis (art. 39), pas "pas de préavis pour ce type"
-                   "serious": departure.departure_type == DepartureType.DISMISSAL and departure.serious_misconduct},
+                   "serious": departure.departure_type == DepartureType.DISMISSAL and departure.serious_misconduct,
+                   # les jours à retenir sont des jours CALENDAIRES : aussi en mois + jours pour la paie
+                   "to_deduct": (months_and_days(departure.last_day, departure.notice_until)
+                                 if notice_days_to_deduct(departure) else None)},
         "indemnity": dismissal_indemnity(departure),
         "cnss": cnss_data(departure),
     }
