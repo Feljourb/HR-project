@@ -15,6 +15,7 @@ import { DatePicker } from '@/components/ui/date-picker'
 import { PersonPicker, type Person } from '@/components/requests/out-of-office'
 import { errorOf, type Departure, type DepartureOptions, type NoticePreview } from '@/lib/journeys'
 import { NoticeFacts } from './notice'
+import { PayrollPreview } from './departure-payroll'
 
 const MAX_LETTER = 5 * 1024 * 1024
 const LETTER_TYPES = ['.pdf', '.jpg', '.jpeg', '.png']
@@ -127,6 +128,10 @@ export function DepartureForm({ options, self, onDone }: {
           : <NoticeFacts amount={null} unit="" group="" years={null} until={null} lastDay={lastDay} />}
       </div>}
     </div>
+
+    {/* Les RH : l'aperçu de paie AVANT d'enregistrer (congés à payer, préavis, indemnité), fermé par défaut. */}
+    {options.is_hr && !self && who && type && lastDay
+      && <PayrollPreview employee={who} type={type} lastDay={lastDay} serious={type === 'DISMISSAL' && serious} />}
 
     {/* La lettre (démission...) : optionnelle, comme une pièce jointe de NOOR. */}
     <div>

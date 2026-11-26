@@ -503,6 +503,22 @@ class ExitProcedureTests(JourneyTestCase):
         self.assertEqual(set(data), {"leave", "notice", "indemnity", "cnss"})
         self.assertEqual(data["cnss"]["cin"], self.sara.cin)
 
+    def test_payroll_preview_before_recording(self):
+        """Le formulaire des RH : l'aperçu de paie AVANT d'enregistrer, rien n'est sauvé ; le manager : 404."""
+        from .models import Departure
+
+        url = reverse("journeys:departure-payroll-preview")
+        query = {"employee": self.sara.pk, "type": DepartureType.DISMISSAL, "last_day": self.last_day.isoformat()}
+        client = APIClient()
+        client.force_authenticate(self.nadia.user)
+        data = client.get(url, query).json()
+        months = exit_summary.months_between(self.sara.hire_date, self.last_day)
+        self.assertEqual(Decimal(data["indemnity"]["hours"]), (Decimal(months) / 12 * 96).quantize(Decimal("0.01")))
+        self.assertFalse(client.get(url, {**query, "serious": "1"}).json()["indemnity"]["applies"])  # faute grave
+        self.assertFalse(Departure.objects.exists())  # rien n'est enregistré
+        client.force_authenticate(self.youssef.user)
+        self.assertEqual(client.get(url, query).status_code, 404)  # des éléments de paie : RH seulement
+
 
 class ApiTests(JourneyTestCase):
     def setUp(self):

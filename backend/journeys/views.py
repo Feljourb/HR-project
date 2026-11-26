@@ -222,6 +222,25 @@ class DepartureViewSet(mixins.CreateModelMixin, viewsets.ReadOnlyModelViewSet):
             raise NotFound()
         return Response(exit_summary.payroll(departure))
 
+    @action(detail=False, url_path="payroll-preview")
+    def payroll_preview(self, request):
+        """L'aperçu "For payroll" AVANT d'enregistrer un départ (2026-11-26, standard "impact preview" de Workday / SAP) :
+        ?employee=&type=&last_day=AAAA-MM-JJ&serious=1. Le même calcul que le panneau, sur un départ PAS enregistré
+        (rien n'est sauvé). Ex. un jour de plus peut faire passer l'indemnité de 184 h à 192 h : les RH le voient avant.
+        Seulement les RH de son pôle, et seulement si Admin RH n'a pas éteint le bloc "payroll" ; sinon 404."""
+        employee = get_object_or_404(Employee, pk=request.query_params.get("employee") or 0)
+        if not services.is_hr_of(request.user, employee) or not JourneySettings.load().show_payroll:
+            raise NotFound()
+        try:
+            last_day = serializers.DateField().to_internal_value(request.query_params.get("last_day", ""))
+        except serializers.ValidationError:
+            raise NotFound()  # dernier jour pas encore complet dans le formulaire : rien à montrer
+        kind = request.query_params.get("type", "")
+        serious = kind == DepartureType.DISMISSAL and request.query_params.get("serious") == "1"
+        # Un départ "en mémoire" (jamais .save()) : le préavis pris comme si la demande partait aujourd'hui.
+        draft = notice.apply(Departure(employee=employee, departure_type=kind, last_day=last_day, serious_misconduct=serious))
+        return Response(exit_summary.payroll(draft))
+
     @action(detail=True, methods=["post"], url_path="letter-original")
     def letter_original(self, request, pk=None):
         """Les RH : {received: true / false} = l'original papier de la lettre (signée, légalisée, art. 34) est arrivé."""
