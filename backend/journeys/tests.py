@@ -453,6 +453,8 @@ class ExitProcedureTests(JourneyTestCase):
         self.assertEqual(sorted(documents.values_list("doc_type__name", flat=True)),
                          ["Certificat de travail", "Reçu pour solde de tout compte"])
         self.assertEqual(set(documents.values_list("due_date", flat=True)), {self.last_day + timedelta(days=8)})  # art. 72
+        # Sara n'a rien demandé : pas de 🔔 "Demande acceptée" pour ces documents.
+        self.assertFalse(Notification.objects.filter(request=departure.exit_request, kind=N.APPROVED).exists())
         bell = Notification.objects.get(recipient=self.sara.user, kind=N.EXIT_INTERVIEW)
         self.assertIn("entretien de sortie", message(bell))
         # L'entretien : Sara répond (la question obligatoire d'abord) ; le manager ne le voit jamais ; les RH oui.
@@ -467,7 +469,10 @@ class ExitProcedureTests(JourneyTestCase):
         client.force_authenticate(self.youssef.user)
         self.assertEqual(client.get(url).status_code, 404)  # confidentiel
         client.force_authenticate(self.nadia.user)
-        self.assertEqual(client.get(url).json()["answers"], {str(first["id"]): first["choices"][0]})
+        data = client.get(url).json()
+        self.assertEqual((data["answers"], data["can_fill"]), ({str(first["id"]): first["choices"][0]}, False))
+        # Les RH lisent, mais ne changent jamais les réponses données par le collaborateur lui-même.
+        self.assertEqual(client.post(url, {"answers": {str(first["id"]): first["choices"][1]}}, format="json").status_code, 403)
 
     def test_my_departure_link_and_payroll_summary(self):
         client = APIClient()

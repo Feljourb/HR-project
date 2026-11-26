@@ -249,6 +249,7 @@ class DepartureViewSet(mixins.CreateModelMixin, viewsets.ReadOnlyModelViewSet):
             "filled_by_name": name_of(interview.filled_by) if interview and interview.filled_by_id else None,
             "filled_at": interview.filled_at if interview else None,
             "open": open_,
+            "can_fill": open_ and services.can_fill_exit_interview(request.user, departure),  # RH : pas les réponses du collaborateur
         })
 
     @action(detail=False, url_path=r"request/(?P<request_id>\d+)")

@@ -388,6 +388,9 @@ def request_exit_documents(departure, user):
         return None
     due = departure.last_day + timedelta(days=current.exit_document_days)
     DocumentRequest.objects.filter(pk__in=[document.pk for document in created]).update(due_date=due)
+    # (2026-11-26, remarque de l'utilisatrice) le collaborateur n'a rien demandé : pas de 🔔 "Demande acceptée" pour ces
+    # documents (même transaction : elle n'est jamais vue ni envoyée par email). Il sera prévenu quand ils sont prêts.
+    Notification.objects.filter(request=created[0].request, kind=Notification.Kind.APPROVED).delete()
     departure.exit_request = created[0].request
     departure.save(update_fields=["exit_request"])
     return created
@@ -432,6 +435,19 @@ def exit_questions(departure):
             for q in ExitQuestion.objects.filter(is_active=True)]
 
 
+def can_fill_exit_interview(user, departure):
+    """Qui remplit (2026-11-26, remarque de l'utilisatrice : "les RH ne changent pas les réponses du collaborateur") :
+    - le collaborateur : toujours ses propres réponses ;
+    - les RH : seulement si le collaborateur n'a PAS répondu lui-même (ex. un ouvrier qui n'utilise pas l'application :
+      ils remplissent avec lui pendant l'entretien), ou pour corriger ce qu'ils ont eux-mêmes rempli."""
+    if departure.employee.user_id == user.pk:
+        return True
+    if not is_hr_of(user, departure.employee):
+        return False
+    interview = getattr(departure, "exit_interview", None)
+    return interview is None or interview.filled_by_id != departure.employee.user_id
+
+
 def save_exit_interview(departure, user, answers):
     """Enregistre les réponses (le collaborateur, ou les RH avec lui). Une question obligatoire vide -> refusé.
     Une note : 1 à 5 ; un choix : dans la liste ; oui / non : "yes" / "no"."""
@@ -439,6 +455,8 @@ def save_exit_interview(departure, user, answers):
 
     if not can_see_exit_interview(user, departure):
         raise PermissionDenied("L'entretien de sortie est confidentiel.")
+    if not can_fill_exit_interview(user, departure):
+        raise PermissionDenied("Le collaborateur a répondu lui-même : ses réponses ne se modifient pas.")
     if departure.request.status != "APPROVED" or (departure.journey and departure.journey.cancelled_at):
         raise ValidationError("L'entretien de sortie s'ouvre quand le départ est validé.")
     questions = exit_questions(departure)

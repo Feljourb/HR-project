@@ -13,7 +13,8 @@ import { apiFetch } from '@/lib/api'
 import { errorOf, frDate, type Question } from '@/lib/journeys'
 import { Questionnaire } from '@/components/ui/questionnaire'
 
-type Data = { questions: Question[]; answers: Record<string, string>; filled_by_name: string | null; filled_at: string | null; open: boolean }
+// can_fill (2026-11-26) : les RH ne changent jamais les réponses données par le collaborateur lui-même.
+type Data = { questions: Question[]; answers: Record<string, string>; filled_by_name: string | null; filled_at: string | null; open: boolean; can_fill: boolean }
 
 export function ExitInterview({ departureId, forHr = false }: { departureId: number; forHr?: boolean }) {
   const [data, setData] = useState<Data | null>(null)
@@ -32,7 +33,7 @@ export function ExitInterview({ departureId, forHr = false }: { departureId: num
 
   if (!data || data.questions.length === 0) return null
   const done = Boolean(data.filled_at)
-  const showForm = data.open && (!done || editing)
+  const showForm = data.can_fill && (!done || editing)
 
   async function save() {
     setBusy(true)
@@ -55,7 +56,7 @@ export function ExitInterview({ departureId, forHr = false }: { departureId: num
           {forHr ? 'Confidential: only HR and the employee see the answers (never the manager).'
             : 'Confidential: only HR read your answers (never your manager). It helps the company improve.'}</p>
       </div>
-      {done && !editing && data.open && <button type="button" onClick={() => setEditing(true)} className="text-xs font-semibold text-[#23355d] hover:underline">Change the answers</button>}
+      {done && !editing && data.can_fill && <button type="button" onClick={() => setEditing(true)} className="text-xs font-semibold text-[#23355d] hover:underline">Change the answers</button>}
     </div>
 
     {done && !editing && <p className="mt-2 text-[11px] text-emerald-700">✓ Answered{data.filled_by_name ? ` by ${data.filled_by_name}` : ''}{data.filled_at ? ` on ${frDate(data.filled_at.slice(0, 10))}` : ''}.</p>}
