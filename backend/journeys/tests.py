@@ -138,6 +138,24 @@ class TaskTests(JourneyTestCase):
         services.start(self.sara, Kind.ARRIVAL, self.nadia.user)
         self.assertEqual(Journey.objects.filter(employee=self.sara).count(), 2)
 
+    def test_cancel_tells_who_had_tasks_and_a_restart_rings_again(self):
+        # (2026-11-26) Youssef a LU sa "Tâches à faire" ; l'arrivée est annulée puis recommencée le même jour.
+        Notification.objects.filter(recipient=self.youssef.user).update(read_at=timezone.now())
+        services.complete(self.desk, self.youssef.user)
+        services.cancel(self.journey, self.nadia.user, "Pas venu")
+        cancelled = Notification.objects.filter(kind=N.JOURNEY_CANCELLED)
+        # Ceux qui avaient encore une tâche (Youssef aussi : "Point de fin du premier mois"), jamais celle qui annule.
+        self.assertEqual(set(cancelled.values_list("recipient__username", flat=True)), {"youssef.n1", "sara.collab", "hind.rh"})
+        self.assertIn("est annulée : vous n'avez plus rien à faire. Motif : Pas venu",
+                      message(cancelled.get(recipient=self.youssef.user)))
+        self.assertFalse(Notification.objects.filter(kind=N.JOURNEY_TASKS).exists())
+        # Recommencée : une NOUVELLE "Tâches à faire" (non lue) qui parle de la nouvelle arrivée, pas de l'annulée.
+        services.start(self.sara, Kind.ARRIVAL, self.nadia.user)
+        note = Notification.objects.get(kind=N.JOURNEY_TASKS, recipient=self.youssef.user)
+        self.assertIsNone(note.read_at)
+        self.assertIn("vous avez 2 tâche(s) à faire", message(note))
+        self.assertFalse(Notification.objects.filter(kind=N.JOURNEY_CANCELLED, read_at__isnull=True).exists())
+
     def test_a_late_task_rings_the_bell_until_it_is_done(self):
         Journey.objects.filter(pk=self.journey.pk).update(day=self.today - timedelta(days=3))
         self.journey.tasks.update(due_date=self.today - timedelta(days=2))
@@ -504,6 +522,17 @@ class ExitProcedureTests(JourneyTestCase):
         data = client.get(reverse("journeys:departure-payroll", args=[departure.pk])).json()
         self.assertEqual(set(data), {"leave", "notice", "indemnity", "cnss"})
         self.assertEqual(data["cnss"]["cin"], self.sara.cin)
+
+    def test_the_employee_is_not_told_demande_acceptee_for_a_departure_entered_by_hr(self):
+        """Saisi par les RH : pas de "Demande acceptée" (il n'a rien demandé) ; démission -> "Départ enregistré" ;
+        licenciement -> rien (art. 63 : la lettre, en personne)."""
+        resignation = services.request_departure(self.sara, self.nadia.user, DepartureType.RESIGNATION, self.last_day)
+        mine = Notification.objects.filter(recipient=self.sara.user, request=resignation.request)
+        self.assertEqual(list(mine.values_list("kind", flat=True)), [N.DEPARTURE_RECORDED])
+        self.assertIn("Votre départ est enregistré (Démission)", message(mine.get()))
+        services.cancel(resignation.journey, self.nadia.user, "Test")
+        dismissal = services.request_departure(self.sara, self.nadia.user, DepartureType.DISMISSAL, self.last_day)
+        self.assertFalse(Notification.objects.filter(recipient=self.sara.user, request=dismissal.request).exists())
 
     def test_payroll_preview_before_recording(self):
         """Le formulaire des RH : l'aperçu de paie AVANT d'enregistrer, rien n'est sauvé ; le manager : 404."""

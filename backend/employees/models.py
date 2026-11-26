@@ -694,6 +694,13 @@ class Notification(models.Model):
         LEAVE_PAST_LAST_DAY = "LEAVE_PAST_LAST_DAY", "Congé après le dernier jour"
         # Le départ est validé : le collaborateur est invité à l'entretien de sortie (questionnaire, 2026-11-25).
         EXIT_INTERVIEW = "EXIT_INTERVIEW", "Entretien de sortie"
+        # (2026-11-26) Un départ SAISI par son manager ou les RH (démission, retraite, fin de contrat...) : au lieu de
+        # "Demande acceptée" (il n'a rien demandé dans l'application), un message neutre. Licenciement : rien (art. 63 :
+        # la décision est remise par lettre, les RH l'annoncent en personne). `request` = le départ, `due_date` = dernier jour.
+        DEPARTURE_RECORDED = "DEPARTURE_RECORDED", "Départ enregistré"
+        # (2026-11-26) Une arrivée / un départ ANNULÉ par les RH : ceux qui avaient encore des tâches le savent (ex. l'IT
+        # arrête de préparer le PC). Remplace leurs "Tâches à faire". `due_date` = le premier / dernier jour.
+        JOURNEY_CANCELLED = "JOURNEY_CANCELLED", "Parcours annulé"
 
     recipient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notifications",
                                   verbose_name="Destinataire")

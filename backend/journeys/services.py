@@ -6,7 +6,7 @@ from datetime import timedelta
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import F, Q
 from django.utils import timezone
 
 from employees import history
@@ -95,10 +95,12 @@ def who_does(owner, person, employee):
     return Owner.HR, None
 
 
-def recipients(journey):
-    """Les comptes qui ont au moins une tâche dans ce parcours (pour la cloche)."""
-    users = {task.person.user_id for task in journey.tasks.select_related("person") if task.person_id and task.person.user_id}
-    if journey.tasks.filter(owner=Owner.HR).exists():
+def recipients(journey, open_only=False):
+    """Les comptes qui ont au moins une tâche dans ce parcours (pour la cloche).
+    open_only : seulement ceux qui ont encore une tâche PAS faite (ex. prévenir d'une annulation)."""
+    tasks = journey.tasks.filter(done_at__isnull=True) if open_only else journey.tasks.all()
+    users = {task.person.user_id for task in tasks.select_related("person") if task.person_id and task.person.user_id}
+    if tasks.filter(owner=Owner.HR).exists():
         users |= set(hr_people(journey.employee).values_list("pk", flat=True))
     return users
 
@@ -106,6 +108,9 @@ def recipients(journey):
 def notify(journey):
     """🔔 + email "Tâches à faire" à chaque personne qui a une tâche (une seule notification par personne et par
     parcours : le texte compte SES tâches)."""
+    # Recommencé après une annulation (même jour) : "Parcours annulé" n'est plus vrai, une NOUVELLE "Tâches à faire" part.
+    Notification.objects.filter(employee=journey.employee, due_date=journey.day,
+                                kind=Notification.Kind.JOURNEY_CANCELLED, read_at__isnull=True).delete()
     Notification.objects.bulk_create(
         [Notification(recipient_id=user_id, employee=journey.employee, kind=Notification.Kind.JOURNEY_TASKS, due_date=journey.day)
          for user_id in recipients(journey)],
@@ -243,9 +248,17 @@ def cancel(journey, user, reason):
         employee.departure_date = None
         employee.save()
         history.record_changes(employee, user, before)
-    # Les "tâches à faire" pas encore lues ne servent plus.
-    Notification.objects.filter(employee=journey.employee, due_date=journey.day, read_at__isnull=True,
-                                kind__in=[Notification.Kind.JOURNEY_TASKS, Notification.Kind.TASK_LATE]).delete()
+    # (2026-11-26, trouvé par l'utilisatrice) Ceux qui avaient encore une tâche reçoivent 🔔 + email "Parcours annulé"
+    # (ex. l'IT arrête de préparer le PC), sauf celui qui annule. Leurs "Tâches à faire" / "En retard" (lues ou pas)
+    # sont remplacées : un recommencement le même jour enverra une NOUVELLE "Tâches à faire" (sinon bloquée par l'ancienne).
+    told = recipients(journey, open_only=True) - {user.pk}
+    Notification.objects.filter(employee=journey.employee, due_date=journey.day,
+                                kind__in=[Notification.Kind.JOURNEY_TASKS, Notification.Kind.TASK_LATE,
+                                          Notification.Kind.JOURNEY_DONE, Notification.Kind.JOURNEY_CANCELLED]).delete()
+    Notification.objects.bulk_create(
+        [Notification(recipient_id=user_id, employee=journey.employee, kind=Notification.Kind.JOURNEY_CANCELLED,
+                      due_date=journey.day) for user_id in told],
+    )
     return journey
 
 
@@ -358,6 +371,7 @@ def open_departure(departure, user):
     history.record_changes(employee, user, before)
     departure.journey = create_journey(employee, Kind.DEPARTURE, departure.last_day, user)
     departure.save(update_fields=["journey"])
+    tell_employee_recorded(departure)
     cancel_leaves_after(departure, user)
     request_exit_documents(departure, user)
     invite_exit_interview(departure)
@@ -365,6 +379,23 @@ def open_departure(departure, user):
     if people:
         notify.send(people, notify.Kind.INFORMED, departure.request)
     return departure.journey
+
+
+def tell_employee_recorded(departure):
+    """(2026-11-26, remarque de l'utilisatrice) Un départ SAISI par quelqu'un d'autre (son manager, les RH) : le moteur
+    a envoyé "Demande acceptée" au collaborateur, mais il n'a rien demandé dans l'application. On la retire (même
+    transaction : jamais vue, jamais envoyée par email) et, à la place :
+    - licenciement : RIEN (art. 63 : la décision est remise par lettre, en main propre ; les RH l'annoncent en personne,
+      l'application ne les devance pas) ;
+    - les autres (démission, retraite, fin de contrat...) : 🔔 neutre "Départ enregistré".
+    Son propre départ (My departure) : "Demande acceptée" reste, c'est bien sa demande."""
+    employee, request = departure.employee, departure.request
+    if not request.initiated_by_id or request.initiated_by_id == employee.user_id or employee.user_id is None:
+        return
+    Notification.objects.filter(request=request, recipient=employee.user, kind=Notification.Kind.APPROVED).delete()
+    if departure.departure_type != DepartureType.DISMISSAL and employee.user.is_active:
+        Notification.objects.get_or_create(recipient=employee.user, employee=employee, request=request,
+                                           kind=Notification.Kind.DEPARTURE_RECORDED, due_date=departure.last_day)
 
 
 def request_exit_documents(departure, user):
@@ -566,6 +597,11 @@ def close_departures(today=None):
 
 
 def journey_of(notification):
-    """Le parcours dont parle une notification (même collaborateur, même jour)."""
-    return (Journey.objects.filter(employee=notification.employee, day=notification.due_date)
-            .order_by("cancelled_at", "-id").first())
+    """Le parcours dont parle une notification (même collaborateur, même jour).
+    Annulé puis recommencé le même jour = deux parcours : "Parcours annulé" parle du dernier ANNULÉ, les autres
+    notifications du parcours EN COURS d'abord (2026-11-26 : PostgreSQL met les vides EN DERNIER par défaut, la
+    cloche parlait de l'arrivée annulée au lieu de la nouvelle)."""
+    journeys = Journey.objects.filter(employee=notification.employee, day=notification.due_date)
+    if notification.kind == Notification.Kind.JOURNEY_CANCELLED:
+        return journeys.filter(cancelled_at__isnull=False).order_by("-cancelled_at").first()
+    return journeys.order_by(F("cancelled_at").asc(nulls_first=True), "-id").first()

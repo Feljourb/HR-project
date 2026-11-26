@@ -152,9 +152,9 @@ def link(notification):
     # Arrivées et départs (2026-11-23) : mes tâches -> "My tasks" ; tout est prêt (les RH) -> "Arrivals & departures".
     if notification.kind == Kind.LEAVE_PAST_LAST_DAY:
         return "/leaves"  # ma page Congés : "Cancel" sur ce congé, puis un nouveau plus court
-    if notification.kind == Kind.EXIT_INTERVIEW:
-        return "/my-departure"  # le questionnaire de l'entretien de sortie
-    if notification.kind in (Kind.JOURNEY_TASKS, Kind.TASK_LATE):
+    if notification.kind in (Kind.EXIT_INTERVIEW, Kind.DEPARTURE_RECORDED):
+        return "/my-departure"  # mon départ : où il en est, le questionnaire de l'entretien de sortie
+    if notification.kind in (Kind.JOURNEY_TASKS, Kind.TASK_LATE, Kind.JOURNEY_CANCELLED):
         return "/my-tasks"
     if notification.kind == Kind.JOURNEY_DONE:
         return "/onboarding"
@@ -207,12 +207,18 @@ def message(notification):
     Kind = Notification.Kind
 
     # Arrivées et départs (app journeys) : le texte compte MES tâches aujourd'hui.
-    if notification.kind in (Kind.JOURNEY_TASKS, Kind.TASK_LATE, Kind.JOURNEY_DONE, Kind.ACCOUNT_TO_BLOCK):
+    if notification.kind in (Kind.JOURNEY_TASKS, Kind.TASK_LATE, Kind.JOURNEY_DONE, Kind.ACCOUNT_TO_BLOCK,
+                             Kind.JOURNEY_CANCELLED):
         from journeys.handlers import journey_message  # importé ici : journeys importe déjà employees
         return journey_message(notification, name)
     if notification.kind == Kind.EXIT_INTERVIEW:
         return (f"Votre départ est validé (dernier jour le {notification.due_date:%d/%m/%Y}). Avant de partir, donnez "
                 "votre avis : l'entretien de sortie prend 5 minutes, et seuls les RH le lisent.")
+    if notification.kind == Kind.DEPARTURE_RECORDED:
+        departure = getattr(notification.request, "departure", None) if notification.request_id else None
+        what = f" ({departure.get_departure_type_display()})" if departure else ""
+        return (f"Votre départ est enregistré{what} : dernier jour le {notification.due_date:%d/%m/%Y}. "
+                "Les RH vous contactent pour la suite.")
     # Mon congé dépasse mon dernier jour (départ validé, 2026-11-25) : à moi de décider. Calculé à l'affichage :
     # s'il est déjà annulé, on le dit.
     if notification.kind == Kind.LEAVE_PAST_LAST_DAY:

@@ -39,6 +39,12 @@ def journey_message(notification, name):
                 f"pour bloquer son compte.")
     if notification.kind == Notification.Kind.JOURNEY_DONE:
         return f"{label} : toutes les tâches sont faites."
+    if notification.kind == Notification.Kind.JOURNEY_CANCELLED:
+        # Ex. "L'arrivée de Test Arivee (14/12/2026) est annulée : vous n'avez plus rien à faire. Motif : ..."
+        what = "L'arrivée" if arrival else "Le départ"
+        reason = f" Motif : {journey.cancel_reason}" if journey and journey.cancel_reason else ""
+        return (f"{what} de {name} ({notification.due_date:%d/%m/%Y}) est {'annulée' if arrival else 'annulé'} : "
+                f"vous n'avez plus rien à faire.{reason}")
     if journey is None:
         return f"{label}."
     if journey.cancelled_at:

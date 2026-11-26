@@ -28,11 +28,13 @@ from .models import Employee, Notification, NotificationPolicy, NotificationSett
 Kind = Notification.Kind
 # Il faut agir : toujours envoyé (une tâche d'arrivée / de départ aussi : un PC pas prêt le premier jour, 2026-11-23).
 ALWAYS = {Kind.TO_VALIDATE, Kind.DELEGATED, Kind.TRIAL_END, Kind.DELEGATION_ASKED, Kind.JOURNEY_TASKS,
+          Kind.JOURNEY_CANCELLED,  # "arrêtez de préparer" : aussi important que la tâche elle-même
           Kind.ACCOUNT_TO_BLOCK}  # le compte de quelqu'un qui est parti, encore ouvert = un risque : jamais manqué
 RESULTS = {Kind.APPROVED, Kind.REJECTED, Kind.CANCELLED, Kind.RECOUNTED, Kind.EXPIRED,  # mes demandes : "email_results"
            Kind.DOCUMENT_READY, Kind.ORIGINAL_READY, Kind.ORIGINAL_HANDED, Kind.EXPENSE_CORRECTED,
            Kind.DELEGATION_ACCEPTED, Kind.DELEGATION_DECLINED,
-           Kind.LEAVE_PAST_LAST_DAY}  # mon congé dépasse mon dernier jour (2026-11-25) : à moi d'agir
+           Kind.LEAVE_PAST_LAST_DAY,  # mon congé dépasse mon dernier jour (2026-11-25) : à moi d'agir
+           Kind.DEPARTURE_RECORDED}  # mon départ, saisi par mon manager / les RH (à la place de "Demande acceptée")
 # Le reste (pour information, solde corrigé, droit changé, jours perdus le 31/12, rappels, "pas encore validée",
 # "réponse en votre nom" par mon délégué) :
 # "email_info".
