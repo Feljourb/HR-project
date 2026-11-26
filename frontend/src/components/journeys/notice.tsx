@@ -23,13 +23,16 @@ const GROUP: Record<string, string> = { EXECUTIVE: 'Managers (cadres)', OTHER: '
 type Facts = {
   amount: number | null; unit: string; group: string; years: number | null; until: string | null; lastDay: string
   status?: '' | NoticeStatus; statusLabel?: string; decidedBy?: string | null
+  serious?: boolean   // licenciement pour faute grave : le préavis tombe à cause de la faute, pas du type
 }
 
 /** Le préavis en une ou deux lignes : la durée légale, le dernier jour au plus tôt, et si le dernier jour choisi va. */
-export function NoticeFacts({ amount, unit, group, years, until, lastDay, status, decidedBy }: Facts) {
+export function NoticeFacts({ amount, unit, group, years, until, lastDay, status, decidedBy, serious }: Facts) {
   if (!until) {
+    // (2026-11-26) Faute grave : dire POURQUOI il n'y a pas de préavis (un licenciement en a un d'habitude).
     return <p className="flex items-center gap-1.5 text-xs text-slate-500">
-      <Hourglass className="size-3.5 shrink-0 text-slate-400" aria-hidden /> No notice period for this type of departure.
+      <Hourglass className="size-3.5 shrink-0 text-slate-400" aria-hidden />
+      {serious ? 'No notice: serious misconduct (art. 39).' : 'No notice period for this type of departure.'}
     </p>
   }
   const short = lastDay && lastDay < until ? daysBetween(lastDay, until) : 0
@@ -61,7 +64,8 @@ export function NoticeFacts({ amount, unit, group, years, until, lastDay, status
 export function DepartureNotice({ departure }: { departure: Departure }) {
   return <NoticeFacts amount={departure.notice_amount} unit={departure.notice_unit} group={departure.notice_group}
     years={departure.notice_years} until={departure.notice_until} lastDay={departure.last_day}
-    status={departure.notice_status} decidedBy={departure.notice_decided_by_name} />
+    status={departure.notice_status} decidedBy={departure.notice_decided_by_name}
+    serious={departure.departure_type === 'DISMISSAL' && departure.serious_misconduct} />
 }
 
 /** Les RH du pôle : choisir le statut du préavis (et corriger son début). Sert au solde de tout compte (la paie). */

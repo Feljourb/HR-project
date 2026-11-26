@@ -125,7 +125,7 @@ export function DepartureForm({ options, self, onDone }: {
       {preview && <div className="mt-2">
         {preview.applies
           ? <NoticeFacts amount={preview.amount} unit={preview.unit} group={preview.group} years={preview.years} until={preview.until} lastDay={lastDay} />
-          : <NoticeFacts amount={null} unit="" group="" years={null} until={null} lastDay={lastDay} />}
+          : <NoticeFacts amount={null} unit="" group="" years={null} until={null} lastDay={lastDay} serious={seriousFlag === '1'} />}
       </div>}
     </div>
 
