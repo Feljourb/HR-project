@@ -474,6 +474,24 @@ class ExitProcedureTests(JourneyTestCase):
         # Les RH lisent, mais ne changent jamais les réponses données par le collaborateur lui-même.
         self.assertEqual(client.post(url, {"answers": {str(first["id"]): first["choices"][1]}}, format="json").status_code, 403)
 
+    def test_admin_rh_can_switch_features_off(self):
+        from leaves.models import LeaveType
+        from leaves.services import request_leave
+
+        JourneySettings.objects.update_or_create(pk=1, defaults={
+            "auto_cancel_leaves": False, "exit_interview_enabled": False, "show_payroll": False})
+        after = request_leave(self.sara, LeaveType.objects.get(name="Congé annuel"),
+                              self.last_day + timedelta(days=7), self.last_day + timedelta(days=13))
+        departure = services.request_departure(self.sara, self.nadia.user, DepartureType.RESIGNATION, self.last_day)
+        after.request.refresh_from_db()
+        self.assertEqual(after.request.status, "IN_PROGRESS")  # pas annulé...
+        self.assertTrue(Notification.objects.filter(recipient=self.sara.user, kind=N.LEAVE_PAST_LAST_DAY).exists())  # ... prévenue
+        self.assertFalse(Notification.objects.filter(recipient=self.sara.user, kind=N.EXIT_INTERVIEW).exists())
+        client = APIClient()
+        client.force_authenticate(self.nadia.user)
+        self.assertEqual(client.get(reverse("journeys:departure-payroll", args=[departure.pk])).status_code, 404)
+        self.assertEqual(client.get(reverse("journeys:departure-exit-interview", args=[departure.pk])).status_code, 404)
+
     def test_my_departure_link_and_payroll_summary(self):
         client = APIClient()
         client.force_authenticate(self.sara.user)

@@ -402,7 +402,7 @@ def invite_exit_interview(departure):
     from .models import ExitQuestion
 
     user_of = departure.employee.user
-    if user_of is None or not user_of.is_active or not ExitQuestion.objects.filter(is_active=True).exists():
+    if user_of is None or not user_of.is_active or not exit_interview_on() or not ExitQuestion.objects.filter(is_active=True).exists():
         return
     Notification.objects.get_or_create(recipient=user_of, employee=departure.employee,
                                        kind=Notification.Kind.EXIT_INTERVIEW, due_date=departure.last_day)
@@ -419,8 +419,16 @@ def mark_letter_original(departure, user, received):
 
 # --- L'entretien de sortie (confidentiel) -------------------------------------------------------------------------
 
+def exit_interview_on():
+    """L'entretien de sortie est allumé (réglage d'Admin RH, OUI par défaut)."""
+    return JourneySettings.load().exit_interview_enabled
+
+
 def can_see_exit_interview(user, departure):
-    """Le collaborateur lui-même et les RH de son pôle (Admin RH, IT). JAMAIS le manager : il peut être la raison."""
+    """Le collaborateur lui-même et les RH de son pôle (Admin RH, IT). JAMAIS le manager : il peut être la raison.
+    Éteint par Admin RH : plus d'entretien, sauf ceux déjà remplis (la trace reste lisible)."""
+    if not exit_interview_on() and getattr(departure, "exit_interview", None) is None:
+        return False
     return departure.employee.user_id == user.pk or is_hr_of(user, departure.employee)
 
 
@@ -440,6 +448,8 @@ def can_fill_exit_interview(user, departure):
     - le collaborateur : toujours ses propres réponses ;
     - les RH : seulement si le collaborateur n'a PAS répondu lui-même (ex. un ouvrier qui n'utilise pas l'application :
       ils remplissent avec lui pendant l'entretien), ou pour corriger ce qu'ils ont eux-mêmes rempli."""
+    if not exit_interview_on():
+        return False  # éteint par Admin RH : on lit ce qui existe, on ne remplit plus
     if departure.employee.user_id == user.pk:
         return True
     if not is_hr_of(user, departure.employee):
@@ -495,7 +505,10 @@ def cancel_leaves_after(departure, user):
 
     reason = f"Départ de l'entreprise : dernier jour le {departure.last_day:%d/%m/%Y}. Les jours reviennent au solde."
     active = LeaveRequest.objects.filter(employee=departure.employee, request__status__in=LeaveRequest.ACTIVE).select_related("request")
-    for leave in active.filter(start_date__gt=departure.last_day):
+    # Éteint par Admin RH (2026-11-26) : rien n'est annulé ; ces congés sont traités comme ceux à cheval (le collaborateur
+    # est prévenu, les RH voient l'avertissement et décident).
+    auto = JourneySettings.load().auto_cancel_leaves
+    for leave in (active.filter(start_date__gt=departure.last_day) if auto else active.none()):
         # Annulé par L'APPLICATION (user None), pas par la RH qui a validé le départ (2026-11-25, remarque de
         # l'utilisatrice : "c'est l'app qui l'a fait") : la 🔔 dit "annulée automatiquement", le motif dit pourquoi.
         engine.cancel_for(leave.request, None, reason)
@@ -507,7 +520,7 @@ def cancel_leaves_after(departure, user):
         Notification.objects.bulk_create([
             Notification(recipient=user_of, employee=departure.employee, kind=Notification.Kind.LEAVE_PAST_LAST_DAY,
                          request=leave.request, due_date=departure.last_day)
-            for leave in active.filter(start_date__lte=departure.last_day, end_date__gt=departure.last_day)
+            for leave in active.filter(end_date__gt=departure.last_day)  # (annulation automatique : il ne reste que ceux à cheval)
         ], ignore_conflicts=True)
 
 

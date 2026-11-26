@@ -337,6 +337,11 @@ class JourneySettings(models.Model):
     exit_document_types = models.ManyToManyField("documents.DocumentType", blank=True, related_name="+",
                                                  verbose_name="Documents de sortie")
     exit_document_days = models.PositiveSmallIntegerField("Documents de sortie : jours après le dernier jour", default=8)
+    # Les fonctions qu'Admin RH peut éteindre (2026-11-26, règle de l'utilisatrice : "chaque fonction = une case, on ne
+    # supprime rien" ; tout est ALLUMÉ par défaut) :
+    auto_cancel_leaves = models.BooleanField("Annuler tout seul les congés après le dernier jour", default=True)
+    exit_interview_enabled = models.BooleanField("Entretien de sortie", default=True)
+    show_payroll = models.BooleanField("Bloc « Pour la paie et la CNSS »", default=True)
     updated_at = models.DateTimeField("Modifié le", auto_now=True)
     updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
                                    related_name="+", verbose_name="Modifié par")

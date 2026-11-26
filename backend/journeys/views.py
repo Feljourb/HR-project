@@ -217,7 +217,8 @@ class DepartureViewSet(mixins.CreateModelMixin, viewsets.ReadOnlyModelViewSet):
         le dernier jour), les jours de préavis à retenir, l'indemnité de licenciement en heures, les données CNSS.
         Seulement les RH de son pôle (Admin RH, IT) : des éléments de paie. Les autres : 404."""
         departure = get_object_or_404(Departure.objects.select_related("employee", "request"), pk=pk)
-        if not services.is_hr_of(request.user, departure.employee):
+        # Éteint par Admin RH (2026-11-26 : l'entreprise le fait autrement) : le bloc disparaît du panneau.
+        if not services.is_hr_of(request.user, departure.employee) or not JourneySettings.load().show_payroll:
             raise NotFound()
         return Response(exit_summary.payroll(departure))
 

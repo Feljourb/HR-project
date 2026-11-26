@@ -17,7 +17,7 @@ import { Banknote, Copy, Palmtree, ShieldCheck, TriangleAlert } from 'lucide-rea
 import { apiFetch } from '@/lib/api'
 import { formatDays } from '@/lib/leaves'
 import { cn } from '@/lib/utils'
-import { frDate, type Payroll } from '@/lib/journeys'
+import { frDate, NOTICE_STATUS, type NoticeStatus, type Payroll } from '@/lib/journeys'
 
 const hours = (value: string) => `${Number(value).toLocaleString('fr-FR', { maximumFractionDigits: 2 })} h`
 
@@ -90,7 +90,8 @@ export function DeparturePayroll({ departureId, version }: { departureId: number
     {/* 2. Le préavis à retenir */}
     <div className="text-xs">
       <p className="font-semibold text-slate-700">Notice</p>
-      <p className="text-slate-600">{notice.status_label || 'To decide (see above)'}
+      {/* En anglais comme la page (2026-11-26 : "Respecté" en français détonnait) ; le texte copié pour la paie reste en français. */}
+      <p className="text-slate-600">{notice.status ? NOTICE_STATUS[notice.status as NoticeStatus] : 'To decide (see above)'}
         {notice.days_to_deduct > 0 && <span className="font-semibold text-amber-800"> · {formatDays(notice.days_to_deduct)} to deduct from the last pay (art. 51)</span>}
         {notice.days_to_deduct === 0 && notice.status && notice.status !== 'NOT_RESPECTED' && ' · nothing to deduct'}
       </p>

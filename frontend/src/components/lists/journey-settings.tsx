@@ -42,7 +42,20 @@ export function JourneySettings() {
     ]} />
 }
 
-type Rules = { employee_can_request_departure: boolean; auto_block: boolean; letter_required: boolean; updated_at: string; updated_by_name: string | null }
+type Rules = {
+  employee_can_request_departure: boolean; auto_block: boolean; letter_required: boolean
+  auto_cancel_leaves: boolean; exit_interview_enabled: boolean; show_payroll: boolean  // ⑤ les fonctions à éteindre
+  updated_at: string; updated_by_name: string | null
+}
+type Switch = 'employee_can_request_departure' | 'auto_block' | 'letter_required' | 'auto_cancel_leaves' | 'exit_interview_enabled' | 'show_payroll'
+
+// ⑤ (2026-11-26, règle de l'utilisatrice : "chaque fonction = une case, on ne supprime rien") : tout est allumé par
+// défaut ; éteint = la fonction ne fait plus rien, le code reste.
+const FEATURES: [Switch, string, string][] = [
+  ['auto_cancel_leaves', 'Cancel the leaves after the last day automatically', 'Off: nothing is cancelled; the employee is told and HR see a warning in the departure.'],
+  ['exit_interview_enabled', 'Exit interview', 'Off: no invitation (bell, email) and no questionnaire. Interviews already answered stay readable.'],
+  ['show_payroll', '“For payroll & CNSS” in the departure', 'Off: the block is hidden (e.g. the company prepares the final pay another way).'],
+]
 type Choice = [boolean, string, string]
 
 /** Les 2 réglages des départs (une seule place), chacun enregistré au clic :
@@ -60,7 +73,7 @@ function DepartureRules() {
       .catch(() => setError('Could not load these settings: refresh the page.'))
   }, [])
 
-  async function change(field: 'employee_can_request_departure' | 'auto_block' | 'letter_required', on: boolean) {
+  async function change(field: Switch, on: boolean) {
     setError('')
     setSaved(false)
     const response = await apiFetch('/api/journeys/settings/', { method: 'PATCH', body: JSON.stringify({ [field]: on }) }).catch(() => null)
@@ -84,6 +97,17 @@ function DepartureRules() {
         onChange={(on) => void change('letter_required', on)} choices={[
           [true, 'Required: the scanned letter is attached to the request (recommended)', 'The request cannot be sent without it.'],
           [false, 'Optional', 'The request can be sent without the letter; HR collect it later.']]} />
+      <div>
+        <h2 className="text-sm font-semibold text-[#192646]">⑤ Features</h2>
+        <p className="mt-1 text-xs text-slate-500">Untick what your company does not want, or does another way. Nothing is deleted: tick it again any time.</p>
+        <div className="mt-3 flex flex-col gap-2">
+          {FEATURES.map(([field, label, hint]) => <label key={field} className={cn('flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2.5',
+            value[field] ? 'border-[#23355d] bg-[#23355d]/5' : 'border-slate-200 hover:border-slate-300')}>
+            <input type="checkbox" checked={value[field]} onChange={(e) => void change(field, e.target.checked)} className="mt-0.5 size-4 accent-[#23355d]" />
+            <span><span className="block text-sm font-medium text-[#192646]">{label}</span><span className="block text-[11px] text-slate-500">{hint}</span></span>
+          </label>)}
+        </div>
+      </div>
       <div>
         {saved && <p role="status" className="text-xs font-medium text-emerald-700">✓ Saved</p>}
         {value.updated_by_name && <p className="text-[11px] text-slate-400">Last change by {value.updated_by_name}.</p>}
