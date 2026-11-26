@@ -67,7 +67,7 @@ export type Payroll = {
     on: string; available: string; acquired: string; adjusted: string; taken: string; pending: string; expired: string
     leaves_after: { request: number; type: string; start_date: string; end_date: string; days: string; status: string }[]
   }
-  notice: { status: string; status_label: string; short_days: number; days_to_deduct: number }
+  notice: { status: string; status_label: string; short_days: number; days_to_deduct: number; serious: boolean }
   indemnity: { applies: false; reason: string; months?: number } | {
     applies: true; months: number; years: string; hours: string
     detail: { from_years: string; to_years: string | null; years: string; hours_per_year: string; hours: string }[]

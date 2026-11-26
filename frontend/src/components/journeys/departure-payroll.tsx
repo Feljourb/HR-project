@@ -142,7 +142,7 @@ function PayrollFacts({ data, preview = false }: { data: Payroll; preview?: bool
       <p className="font-semibold text-slate-700">Notice</p>
       {/* En anglais comme la page (2026-11-26 : "Respecté" en français détonnait) ; le texte copié pour la paie reste en français. */}
       <p className="text-slate-600">{notice.status
-        ? NOTICE_STATUS[notice.status as NoticeStatus]
+        ? (notice.serious && notice.status === 'NONE' ? 'No notice: serious misconduct (art. 39)' : NOTICE_STATUS[notice.status as NoticeStatus])
         : preview ? 'The last day is before the end of the notice: you decide in the departure panel (respected, waived or not respected).' : 'To decide (see above)'}
         {notice.days_to_deduct > 0 && <span className="font-semibold text-amber-800"> · {formatDays(notice.days_to_deduct)} to deduct from the last pay (art. 51)</span>}
         {notice.days_to_deduct === 0 && notice.status && notice.status !== 'NOT_RESPECTED' && ' · nothing to deduct'}

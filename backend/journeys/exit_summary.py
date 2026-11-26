@@ -67,7 +67,9 @@ def payroll(departure):
     return {
         "leave": leave_at_last_day(departure),
         "notice": {"status": departure.notice_status, "status_label": departure.get_notice_status_display(),
-                   "short_days": departure.notice_short_days, "days_to_deduct": notice_days_to_deduct(departure)},
+                   "short_days": departure.notice_short_days, "days_to_deduct": notice_days_to_deduct(departure),
+                   # faute grave : la page dit POURQUOI il n'y a pas de préavis (art. 39), pas "pas de préavis pour ce type"
+                   "serious": departure.departure_type == DepartureType.DISMISSAL and departure.serious_misconduct},
         "indemnity": dismissal_indemnity(departure),
         "cnss": cnss_data(departure),
     }
