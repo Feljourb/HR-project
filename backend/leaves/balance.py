@@ -44,7 +44,9 @@ def right_changes(employee):
     """Les changements du droit annuel (P1 step 2), du plus ancien au plus récent : [(à partir du, jours), ...]."""
     if employee.pk is None:
         return []  # une fiche pas encore enregistrée
-    return list(AnnualRightChange.objects.filter(employee=employee).order_by("effective_from")
+    # Réembauche (2026-11-27) : les changements de la période d'AVANT ne comptent plus (le droit est repris sur la fiche).
+    return list(AnnualRightChange.objects.filter(employee=employee, effective_from__gte=employee.hire_date)
+                .order_by("effective_from")
                 .values_list("effective_from", "annual_days"))
 
 
@@ -62,7 +64,8 @@ def right_on(employee, day, changes=None):
 
 def yearly_right(employee, settings, on_day, changes=None):
     """Le droit annuel de ce collaborateur à cette date : son droit + l'ancienneté, au maximum le plafond."""
-    periods = full_years(employee.hire_date, on_day) // settings.seniority_years if settings.seniority_years else 0
+    # seniority_start : l'embauche, ou plus tôt quand une réembauche garde les années d'avant (2026-11-27).
+    periods = full_years(employee.seniority_start, on_day) // settings.seniority_years if settings.seniority_years else 0
     return min(right_on(employee, on_day, changes) + periods * settings.seniority_bonus, settings.max_days_per_year)
 
 
@@ -71,7 +74,7 @@ def seniority(employee, settings, today):
     ce sont les mêmes règles que yearly_right. Ex. embauché le 01/03/2020, le 10/11/2026 :
     6 ans 8 mois -> 1 palier de 5 ans -> 18 + 1,5 = 19,5 jours / an ; prochain palier le 01/03/2030 (+3).
     Un "Sorti" : compté jusqu'à sa date de sortie, sans prochain palier."""
-    hire = employee.hire_date
+    hire = employee.seniority_start
     end = min(today, employee.departure_date) if employee.departure_date else today
     # Les mois complets depuis l'embauche (01/03/2020 -> 10/11/2026 : 80 mois = 6 ans 8 mois).
     months = max((end.year - hire.year) * 12 + end.month - hire.month - (end.day < hire.day), 0)
@@ -145,8 +148,10 @@ def fill_and_pay(employee, today, settings, exclude=None):
     earned = {}
     for month_end, days in monthly_earnings(employee, today, settings):
         earned[month_end.year] = earned.get(month_end.year, ZERO) + days
-    adjustments = (list(BalanceAdjustment.objects.filter(employee=employee).values_list("date", "days"))
-                   if employee.pk else [])
+    # Réembauche (2026-11-27) : seulement la période ACTUELLE (depuis la date d'embauche). Les congés et corrections
+    # d'avant restent dans l'historique, mais ces jours ont été payés au départ (art. 251) : ils ne comptent plus.
+    adjustments = (list(BalanceAdjustment.objects.filter(employee=employee, date__gte=employee.hire_date)
+                        .values_list("date", "days")) if employee.pk else [])
     added = {}
     for day, days in adjustments:
         if days > 0:
@@ -154,7 +159,7 @@ def fill_and_pay(employee, today, settings, exclude=None):
     pools = {year: earned.get(year, ZERO) + added.get(year, ZERO) for year in set(earned) | set(added)}
 
     leaves = (LeaveRequest.objects.filter(employee=employee, leave_type__deducts_balance=True,
-                                          request__status__in=LeaveRequest.ACTIVE)
+                                          request__status__in=LeaveRequest.ACTIVE, start_date__gte=employee.hire_date)
               .exclude(pk=exclude).values_list("start_date", "days", "request__status"))
     spending = sorted([*leaves, *((day, -days, ADJUSTMENT) for day, days in adjustments if days < 0)],
                       key=lambda item: item[0])

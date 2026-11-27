@@ -31,7 +31,7 @@ def add_months(day, months):
 
 def seniority_years(employee, on):
     """Les années COMPLÈTES depuis la date d'embauche (embauché le 10/03/2023 : 2 ans le 25/11/2026)."""
-    hire = employee.hire_date
+    hire = employee.seniority_start  # une réembauche peut garder les années d'avant (2026-11-27)
     years = on.year - hire.year - ((on.month, on.day) < (hire.month, hire.day))
     return max(0, years)
 

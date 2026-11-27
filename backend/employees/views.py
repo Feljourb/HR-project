@@ -276,6 +276,42 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         response["Cache-Control"] = "no-store"
         return response
 
+    @action(detail=True, methods=["get", "post"])
+    def rehire(self, request, pk=None):
+        """Réembauche d'un "Sorti" (2026-11-27) :
+        GET  /api/employees/7/rehire/ -> ce que le formulaire propose (la période d'avant, l'ancienneté, le droit) ;
+        POST /api/employees/7/rehire/ {"hire_date", "keep_seniority", "annual_leave_days"} -> la fiche à jour.
+        Les règles : journeys.services.rehire (importé ici : l'app journeys importe déjà employees)."""
+        from django.core.exceptions import ValidationError as ModelError
+        from journeys import services as journeys
+        from journeys.exit_summary import months_between
+        from journeys.models import JourneySettings
+        from leaves.balance import right_on
+
+        employee = self.get_object()  # un RH : seulement son pôle (sinon 404)
+        if request.method == "GET":
+            if employee.status != Employee.Status.LEFT or not employee.departure_date:
+                raise ValidationError("Seul un collaborateur « Sorti » peut être réembauché.")
+            months = months_between(employee.seniority_start, employee.departure_date)
+            return Response({
+                "previous": {"hire_date": employee.hire_date, "departure_date": employee.departure_date,
+                             "seniority": journeys.years_and_months(months)},
+                "keep_seniority": JourneySettings.load().rehire_keep_seniority,
+                "annual_leave_days": float(right_on(employee, employee.departure_date)),
+            })
+        data = request.data
+        hire_date = parse_date(str(data.get("hire_date") or "")) if data.get("hire_date") else None
+        right = data.get("annual_leave_days")
+        try:
+            journeys.rehire(employee, request.user, hire_date, keep_seniority=bool(data.get("keep_seniority")),
+                            annual_leave_days=serializers.DecimalField(max_digits=5, decimal_places=2, min_value=0,
+                                                                      max_value=60).to_internal_value(right)
+                            if right not in (None, "") else None)
+        except ModelError as error:
+            raise ValidationError(error.message_dict if hasattr(error, "error_dict") else {"detail": error.messages[0]})
+        employee.refresh_from_db()
+        return Response(EmployeeSerializer(employee, context={"request": request}).data)
+
     def visible_history(self, entries):
         """Ce que l'IT fait (support technique) n'apparaît pas dans l'historique des RH (décision du
         2026-11-01) : les lignes restent en base, visibles dans /admin et par l'IT lui-même."""

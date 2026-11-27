@@ -32,7 +32,7 @@ def dismissal_indemnity(departure):
     if departure.serious_misconduct:
         return {"applies": False, "reason": "Serious misconduct: no indemnity (art. 39)."}
     current = JourneySettings.load()
-    months = months_between(departure.employee.hire_date, departure.last_day)
+    months = months_between(departure.employee.seniority_start, departure.last_day)  # réembauche : voir seniority_start
     if months < current.indemnity_min_months:
         return {"applies": False, "reason": f"Less than {current.indemnity_min_months} months of seniority (art. 52).", "months": months}
     years = Decimal(months) / 12

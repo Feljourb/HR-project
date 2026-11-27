@@ -134,13 +134,28 @@ class EmployeeSerializer(serializers.ModelSerializer):
     current_annual_right = serializers.SerializerMethodField()
     # L'ancienneté (jamais saisie : calculée depuis la date d'embauche), ex. 6 ans 8 mois -> +1,5 jour / an.
     seniority = serializers.SerializerMethodField()
+    # Réembauche (2026-11-27) : ses périodes d'emploi d'AVANT (la plus récente d'abord), et le bouton "Rehire".
+    previous_periods = serializers.SerializerMethodField()
+    can_rehire = serializers.SerializerMethodField()
 
     class Meta:
         model = Employee
         exclude = ["user"]  # le compte est créé automatiquement, jamais choisi
         # u_number n'est pas modifiable (editable=False) : DRF le met en lecture seule tout seul.
         # L'email peut manquer à la création : validate le crée (voir étape 0).
-        extra_kwargs = {"professional_email": {"required": False}}
+        # seniority_from : écrit seulement par la réembauche (journeys.services.rehire).
+        extra_kwargs = {"professional_email": {"required": False}, "seniority_from": {"read_only": True}}
+
+    def get_previous_periods(self, employee):
+        return [{"hire_date": period.hire_date, "departure_date": period.departure_date, "reason": period.reason}
+                for period in employee.periods.all()] if employee.pk else []
+
+    def get_can_rehire(self, employee):
+        request = self.context.get("request")
+        if request is None or employee.status != Employee.Status.LEFT:
+            return False
+        from journeys.services import is_hr_of  # importé ici : l'app journeys importe déjà employees
+        return is_hr_of(request.user, employee)
 
     def get_hierarchy(self, employee):
         return hierarchy_data(employee)
@@ -152,7 +167,8 @@ class EmployeeSerializer(serializers.ModelSerializer):
         from leaves.models import AnnualRightChange
 
         today = timezone.localdate()
-        changes = AnnualRightChange.objects.filter(employee=employee)
+        # La période actuelle seulement (réembauche, 2026-11-27 : les changements d'avant ne comptent plus).
+        changes = AnnualRightChange.objects.filter(employee=employee, effective_from__gte=employee.hire_date)
         current = changes.filter(effective_from__lte=today).order_by("-effective_from").first()
         planned = changes.filter(effective_from__gt=today).order_by("effective_from").first()
         return {
@@ -226,6 +242,15 @@ class EmployeeSerializer(serializers.ModelSerializer):
         if self.instance is None and "saturday_work" not in self.initial_data and attrs.get("category"):
             if attrs["category"].name.lower() == "ouvrier":
                 attrs["saturday_work"] = Employee.SaturdayWork.FULL
+
+        # 3c. Réembauche (2026-11-27) : un "Sorti" après un départ validé ne revient pas à "Actif" en changeant le
+        #     statut à la main (le tour du matin le remettrait "Sorti", son ancien départ bloquerait le suivant, ses
+        #     anciens congés compteraient) : bouton "Rehire" pour un retour, "Cancel this departure" pour une erreur.
+        status = attrs.get("status")
+        if (self.instance is not None and status and status != Employee.Status.LEFT
+                and self.instance.status == Employee.Status.LEFT and self.instance.departure_journey_open):
+            raise serializers.ValidationError({"status": "Il revient ? Bouton « Rehire » sur sa fiche. Une erreur ? "
+                                                         "« Cancel this departure » dans Arrivals & departures."})
 
         # 4. Le droit annuel de congé : saisi à la CRÉATION (valable depuis l'embauche). Ensuite il change
         #    seulement avec une date d'effet (page Leave balances, leaves.AnnualRightChange) : changé ici, il

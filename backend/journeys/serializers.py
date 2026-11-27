@@ -190,7 +190,8 @@ class JourneySettingsSerializer(serializers.ModelSerializer):
         model = JourneySettings
         fields = ["employee_can_request_departure", "auto_block", "notice_types", "executive_categories",
                   "letter_required", "indemnity_hours", "indemnity_min_months", "exit_document_types", "exit_document_days",
-                  "auto_cancel_leaves", "exit_interview_enabled", "show_payroll", "updated_at", "updated_by_name"]
+                  "auto_cancel_leaves", "exit_interview_enabled", "show_payroll", "rehire_keep_seniority",
+                  "updated_at", "updated_by_name"]
         read_only_fields = ["updated_at"]
         extra_kwargs = {"indemnity_min_months": {"min_value": 0, "max_value": 60},
                         "exit_document_days": {"min_value": 0, "max_value": 60}}

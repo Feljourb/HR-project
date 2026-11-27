@@ -347,6 +347,9 @@ class Employee(models.Model):
     trial_end_date = models.DateField("Fin de période d'essai", null=True, blank=True)
     onboarding_end_date = models.DateField("Fin d'onboarding", null=True, blank=True)
     departure_date = models.DateField("Date de sortie", null=True, blank=True)
+    # Réembauche (2026-11-27) : la date d'où l'ANCIENNETÉ se compte, quand les RH gardent les années d'avant
+    # (ex. 5 ans 6 mois avant, revenu le 01/03/2027 -> ancienneté depuis le 01/09/2021). Vide = depuis l'embauche.
+    seniority_from = models.DateField("Ancienneté depuis", null=True, blank=True)
     status = models.CharField("Statut", max_length=6, choices=Status.choices, default=Status.ACTIVE)
     # Le DROIT à congé par an (pas un solde) : 18 par défaut (le minimum légal au Maroc), plus pour
     # certains (ex. un manager à 30). Le solde part de 0 et gagne droit / 12 chaque mois (18 -> 1,5 par mois),
@@ -539,6 +542,19 @@ class Employee(models.Model):
         if errors:
             raise ValidationError(errors)
 
+    @property
+    def seniority_start(self):
+        """Le jour d'où l'ancienneté se compte (congés, préavis, indemnité) : l'embauche, ou la date "Ancienneté
+        depuis" d'une réembauche qui garde les années d'avant."""
+        return self.seniority_from or self.hire_date
+
+    @property
+    def departure_journey_open(self):
+        """Un départ validé (son parcours pas annulé) dans la période ACTUELLE : la fiche ne revient pas "Actif" à la
+        main (voir EmployeeSerializer.validate, 3c). `journeys` : le related_name de journeys.Journey."""
+        return self.pk is not None and self.journeys.filter(kind="DEPARTURE", cancelled_at__isnull=True,
+                                                            day__gte=self.hire_date).exists()
+
     def save(self, *args, **kwargs):
         """Enregistre le dossier, et crée le matricule la première fois."""
         self.cin = self.cin.strip().upper()  # aussi ici : objects.create() n'appelle pas clean()
@@ -592,6 +608,28 @@ class Child(models.Model):
         return f"{self.first_name} ({self.birth_date:%d/%m/%Y})"
 
 
+class EmploymentPeriod(models.Model):
+    """Une période d'emploi TERMINÉE (2026-11-27, réembauche, standard Workday / SAP "Rehire") : quelqu'un est parti
+    puis revient. La fiche reste la même (même matricule, même compte, tout l'historique) ; ses dates d'avant sont
+    gardées ici. Ex. 01/01/2020 -> 30/06/2025, Démission. Jamais modifiée ni supprimée."""
+
+    employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name="periods", verbose_name="Collaborateur")
+    hire_date = models.DateField("Date d'embauche")
+    departure_date = models.DateField("Date de sortie")
+    reason = models.CharField("Motif du départ", max_length=100, blank=True)  # ex. "Démission" (vide : sortie à la main)
+    created_at = models.DateTimeField("Réembauché le", auto_now_add=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name="+", verbose_name="Réembauché par")
+
+    class Meta:
+        verbose_name = "Période d'emploi passée"
+        verbose_name_plural = "Périodes d'emploi passées"
+        ordering = ["-hire_date"]
+
+    def __str__(self):
+        return f"{self.employee} : {self.hire_date:%d/%m/%Y} -> {self.departure_date:%d/%m/%Y}"
+
+
 class EmployeeHistory(models.Model):
     """L'historique d'un dossier : qui a fait quoi, et quand (une ligne par action).
 
@@ -606,6 +644,7 @@ class EmployeeHistory(models.Model):
         ROLE = "ROLE", "Changement de rôle"
         PASSWORD_RESET = "PASSWORD_RESET", "Réinitialisation du mot de passe"
         HEAD = "HEAD", "Responsable d'équipe"  # devient / n'est plus responsable d'un service ou d'une direction
+        REHIRED = "REHIRED", "Réembauche"  # un "Sorti" revient (2026-11-27) : nouvelle période d'emploi
 
     employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name="history", verbose_name="Collaborateur")
     # Qui : le compte (SET_NULL : l'historique reste même si le compte disparaît un jour),

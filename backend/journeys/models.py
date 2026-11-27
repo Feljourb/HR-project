@@ -342,6 +342,9 @@ class JourneySettings(models.Model):
     auto_cancel_leaves = models.BooleanField("Annuler tout seul les congés après le dernier jour", default=True)
     exit_interview_enabled = models.BooleanField("Entretien de sortie", default=True)
     show_payroll = models.BooleanField("Bloc « Pour la paie et la CNSS »", default=True)
+    # Réembauche (2026-11-27) : le choix PROPOSÉ dans le formulaire "Rehire" (les RH le changent pour une personne).
+    # NON par défaut : un nouveau contrat repart de 0 (la loi) ; OUI = les années d'avant comptent (politique interne).
+    rehire_keep_seniority = models.BooleanField("Réembauche : garder l'ancienneté d'avant (par défaut)", default=False)
     updated_at = models.DateTimeField("Modifié le", auto_now=True)
     updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
                                    related_name="+", verbose_name="Modifié par")

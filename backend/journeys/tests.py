@@ -625,3 +625,80 @@ class ApiTests(JourneyTestCase):
         # Passer à "RH du pôle" enlève la personne.
         changed = self.client.patch(reverse("journeys:template-detail", args=[created["id"]]), {"owner": "HR"}, format="json").json()
         self.assertIsNone(changed["person"])
+
+
+class RehireTests(JourneyTestCase):
+    """(2026-11-27) Sara a travaillé ~3 ans, a démissionné (dernier jour il y a 10 jours), elle revient aujourd'hui."""
+
+    def setUp(self):
+        super().setUp()
+        from leaves.models import BalanceAdjustment
+        self.sara.hire_date = self.today - timedelta(days=3 * 365 + 10)
+        self.sara.save()
+        self.old_start, self.last_day = self.sara.hire_date, self.today - timedelta(days=10)
+        services.request_departure(self.sara, self.nadia.user, DepartureType.RESIGNATION, self.last_day)
+        # Des jours pris dans la période d'AVANT (une correction en moins, comme un congé) : payés au départ.
+        BalanceAdjustment.objects.create(employee=self.sara, date=self.last_day - timedelta(days=30), days=-5,
+                                         reason="Congés d'avant", created_by=self.nadia.user)
+        services.close_departures(today=self.today)
+        self.sara.refresh_from_db()
+        self.assertEqual(self.sara.status, "LEFT")
+
+    def test_same_fiche_new_period_balance_from_zero(self):
+        from leaves.balance import balance
+        services.rehire(self.sara, self.nadia.user, self.today, keep_seniority=False)
+        self.sara.refresh_from_db()
+        self.assertEqual((self.sara.status, self.sara.hire_date, self.sara.departure_date), ("ACTIVE", self.today, None))
+        self.assertTrue(self.sara.user.is_active)  # le même compte, rouvert
+        period = self.sara.periods.get()
+        self.assertEqual((period.hire_date, period.departure_date, period.reason), (self.old_start, self.last_day, "Démission"))
+        # Le solde repart de 0 : la correction d'avant ne le rend pas négatif.
+        self.assertEqual((balance(self.sara)["available"], balance(self.sara)["adjusted"]), (0, 0))
+        self.assertEqual(self.sara.seniority_start, self.today)  # remise à 0 (la loi)
+        # L'ancien départ ne bloque plus rien : pas "Sorti" au tour du matin, un nouveau départ possible.
+        self.assertEqual(services.close_departures(today=self.today + timedelta(days=1)), 0)
+        self.assertFalse(services.departure_in_progress(self.sara))
+        # Une nouvelle arrivée (checklist), et une ligne "Réembauche" dans l'historique.
+        self.assertTrue(Journey.objects.filter(employee=self.sara, kind=Kind.ARRIVAL, day=self.today).exists())
+        line = self.sara.history.first()
+        self.assertEqual(line.action, "REHIRED")
+        self.assertIn({"field": "Ancienneté", "old": "", "new": "remise à 0 (nouveau contrat)"}, line.changes)
+
+    def test_keep_seniority_counts_the_years_before_without_the_time_away(self):
+        services.rehire(self.sara, self.nadia.user, self.today, keep_seniority=True)
+        self.sara.refresh_from_db()
+        worked = (self.last_day - self.old_start).days + 1
+        self.assertEqual(self.sara.seniority_from, self.today - timedelta(days=worked))
+        self.assertGreaterEqual(notice.seniority_years(self.sara, self.today), 2)
+
+    def test_rules_and_rights(self):
+        with self.assertRaisesMessage(ValidationError, "après la date de sortie"):
+            services.rehire(self.sara, self.nadia.user, self.last_day)
+        with self.assertRaises(PermissionDenied):
+            services.rehire(self.sara, self.youssef.user, self.today)  # son manager : pas les RH
+        services.rehire(self.sara, self.nadia.user, self.today)
+        with self.assertRaisesMessage(ValidationError, "« Sorti »"):
+            services.rehire(self.sara, self.nadia.user, self.today + timedelta(days=1))  # déjà revenue
+
+    def test_api_and_no_manual_status_back(self):
+        client = APIClient()
+        client.force_authenticate(self.nadia.user)
+        # "Sorti" -> "Actif" à la main : refusé (le départ validé existe), le message dit quoi faire.
+        refused = client.patch(f"/api/employees/{self.sara.pk}/", {"status": "ACTIVE", "departure_date": None}, format="json")
+        self.assertEqual(refused.status_code, 400)
+        self.assertIn("Rehire", refused.json()["status"][0])
+        proposal = client.get(f"/api/employees/{self.sara.pk}/rehire/").json()
+        self.assertEqual((proposal["keep_seniority"], proposal["annual_leave_days"]), (False, 18.0))
+        done = client.post(f"/api/employees/{self.sara.pk}/rehire/", {"hire_date": str(self.today), "keep_seniority": False},
+                           format="json")
+        self.assertEqual(done.status_code, 200)
+        self.assertEqual(done.json()["previous_periods"][0]["reason"], "Démission")
+        self.assertFalse(done.json()["can_rehire"])
+
+    def test_cancelling_the_departure_of_a_left_employee_brings_him_back(self):
+        # Une ERREUR (pas un retour) : "Cancel this departure" remet la fiche "Actif", sans nouvelle période.
+        journey = Journey.objects.get(employee=self.sara, kind=Kind.DEPARTURE)
+        services.cancel(journey, self.nadia.user, "Erreur de saisie")
+        self.sara.refresh_from_db()
+        self.assertEqual((self.sara.status, self.sara.departure_date, self.sara.periods.count()), ("ACTIVE", None, 0))
+        self.assertTrue(self.sara.user.is_active)

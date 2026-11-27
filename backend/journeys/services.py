@@ -136,7 +136,8 @@ def start(employee, kind, user, day=None):
 def create_journey(employee, kind, day, user):
     """Le parcours lui-même (sans vérifier les droits : l'appelant l'a fait) : la copie du modèle, la cloche."""
     employee = Employee.objects.select_for_update().get(pk=employee.pk)  # deux clics en même temps : un seul parcours
-    if Journey.objects.filter(employee=employee, kind=kind, cancelled_at__isnull=True).exists():
+    # Un seul parcours de chaque sorte dans la période ACTUELLE (réembauche : ceux d'avant l'embauche sont finis).
+    if Journey.objects.filter(employee=employee, kind=kind, cancelled_at__isnull=True, day__gte=employee.hire_date).exists():
         raise ValidationError(f"Un parcours « {Kind(kind).label} » existe déjà pour ce collaborateur.")
     templates = list(TaskTemplate.objects.filter(kind=kind, is_active=True).select_related("person"))
     journey = Journey.objects.create(kind=kind, employee=employee, day=day, created_by=user)
@@ -165,7 +166,11 @@ def auto_start(employee, user):
 def hire_date_changed(employee):
     """La date d'embauche a changé sur la fiche : l'arrivée en cours bouge avec elle (les tâches pas encore faites
     aussi, et les notifications pas encore lues). Les tâches déjà faites gardent leur date."""
-    journey = Journey.objects.filter(employee=employee, kind=Kind.ARRIVAL, cancelled_at__isnull=True).first()
+    # La plus récente (une réembauche a aussi l'arrivée d'avant, finie : jamais celle-là).
+    journey = Journey.objects.filter(employee=employee, kind=Kind.ARRIVAL, cancelled_at__isnull=True).order_by("-day", "-id").first()
+    last = employee.periods.order_by("-departure_date").values_list("departure_date", flat=True).first()
+    if journey is not None and last is not None and journey.day <= last:
+        journey = None
     if journey is None or journey.day == employee.hire_date:
         return
     old_day, journey.day = journey.day, employee.hire_date
@@ -240,12 +245,15 @@ def cancel(journey, user, reason):
     if departure is not None and departure.request.status == "APPROVED":
         from workflows import engine  # importé ici : le moteur importe déjà les modules (handlers)
         engine.cancel_approved(departure.request, user, reason)
-    # Un départ annulé (ex. la personne reste finalement) : la date de sortie mise à la validation est enlevée
-    # (si elle n'est pas déjà "Sorti" : là, les RH corrigent la fiche eux-mêmes).
+    # Un départ annulé (ex. la personne reste finalement) : la date de sortie mise à la validation est enlevée.
+    # (2026-11-27) Déjà "Sorti" par ce départ (une erreur) : la fiche revient "Actif" et le compte se rouvre. Un vrai
+    # retour, après un départ réel, passe par "Rehire" (nouvelle période).
     employee = journey.employee
-    if journey.kind == Kind.DEPARTURE and employee.status != Employee.Status.LEFT and employee.departure_date == journey.day:
+    if journey.kind == Kind.DEPARTURE and employee.departure_date == journey.day:
         before = history.snapshot(employee)
         employee.departure_date = None
+        if employee.status == Employee.Status.LEFT:
+            employee.status = Employee.Status.ACTIVE
         employee.save()
         history.record_changes(employee, user, before)
     # (2026-11-26, trouvé par l'utilisatrice) Ceux qui avaient encore une tâche reçoivent 🔔 + email "Parcours annulé"
@@ -298,9 +306,11 @@ def shows_my_departure(user):
 
 
 def departure_in_progress(employee):
-    """Un départ en attente de validation, ou déjà validé et pas annulé."""
-    return (Departure.objects.filter(employee=employee, request__status="IN_PROGRESS").exists()
-            or Journey.objects.filter(employee=employee, kind=Kind.DEPARTURE, cancelled_at__isnull=True).exists())
+    """Un départ en attente de validation, ou déjà validé et pas annulé, de la période ACTUELLE (une réembauche,
+    2026-11-27 : le départ d'avant, avant la date d'embauche, ne compte plus)."""
+    return (Departure.objects.filter(employee=employee, request__status="IN_PROGRESS", last_day__gte=employee.hire_date).exists()
+            or Journey.objects.filter(employee=employee, kind=Kind.DEPARTURE, cancelled_at__isnull=True,
+                                      day__gte=employee.hire_date).exists())
 
 
 @transaction.atomic
@@ -577,7 +587,9 @@ def close_departures(today=None):
     # Ménage : un rappel "Compte à bloquer" pas encore lu, alors que les RH l'ont déjà fait -> inutile.
     Notification.objects.filter(kind=Notification.Kind.ACCOUNT_TO_BLOCK, read_at__isnull=True,
                                 employee__status=Employee.Status.LEFT).delete()
-    journeys = list(Journey.objects.filter(kind=Kind.DEPARTURE, cancelled_at__isnull=True, day__lt=today)
+    # day >= embauche : le départ de la période actuelle (réembauché : l'ancien départ ne le remet pas "Sorti").
+    journeys = list(Journey.objects.filter(kind=Kind.DEPARTURE, cancelled_at__isnull=True, day__lt=today,
+                                           day__gte=F("employee__hire_date"))
                     .exclude(employee__status=Employee.Status.LEFT).select_related("employee__department__direction__entity__pole"))
     if not JourneySettings.load().auto_block:
         Notification.objects.bulk_create(
@@ -602,6 +614,78 @@ def close_departures(today=None):
             ignore_conflicts=True,
         )
     return len(journeys)
+
+
+# --- Réembauche (2026-11-27, standard Workday / SAP "Rehire") -----------------------------------------------------
+
+def years_and_months(months):
+    """66 -> "5 ans 6 mois" (pour l'historique de la fiche)."""
+    years, rest = divmod(months, 12)
+    parts = ([f"{years} an{'s' if years > 1 else ''}"] if years else []) + ([f"{rest} mois"] if rest else [])
+    return " ".join(parts) or "0 mois"
+
+
+@transaction.atomic
+def rehire(employee, user, hire_date, keep_seniority=None, annual_leave_days=None):
+    """Un "Sorti" revient : la MÊME fiche (matricule, compte, email, historique), une NOUVELLE période d'emploi.
+    - la période d'avant est gardée (EmploymentPeriod : embauche -> sortie, motif) ;
+    - nouvelle date d'embauche, statut Actif, plus de date de sortie : le compte se rouvre (Employee.save) ;
+    - le solde de congé repart de 0 (les jours d'avant ont été payés au départ, art. 251 : voir leaves/balance.py) ;
+    - l'ancienneté : remise à 0 (la loi : nouveau contrat), ou gardée (les années d'avant comptent, sans le temps
+      passé dehors) ; le choix proposé vient du réglage d'Admin RH, les RH le changent pour cette personne ;
+    - l'arrivée (checklist) commence toute seule si la date est proche, comme pour une nouvelle fiche.
+    Les RH complètent ensuite la fiche (service, poste, contrat, période d'essai) comme d'habitude."""
+    from employees.models import EmployeeHistory, EmploymentPeriod
+    from leaves.balance import right_on
+
+    if not is_hr_of(user, employee):
+        raise PermissionDenied("Seuls les RH de son pôle réembauchent ce collaborateur.")
+    employee = Employee.objects.select_for_update().get(pk=employee.pk)
+    if employee.status != Employee.Status.LEFT or not employee.departure_date:
+        raise ValidationError("Seul un collaborateur « Sorti » peut être réembauché.")
+    if hire_date is None:
+        raise ValidationError({"hire_date": "Indiquez la nouvelle date d'embauche."})
+    if hire_date <= employee.departure_date:
+        raise ValidationError({"hire_date": f"La nouvelle date d'embauche doit être après la date de sortie "
+                                            f"({employee.departure_date:%d/%m/%Y})."})
+    if keep_seniority is None:
+        keep_seniority = JourneySettings.load().rehire_keep_seniority
+    old_start, old_end = employee.seniority_start, employee.departure_date
+    # Le droit annuel valable au départ (avec ses changements) : repris par défaut, les RH peuvent le changer.
+    right = annual_leave_days if annual_leave_days is not None else right_on(employee, old_end)
+
+    # 1. La période d'avant, gardée (le motif : le dernier départ validé de cette période, s'il existe).
+    departure = (Departure.objects.filter(employee=employee, journey__cancelled_at__isnull=True, journey__isnull=False,
+                                          last_day__lte=old_end).order_by("-last_day").first())
+    EmploymentPeriod.objects.create(employee=employee, hire_date=employee.hire_date, departure_date=old_end,
+                                    reason=departure.get_departure_type_display() if departure else "", created_by=user)
+
+    # 2. La nouvelle période sur la fiche.
+    before = history.snapshot(employee)
+    worked = (old_end - old_start).days + 1  # les jours d'avant (une ancienneté déjà reprise y est comprise)
+    employee.hire_date = hire_date
+    employee.seniority_from = hire_date - timedelta(days=worked) if keep_seniority else None
+    employee.departure_date = employee.trial_end_date = employee.onboarding_end_date = None
+    employee.status = Employee.Status.ACTIVE
+    employee.annual_leave_days = right
+    employee.save()  # Sorti -> Actif : le compte se rouvre
+
+    # 3. L'historique : une ligne "Réembauche" (les champs changés + l'ancienneté).
+    months = exit_summary_months(old_start, old_end)
+    kept = (f"reprise : {years_and_months(months)} d'avant (comptée depuis le {employee.seniority_from:%d/%m/%Y})"
+            if keep_seniority else "remise à 0 (nouveau contrat)")
+    changes = [change for change in history.diff(before, history.snapshot(employee))
+               if change["field"] != "Ancienneté depuis"]  # dite une fois, en clair, juste après
+    history.record(employee, user, EmployeeHistory.Action.REHIRED, [*changes, {"field": "Ancienneté", "old": "", "new": kept}])
+
+    # 4. La checklist d'arrivée, comme une nouvelle fiche (si la date est proche).
+    auto_start(employee, user)
+    return employee
+
+
+def exit_summary_months(start, end):
+    from .exit_summary import months_between  # importé ici : exit_summary importe déjà ce module
+    return months_between(start, end)
 
 
 def journey_of(notification):
