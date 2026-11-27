@@ -45,9 +45,11 @@ export function JourneySettings() {
 type Rules = {
   employee_can_request_departure: boolean; auto_block: boolean; letter_required: boolean
   auto_cancel_leaves: boolean; exit_interview_enabled: boolean; show_payroll: boolean  // ⑤ les fonctions à éteindre
+  rehire_keep_seniority: boolean  // ⑥ réembauche : le choix proposé par défaut (2026-11-27)
   updated_at: string; updated_by_name: string | null
 }
-type Switch = 'employee_can_request_departure' | 'auto_block' | 'letter_required' | 'auto_cancel_leaves' | 'exit_interview_enabled' | 'show_payroll'
+type Switch = 'employee_can_request_departure' | 'auto_block' | 'letter_required' | 'auto_cancel_leaves' | 'exit_interview_enabled'
+  | 'show_payroll' | 'rehire_keep_seniority'
 
 // ⑤ (2026-11-26, règle de l'utilisatrice : "chaque fonction = une case, on ne supprime rien") : tout est allumé par
 // défaut ; éteint = la fonction ne fait plus rien, le code reste.
@@ -108,6 +110,12 @@ function DepartureRules() {
           </label>)}
         </div>
       </div>
+      {/* ⑥ Réembauche : seulement le choix PROPOSÉ dans le cadre "Rehire" ; les RH le changent pour une personne. */}
+      <RadioGroup name="rehire-seniority" title="⑥ Someone who left comes back (Rehire)" value={value.rehire_keep_seniority}
+        text="The choice already ticked in the “Rehire” window of the employee file. HR can still change it for one person."
+        onChange={(on) => void change('rehire_keep_seniority', on)} choices={[
+          [false, 'Seniority starts again from 0 (recommended: the law)', 'A new contract: leave bonus, notice and indemnity count from the new hire date.'],
+          [true, 'Keep the years worked before', 'Company choice: the years before count, the time away does not.']]} />
       <div>
         {saved && <p role="status" className="text-xs font-medium text-emerald-700">✓ Saved</p>}
         {value.updated_by_name && <p className="text-[11px] text-slate-400">Last change by {value.updated_by_name}.</p>}
