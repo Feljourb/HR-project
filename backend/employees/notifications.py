@@ -140,7 +140,8 @@ def link(notification):
     # "Stand-in requests" (il n'a pas Team approvals) ; les autres : la carte "Out of office" de Team approvals.
     if notification.kind in (Kind.DELEGATION_ASKED, Kind.DELEGATION_ACCEPTED, Kind.DELEGATION_DECLINED):
         collaborator = notification.recipient.role == get_user_model().Role.COLLABORATOR
-        return "/stand-in" if notification.kind == Kind.DELEGATION_ASKED and collaborator else "/approvals"
+        # (2026-11-27) Les délégations ont leur page "Out of office" (avant : en haut de Team approvals).
+        return "/stand-in" if notification.kind == Kind.DELEGATION_ASKED and collaborator else "/out-of-office"
     if notification.kind in (Kind.TO_VALIDATE, Kind.DELEGATED, Kind.REMINDER):
         # Un collaborateur qui répond À LA PLACE d'un absent (délégué, 2026-11-12) n'a pas "Team approvals" :
         # sa page "Stand-in requests". Mais un collaborateur peut aussi être lui-même le N+1 (responsable d'une

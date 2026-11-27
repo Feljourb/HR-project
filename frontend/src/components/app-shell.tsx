@@ -42,6 +42,7 @@ type NavItem = {
   itOnly?: boolean     // visible seulement pour l'IT (superuser)
   standInOnly?: boolean  // visible seulement pour un collaborateur choisi comme délégué (les autres ont Team approvals)
   departureOnly?: boolean  // visible seulement si Admin RH permet de demander son propre départ (NON par défaut)
+  validatorOnly?: boolean  // visible pour ceux qui valident (manager, RH, IT, un collaborateur chef d'équipe)
   counter?: Counter
 }
 
@@ -62,6 +63,8 @@ const navGroups: NavGroup[] = [
     // Arrivées et départs (2026-11-23) : MES tâches (IT, manager, RH, la nouvelle recrue...), avec leur nombre.
     { label: 'My tasks', icon: ListTodo, href: '/my-tasks', counter: 'tasks' },
     { label: 'Stand-in requests', icon: UserRoundCheck, href: '/stand-in', standInOnly: true, counter: 'approvals' },
+    // (2026-11-27) Je pars : qui répond à ma place (avant : un cadre en haut de Team approvals), + l'historique.
+    { label: 'Out of office', icon: Plane, href: '/out-of-office', validatorOnly: true },
     // (2026-11-24) MON départ : une page à part (pas dans "My tasks" : ce n'est pas une tâche, c'est une demande).
     { label: 'My departure', icon: DoorOpen, href: '/my-departure', departureOnly: true },
   ] },
@@ -211,7 +214,8 @@ function NavList({ me, active, collapsed, counts, onNavigate }: NavListProps) {
       (!item.hrOnly || (me !== null && isHr(me))) && (!item.adminOnly || (me !== null && seesBothPoles(me)))
       && (!item.itOnly || (me !== null && me.is_superuser))
       && (!item.standInOnly || (me !== null && me.stands_in === true && me.role === 'COLLABORATOR' && !me.is_superuser))
-      && (!item.departureOnly || (me !== null && me.can_request_departure === true))) }))
+      && (!item.departureOnly || (me !== null && me.can_request_departure === true))
+      && (!item.validatorOnly || (me !== null && (me.role !== 'COLLABORATOR' || me.is_superuser || me.leads_team === true)))) }))
     .filter((group) => group.items.length > 0)  // une section vide (ex. Administration pour un RH) : cachée
   const [soonOpen, setSoonOpen] = useState(false)
 

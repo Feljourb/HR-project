@@ -25,7 +25,7 @@ import { cn } from '@/lib/utils'
 import { ApprovalItem } from './approval-item'
 import { DecidedList } from './decided-list'
 import { Decision } from './decision'
-import { OutOfOffice } from './out-of-office'
+import { OutOfOfficeLine } from './out-of-office'
 
 export function TeamApprovals({ me }: { me: Me }) {
   const [approvals, setApprovals] = useState<Approval[] | null>(null)
@@ -128,7 +128,8 @@ export function TeamApprovals({ me }: { me: Me }) {
     {/* P2 step 1 : mon "absent du bureau" (qui valide à ma place), et ceux que je remplace.
         Seulement pour ceux qui valident (2026-11-12) : un collaborateur ne valide personne, il n'a rien à déléguer
         (s'il remplace quelqu'un, il a sa page "Stand-in requests"). Sauf un collaborateur responsable d'une équipe. */}
-    {(me.role !== 'COLLABORATOR' || me.is_superuser || me.leads_team || approvals?.some((approval) => !approval.on_behalf_of)) && <OutOfOffice me={me} />}
+    {/* (2026-11-27) Le cadre complet est sur sa page (/out-of-office) : ici une ligne qui y mène. */}
+    {(me.role !== 'COLLABORATOR' || me.is_superuser || me.leads_team || approvals?.some((approval) => !approval.on_behalf_of)) && <OutOfOfficeLine />}
 
     {done && <p role="status" className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800">
       <CheckCheck className="size-4" /> {done}

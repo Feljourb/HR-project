@@ -249,7 +249,7 @@ class DelegateAcceptsTests(EngineTestCase):
         # 🔔 "Délégation à accepter", mais AUCUNE demande à valider tant qu'il n'a pas accepté.
         asked = Notification.objects.get(recipient=self.omar.user, kind="DELEGATION_ASKED")
         self.assertIn("vous demande de le remplacer", message(asked))
-        self.assertEqual(link(asked), "/approvals")  # un manager : la carte "Out of office"
+        self.assertEqual(link(asked), "/out-of-office")  # un manager : la page "Out of office" (2026-11-27)
         self.assertFalse(Notification.objects.filter(recipient=self.omar.user, kind="TO_VALIDATE").exists())
         self.assertFalse(engine.can_decide(self.omar.user, self.step))
         # Il accepte : Youssef est prévenu, et la demande qui attendait déjà arrive chez Omar.
