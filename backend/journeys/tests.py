@@ -242,7 +242,7 @@ class DepartureTests(JourneyTestCase):
         departure = self.ask(self.nadia.user, departure_type=DepartureType.END_OF_CONTRACT)
         self.assertEqual(departure.request.status, Request.Status.APPROVED)
         self.assertIsNotNone(departure.journey)
-        with self.assertRaisesMessage(ValidationError, "déjà en cours"):
+        with self.assertRaisesMessage(ValidationError, "déjà enregistré (dernier jour le"):
             self.ask(self.youssef.user)
 
     def test_after_the_last_day_the_employee_is_left_and_blocked(self):
@@ -663,6 +663,11 @@ class RehireTests(JourneyTestCase):
         line = self.sara.history.first()
         self.assertEqual(line.action, "REHIRED")
         self.assertIn({"field": "Ancienneté", "old": "", "new": "remise à 0 (nouveau contrat)"}, line.changes)
+        # (trouvé par l'utilisatrice) Un NOUVEAU départ, alors que celui d'avant reste dans la base : accepté.
+        services.request_departure(self.sara, self.nadia.user, DepartureType.RESIGNATION, self.today + timedelta(days=60))
+        self.assertEqual(Journey.objects.filter(employee=self.sara, kind=Kind.DEPARTURE, cancelled_at__isnull=True).count(), 2)
+        with self.assertRaisesMessage(ValidationError, "déjà enregistré"):
+            services.request_departure(self.sara, self.nadia.user, DepartureType.RESIGNATION, self.today + timedelta(days=90))
 
     def test_keep_seniority_counts_the_years_before_without_the_time_away(self):
         services.rehire(self.sara, self.nadia.user, self.today, keep_seniority=True)

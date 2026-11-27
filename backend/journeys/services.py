@@ -313,6 +313,17 @@ def departure_in_progress(employee):
                                       day__gte=employee.hire_date).exists())
 
 
+def already_message(employee):
+    """(2026-11-27, l'utilisatrice ne trouvait pas le départ : il était dans "Done") Le message dit OÙ il est et quoi
+    faire : en attente -> Team approvals ; enregistré -> annulez-le d'abord."""
+    journey = (Journey.objects.filter(employee=employee, kind=Kind.DEPARTURE, cancelled_at__isnull=True,
+                                      day__gte=employee.hire_date).first())
+    if journey is None:
+        return "Un départ attend déjà une réponse (Team approvals)."
+    return (f"Un départ est déjà enregistré (dernier jour le {journey.day:%d/%m/%Y}). Pour en saisir un autre, "
+            "annulez-le d'abord : Arrivals & departures → Cancel this departure.")
+
+
 @transaction.atomic
 def request_departure(employee, user, departure_type, last_day, comment="", letter=None, informed=(), serious_misconduct=False):
     """Déclare le départ d'un collaborateur. Manager (ou collaborateur autorisé) : la demande part chez les RH
@@ -337,7 +348,7 @@ def request_departure(employee, user, departure_type, last_day, comment="", lett
     if not hr and last_day < timezone.localdate():
         raise ValidationError({"last_day": "Le dernier jour est déjà passé : demandez aux RH."})
     if departure_in_progress(employee):
-        raise ValidationError("Un départ est déjà en cours pour ce collaborateur.")
+        raise ValidationError(already_message(employee))
     # Une démission est un ÉCRIT (art. 34 : lettre signée, signature légalisée) : la lettre est jointe (réglage
     # d'Admin RH, OUI par défaut). Les RH reçoivent ensuite l'ORIGINAL papier (case "Original received" du panneau).
     if departure_type == DepartureType.RESIGNATION and letter is None and JourneySettings.load().letter_required:

@@ -17,7 +17,6 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
-from django.db.models import Q
 from django.utils import timezone
 
 from employees.models import Employee
@@ -93,11 +92,9 @@ class Journey(models.Model):
         verbose_name = "Parcours"
         verbose_name_plural = "Parcours"
         ordering = ["-day", "-id"]
-        constraints = [
-            # Une seule arrivée (et un seul départ) NON annulé par personne : jamais de doublon de tâches.
-            models.UniqueConstraint(fields=["employee", "kind"], condition=Q(cancelled_at__isnull=True),
-                                    name="journeys_one_open_per_employee"),
-        ]
+        # (2026-11-27, réembauche) Plus de contrainte "un seul parcours non annulé par personne" dans la base : un
+        # réembauché garde l'arrivée et le départ de sa période d'AVANT. La règle "un seul par période" est dans
+        # services.create_journey, qui VERROUILLE la fiche avant de vérifier (deux clics en même temps : un seul).
 
     def __str__(self):
         return f"{self.get_kind_display()} de {self.employee} ({self.day:%d/%m/%Y})"
