@@ -689,6 +689,9 @@ class Notification(models.Model):
         JOURNEY_DONE = "JOURNEY_DONE", "Parcours prêt"
         # Le dernier jour est passé et Admin RH a choisi "les RH bloquent à la main" : rappel aux RH (2026-11-24).
         ACCOUNT_TO_BLOCK = "ACCOUNT_TO_BLOCK", "Compte à bloquer"
+        # (2026-11-27) Réglage "automatique" : l'application a mis la fiche en "Sorti" toute seule (tour du matin) ; les RH
+        # du pôle + Admin RH le savent (comme "annulée automatiquement" : ce que l'app fait seule, on le dit). Information.
+        ACCOUNT_BLOCKED = "ACCOUNT_BLOCKED", "Compte bloqué"
         # Un congé "à cheval" sur le dernier jour d'un départ validé (2026-11-25) : le collaborateur décide (l'annuler,
         # en demander un plus court). `request` = le congé, `due_date` = le dernier jour.
         LEAVE_PAST_LAST_DAY = "LEAVE_PAST_LAST_DAY", "Congé après le dernier jour"

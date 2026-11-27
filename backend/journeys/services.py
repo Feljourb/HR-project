@@ -588,11 +588,19 @@ def close_departures(today=None):
         return 0
     for journey in journeys:
         employee = journey.employee
+        told = list(hr_people(employee))  # avant "Sorti" : ses RH, lus depuis sa fiche encore active
         before = history.snapshot(employee)
         employee.status = Employee.Status.LEFT
         employee.departure_date = employee.departure_date or journey.day
         employee.save()
         history.record_changes(employee, None, before)
+        # (2026-11-27, choix B de l'utilisatrice) Ce que l'app fait seule, on le dit : 🔔 + email "Compte bloqué"
+        # aux RH du pôle + Admin RH (famille Information : chacun peut couper l'email dans Settings).
+        Notification.objects.bulk_create(
+            [Notification(recipient=user, employee=employee, kind=Notification.Kind.ACCOUNT_BLOCKED, due_date=journey.day)
+             for user in told],
+            ignore_conflicts=True,
+        )
     return len(journeys)
 
 

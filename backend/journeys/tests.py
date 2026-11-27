@@ -253,6 +253,10 @@ class DepartureTests(JourneyTestCase):
         self.assertEqual(self.sara.status, "LEFT")
         self.assertFalse(self.sara.user.is_active)
         self.assertEqual(departure.employee.history.first().actor_name, "système")
+        # (2026-11-27) Les RH du pôle le savent : 🔔 "Compte bloqué" (pas Sara elle-même).
+        blocked = Notification.objects.filter(kind=N.ACCOUNT_BLOCKED, employee=self.sara)
+        self.assertEqual(set(blocked.values_list("recipient__username", flat=True)), {"nadia.rh", "hind.rh"})
+        self.assertIn("son compte est bloqué automatiquement", message(blocked.first()))
 
     def test_admin_rh_chooses_hr_block_the_account_by_hand(self):
         JourneySettings.objects.update_or_create(pk=1, defaults={"auto_block": False})

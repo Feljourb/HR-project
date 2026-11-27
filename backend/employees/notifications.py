@@ -134,7 +134,7 @@ def link(notification):
     """La page ouverte au clic (dans la cloche ET le bouton de l'email) : la fiche, "Team approvals"
     (pour répondre), ma page Congés, ou l'historique de la demande."""
     Kind = Notification.Kind
-    if notification.kind in (Kind.TRIAL_END, Kind.ACCOUNT_TO_BLOCK):
+    if notification.kind in (Kind.TRIAL_END, Kind.ACCOUNT_TO_BLOCK, Kind.ACCOUNT_BLOCKED):
         return f"/employees/{notification.employee_id}"  # la fiche (ex. la mettre en "Sorti")
     # Délégations à accepter / acceptées / refusées (2026-11-19) : là où on les voit. Un collaborateur délégué : sa page
     # "Stand-in requests" (il n'a pas Team approvals) ; les autres : la carte "Out of office" de Team approvals.
@@ -208,7 +208,7 @@ def message(notification):
 
     # Arrivées et départs (app journeys) : le texte compte MES tâches aujourd'hui.
     if notification.kind in (Kind.JOURNEY_TASKS, Kind.TASK_LATE, Kind.JOURNEY_DONE, Kind.ACCOUNT_TO_BLOCK,
-                             Kind.JOURNEY_CANCELLED):
+                             Kind.JOURNEY_CANCELLED, Kind.ACCOUNT_BLOCKED):
         from journeys.handlers import journey_message  # importé ici : journeys importe déjà employees
         return journey_message(notification, name)
     if notification.kind == Kind.EXIT_INTERVIEW:
