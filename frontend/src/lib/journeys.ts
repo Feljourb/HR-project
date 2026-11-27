@@ -59,6 +59,7 @@ export type Departure = {
   exit_request: number | null             // la demande des documents de sortie (module Documents)
   can_see_exit_interview: boolean         // le collaborateur et les RH (jamais le manager)
   exit_interview_done: boolean
+  current: boolean  // de la période actuelle (false = un départ d'avant une réembauche)
 }
 
 /** Ce que la paie et la CNSS doivent savoir (panneau des RH). Les nombres arrivent en texte ("9.50"). */

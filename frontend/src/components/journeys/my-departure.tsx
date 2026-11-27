@@ -49,7 +49,8 @@ export function MyDeparture() {
   useEffect(() => { load() }, [load])
 
   // Une demande encore vivante (en attente ou validée) : on montre son état, pas un 2e formulaire.
-  const current = mine?.find((row) => row.status === 'IN_PROGRESS' || row.status === 'APPROVED')
+  // row.current : la période actuelle (un départ d'avant une réembauche n'est plus "en cours").
+  const current = mine?.find((row) => row.current && (row.status === 'IN_PROGRESS' || row.status === 'APPROVED'))
   const past = (mine ?? []).filter((row) => row !== current)
 
   return <div className="mx-auto flex w-full max-w-2xl flex-col gap-4">

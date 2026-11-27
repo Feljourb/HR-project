@@ -25,7 +25,9 @@ import { AddValueDialog, type AddRequest } from './add-value-dialog'
 import { ChildrenEditor } from './children-editor'
 import { cn } from '@/lib/utils'
 import { FormSection, PhoneField, SearchSelectField, SelectField, TextField, controlClass } from './form-fields'
+import { RehireButton } from './rehire-button'
 import { ResetPasswordButton } from './reset-password-button'
+import { frDate } from '@/lib/journeys'
 import { useList } from './use-list'
 
 type Values = Record<FormField, string>
@@ -398,6 +400,9 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
       </div>
       {/* Seulement si Django l'autorise pour ce compte (RH de son pôle, Admin RH, IT). */}
       {fiche?.can_reset_password && <ResetPasswordButton employeeId={fiche.id} name={`${values.first_name} ${values.last_name.toUpperCase()}`} />}
+      {/* Réembauche (2026-11-27) : un "Sorti" qui revient. Django renvoie la fiche à jour : on la recharge ici. */}
+      {fiche?.can_rehire && <RehireButton employeeId={fiche.id} name={`${values.first_name} ${values.last_name.toUpperCase()}`}
+        onDone={(data) => { setFiche(data); setValues(valuesOf(data)); setChildren(data.children); setRole(data.account_role) }} />}
     </div>
 
     {/* Les erreurs qui ne concernent aucun champ précis. */}
@@ -526,7 +531,7 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
     <FormSection title="Status & dates">
       {/* "Sorti" : Django bloque le compte à l'enregistrement (et le débloque si on revient en arrière). */}
       <SelectField id="status" label="Status" required value={values.status} onChange={(v) => set('status', v)} options={STATUS_OPTIONS} error={error('status')}
-        hint={isLeft ? 'Their account will be blocked when you save.' : undefined} />
+        hint={isLeft ? (fiche?.status === 'LEFT' ? 'Coming back? Use “Rehire” at the top of the file.' : 'Their account will be blocked when you save.') : undefined} />
       <TextField id="hire_date" label="Hire date" type="date" required value={values.hire_date} onChange={(v) => set('hire_date', v)} error={error('hire_date')} />
       {/* L'ancienneté : jamais saisie, calculée par Django depuis la date d'embauche (celle ENREGISTRÉE). */}
       {fiche && <div>
@@ -535,7 +540,21 @@ export function EmployeeForm({ me, employeeId }: { me: Me; employeeId?: number }
           <b className="font-semibold">{seniorityLabel(fiche.seniority)}</b>
           {fiche.seniority.bonus > 0 && <span className="text-xs text-slate-500">· +{fiche.seniority.bonus.toString().replace('.', ',')} days / year of leave</span>}
         </p>
-        <p className="mt-1 text-[11px] text-slate-500">Counted from the hire date. Every {fiche.seniority.every} full years add leave days (Leave settings).</p>
+        <p className="mt-1 text-[11px] text-slate-500">
+          {fiche.seniority_from ? `Counted from ${frDate(fiche.seniority_from)} (the years before the rehire are kept).` : 'Counted from the hire date.'}
+          {' '}Every {fiche.seniority.every} full years add leave days (Leave settings).
+        </p>
+      </div>}
+      {/* Réembauche : les périodes d'emploi d'avant, en lecture (la plus récente d'abord). */}
+      {fiche && fiche.previous_periods.length > 0 && <div>
+        <p className="text-xs font-semibold text-slate-700">Previous periods</p>
+        <ul className="mt-1.5 space-y-1 rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-700">
+          {fiche.previous_periods.map((period) => <li key={period.hire_date}>
+            {frDate(period.hire_date)} → {frDate(period.departure_date)}
+            {period.reason && <span className="text-xs text-slate-500"> · {period.reason}</span>}
+          </li>)}
+        </ul>
+        <p className="mt-1 text-[11px] text-slate-500">They left, then were rehired. Their old leaves and documents stay in their history.</p>
       </div>}
       {/* La date qui va avec le statut, juste après la date d'embauche. */}
       {isTrial && <TextField id="trial_end_date" label="End of trial period" type="date" value={values.trial_end_date}

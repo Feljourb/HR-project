@@ -68,7 +68,14 @@ export type EmployeeFiche = {
   // Le droit annuel ACTUEL (annual_leave_days = celui de l'embauche ; les changements datés : Leave balances).
   current_annual_right: { days: number; since: string; planned: { days: number; from: string } | null };
   seniority: Seniority;
+  // Réembauche (2026-11-27) : la date d'où l'ancienneté se compte (null = l'embauche), les périodes d'avant,
+  // et le bouton "Rehire" (un "Sorti", RH de son pôle / Admin RH / IT).
+  seniority_from: string | null;
+  previous_periods: PreviousPeriod[];
+  can_rehire: boolean;
 } & Record<FormField, string | number | null>;
+
+export type PreviousPeriod = { hire_date: string; departure_date: string; reason: string }
 
 // L'ancienneté, calculée par Django depuis la date d'embauche (leaves.balance.seniority), jamais saisie.
 // Ex. 6 ans 8 mois, 1 palier de 5 ans -> right 18 + bonus 1,5 = yearly_right 19,5 ; prochain palier le 01/03/2030.

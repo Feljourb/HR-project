@@ -140,9 +140,15 @@ class DepartureSerializer(serializers.ModelSerializer):
                   # La procédure complète (2026-11-25) : faute grave, l'original de la lettre, les documents de sortie,
                   # l'entretien de sortie (confidentiel : le collaborateur et les RH).
                   "serious_misconduct", "letter_original_at", "letter_original_by_name", "exit_request",
-                  "can_see_exit_interview", "exit_interview_done"]
+                  "can_see_exit_interview", "exit_interview_done", "current"]
 
+    # Réembauche (2026-11-27) : un départ de la période ACTUELLE (pas celui d'avant la réembauche). "My departure"
+    # ne montre que lui comme "en cours" ; les anciens restent dans la liste d'en dessous.
+    current = serializers.SerializerMethodField()
     letter_original_by_name = serializers.SerializerMethodField()
+
+    def get_current(self, departure):
+        return departure.last_day >= departure.employee.hire_date
     can_see_exit_interview = serializers.SerializerMethodField()
     exit_interview_done = serializers.SerializerMethodField()
 

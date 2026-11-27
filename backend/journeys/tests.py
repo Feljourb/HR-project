@@ -689,6 +689,7 @@ class RehireTests(JourneyTestCase):
         self.assertIn("Rehire", refused.json()["status"][0])
         proposal = client.get(f"/api/employees/{self.sara.pk}/rehire/").json()
         self.assertEqual((proposal["keep_seniority"], proposal["annual_leave_days"]), (False, 18.0))
+        self.assertGreater(proposal["open_departure_tasks"], 0)  # ses tâches de départ pas faites : les RH sont prévenus
         done = client.post(f"/api/employees/{self.sara.pk}/rehire/", {"hire_date": str(self.today), "keep_seniority": False},
                            format="json")
         self.assertEqual(done.status_code, 200)

@@ -293,9 +293,15 @@ class EmployeeViewSet(viewsets.ModelViewSet):
             if employee.status != Employee.Status.LEFT or not employee.departure_date:
                 raise ValidationError("Seul un collaborateur « Sorti » peut être réembauché.")
             months = months_between(employee.seniority_start, employee.departure_date)
+            # (2026-11-27, choix de l'utilisatrice) Les tâches de son départ PAS encore faites : rien n'est fermé tout
+            # seul (le solde de tout compte, la CNSS restent obligatoires), on prévient les RH, ils trient.
+            from journeys.models import JourneyTask
+            open_tasks = JourneyTask.objects.filter(journey__employee=employee, journey__kind="DEPARTURE",
+                                                    journey__cancelled_at__isnull=True, done_at__isnull=True).count()
             return Response({
+                "open_departure_tasks": open_tasks,
                 "previous": {"hire_date": employee.hire_date, "departure_date": employee.departure_date,
-                             "seniority": journeys.years_and_months(months)},
+                             "months": months},  # la page l'écrit dans sa langue ("1 year 10 months")
                 "keep_seniority": JourneySettings.load().rehire_keep_seniority,
                 "annual_leave_days": float(right_on(employee, employee.departure_date)),
             })
